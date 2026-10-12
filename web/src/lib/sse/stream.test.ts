@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { readEventStream } from "@/lib/sse/stream"
+import { parseSseChunk, readEventStream } from "@/lib/sse/stream"
 import { db } from "@/mocks/db"
+
+describe("sse frames", () => {
+  it("parses id, event, and data, and keeps a partial frame", () => {
+    const chunk = "id: 1\nevent: RUN_STARTED\ndata: {\"seq\":1}\n\nid: 2\nevent: MODEL"
+    const parsed = parseSseChunk(chunk)
+    expect(parsed.frames).toEqual([{ id: 1, event: "RUN_STARTED", data: "{\"seq\":1}" }])
+    expect(parsed.rest.startsWith("id: 2")).toBe(true)
+  })
+})
 
 describe("event stream", () => {
   it("resumes after the last seq without repeating it", async () => {
@@ -13,7 +22,6 @@ describe("event stream", () => {
       task: "Add a button",
       criteria: [],
       attachmentIds: [],
-      budget: { maxIterations: 1, maxMinutes: 1, maxTokens: 1 },
       status: "completed",
       iterations: 1,
       tokensIn: 1,

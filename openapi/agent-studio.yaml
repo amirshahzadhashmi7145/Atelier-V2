@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.4.0
+  version: 0.5.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -920,20 +920,6 @@ components:
           type: string
         name:
           type: string
-    Budgets:
-      type: object
-      additionalProperties: false
-      required: [maxIterations, maxMinutes, maxTokens]
-      properties:
-        maxIterations:
-          type: integer
-          minimum: 1
-        maxMinutes:
-          type: integer
-          minimum: 1
-        maxTokens:
-          type: integer
-          minimum: 1
     PromptSections:
       type: object
       additionalProperties: false
@@ -1811,7 +1797,6 @@ components:
         - task
         - criteria
         - attachmentIds
-        - budget
         - status
         - iterations
         - tokensIn
@@ -1839,8 +1824,6 @@ components:
           type: array
           items:
             type: string
-        budget:
-          $ref: "#/components/schemas/Budgets"
         status:
           $ref: "#/components/schemas/RunStatus"
         terminalCause:
@@ -1893,8 +1876,6 @@ components:
           type: array
           items:
             type: string
-        budget:
-          $ref: "#/components/schemas/Budgets"
     RunPage:
       type: object
       additionalProperties: false
