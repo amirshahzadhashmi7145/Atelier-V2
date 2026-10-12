@@ -1,0 +1,32 @@
+id: nextjs
+name: Next.js
+version: 16.4.0
+skillIds:
+  - nextjs
+dataSourceIds:
+  - nextjs-docs
+scaffoldTemplate: next
+packageAllowList:
+  - react
+  - react-dom
+  - "@types/react"
+  - next
+  - tailwindcss
+  - "@tailwindcss/*"
+  - zod
+  - "@tanstack/*"
+  - vitest
+  - "@testing-library/*"
+  - playwright
+  - eslint*
+  - typescript
+  - "@vitejs/*"
+  - postcss
+  - autoprefixer
+enabledByDefault: false
+sources:
+  - id: nextjs-docs
+    name: Next.js docs
+    kind: github_path
+    ref: https://github.com/vercel/next.js/tree/v16.4.0/docs
+    refreshPolicy: manual

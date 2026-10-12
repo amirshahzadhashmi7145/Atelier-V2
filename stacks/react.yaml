@@ -1,0 +1,33 @@
+id: react
+name: React
+version: 19.3.0
+skillIds:
+  - react-best-practices
+  - react-tailwind-conventions
+dataSourceIds:
+  - react-docs
+scaffoldTemplate: vite-react-ts
+packageAllowList:
+  - react
+  - react-dom
+  - "@types/react"
+  - next
+  - tailwindcss
+  - "@tailwindcss/*"
+  - zod
+  - "@tanstack/*"
+  - vitest
+  - "@testing-library/*"
+  - playwright
+  - eslint*
+  - typescript
+  - "@vitejs/*"
+  - postcss
+  - autoprefixer
+enabledByDefault: true
+sources:
+  - id: react-docs
+    name: React docs
+    kind: github_path
+    ref: https://github.com/reactjs/react.dev/tree/046f17d04295ba047bb5739026b4ac3110f17028/src/content
+    refreshPolicy: weekly
