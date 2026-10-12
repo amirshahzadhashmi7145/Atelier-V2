@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BotIcon, LibraryIcon, PlayIcon, SettingsIcon, WrenchIcon } from "lucide-react"
+import { BotIcon, LibraryIcon, MessageSquareIcon, PlayIcon, SettingsIcon, WrenchIcon } from "lucide-react"
 import { Toaster } from "@/components/ui/sonner"
 import {
   Sidebar,
@@ -24,6 +24,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useUiStore, type Theme } from "@/stores/ui-store"
 
 const items = [
+  { href: "/chat", label: "Chat", icon: MessageSquareIcon },
   { href: "/agents", label: "Agents", icon: BotIcon },
   { href: "/tools", label: "Tools", icon: WrenchIcon },
   { href: "/skills", label: "Skills", icon: LibraryIcon },

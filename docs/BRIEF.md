@@ -4,6 +4,10 @@
 
 A web app where a user defines AI agents (prompt sections, tools, skills, tech stacks, model), runs ONE agent on a task inside a sandbox, and watches the run live. Week 1 ships the studio (four pages), the runtime, and one working agent: the Frontend Engineer. Later roles (Backend, Team Lead, PM) are added through the same pages with no new code paths.
 
+## Direction from S6
+
+The product path is the API. `NEXT_PUBLIC_USE_MOCKS` is false unless a test sets it. The OpenAI key lives in `api/.env`. A chat message creates a task, `route_task` assigns the project's only member, and a run works in that project's folder. Projects, tasks, `reportsTo`, and `capabilities` are on the contract so a supervisor can be added later by replacing `route_task` and granting the supervisor tools. Evals still always pass.
+
 ## Direction from S5
 
 A run has no budget. The spend cap is the Settings > Runs value, shown read-only on the new-run form and as a progress bar on the live status card. The live view reads events from the TanStack Query cache. The mock stream is the contract the backend must match: SSE frames are `id`, `event`, and `data`; `CLARIFICATION_RAISED` pauses until `POST /runs/{id}/answer`; `POST /runs/{id}/stop` cancels within 2 seconds; `?after=seq` resumes without repeating that seq.

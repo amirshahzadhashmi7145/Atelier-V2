@@ -59,6 +59,8 @@ export const libraryHandlers = [
         stackIds: [...template.stackIds],
         zones: [...template.zones],
         evals: structuredClone(template.evals),
+        reportsTo: null,
+        capabilities: { stacks: [...template.stackIds], skills: [...template.skillIds], tags: [] },
         createdAt: timestamp,
         updatedAt: timestamp,
       }

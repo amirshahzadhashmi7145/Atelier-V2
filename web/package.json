@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test && playwright test --config=playwright.chat.config.ts",
     "gen:api": "openapi-typescript ../openapi/agent-studio.yaml -o src/lib/api/generated/types.d.ts",
     "gen:seed": "node scripts/build-seed.mjs"
   },

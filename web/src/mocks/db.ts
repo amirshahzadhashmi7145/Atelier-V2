@@ -29,6 +29,7 @@ export type Db = {
   diffs: Record<string, TextDiff[]>
   artifacts: Record<string, Artifact[]>
   liveCursors: Record<string, number>
+  modelTags: Record<string, { tags: string[]; note: string; heuristic: boolean }>
 }
 
 const emptySchema = { type: "object", additionalProperties: false }
@@ -115,6 +116,7 @@ const emptyDb = (): Db => ({
   diffs: {},
   artifacts: {},
   liveCursors: {},
+  modelTags: {},
 })
 
 const STORAGE_KEY = "atelier-mock-db"
@@ -128,7 +130,13 @@ function storedDb(): Db | null {
     const builtinIds = new Set(tools.map((item) => item.id))
     const extra = (saved.tools ?? []).filter((item) => !builtinIds.has(item.id) && item.kind !== "control")
     const base = emptyDb()
-    return { ...base, ...saved, tools: [...structuredClone(tools), ...extra], runSettings: saved.runSettings ?? base.runSettings }
+    return {
+      ...base,
+      ...saved,
+      tools: [...structuredClone(tools), ...extra],
+      runSettings: saved.runSettings ?? base.runSettings,
+      modelTags: saved.modelTags ?? {},
+    }
   } catch {
     return null
   }

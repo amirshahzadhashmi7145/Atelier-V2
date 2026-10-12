@@ -1,6 +1,6 @@
 import { bypass, http, HttpResponse } from "msw"
 import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
-import { db, hasProviderSecret, modelList, now, remember, setProviderSecret } from "@/mocks/db"
+import { db, modelList, now, remember, setProviderSecret } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
   return HttpResponse.json({ code, message }, { status })
@@ -54,7 +54,6 @@ export const providerHandlers = [
   http.post("/providers/:id/test", ({ params }) => {
     const provider = providerOr404(String(params.id))
     if (!provider) return error(404, "not_found", "Provider not found")
-    if (!hasProviderSecret()) return error(422, "invalid", "Save an API key first")
     provider.connected = true
     remember()
     return HttpResponse.json(provider)
@@ -79,5 +78,13 @@ export const providerHandlers = [
     db.runSettings = body
     remember()
     return HttpResponse.json(db.runSettings)
+  }),
+  http.get("/model-tags", () => HttpResponse.json(db.modelTags)),
+  http.put("/model-tags", async ({ request }) => {
+    const body = (await request.json()) as { name?: string; tags?: string[]; note?: string }
+    if (!body.name) return error(400, "invalid", "name is required")
+    db.modelTags[body.name] = { tags: body.tags ?? [], note: body.note ?? "", heuristic: false }
+    remember()
+    return HttpResponse.json(db.modelTags[body.name])
   }),
 ]

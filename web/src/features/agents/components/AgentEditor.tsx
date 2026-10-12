@@ -245,6 +245,10 @@ export function AgentEditor({ id }: { id: string }) {
               <Input id="roleKey" value={current.roleKey} onChange={(event) => patch({ roleKey: event.target.value })} />
             </Field>
             <Field>
+              <p className="text-sm">Reports to</p>
+              <p className="text-sm text-muted-foreground">{agent.reportsTo ?? "no one"}</p>
+            </Field>
+            <Field>
               <FieldLabel htmlFor="description">Description</FieldLabel>
               <Input id="description" value={current.description} onChange={(event) => patch({ description: event.target.value })} />
             </Field>

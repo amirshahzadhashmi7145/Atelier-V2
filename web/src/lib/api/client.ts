@@ -2,7 +2,7 @@ import createClient from "openapi-fetch"
 import type { paths } from "@/lib/api/generated/types"
 
 export function apiBaseUrl() {
-  if (process.env.NEXT_PUBLIC_USE_MOCKS !== "false") {
+  if (process.env.NEXT_PUBLIC_USE_MOCKS === "true") {
     if (typeof window === "undefined") return "http://localhost"
     return window.location.origin
   }
