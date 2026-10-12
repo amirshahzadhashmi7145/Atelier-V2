@@ -28,6 +28,7 @@ export type Db = {
   events: Event[]
   diffs: Record<string, TextDiff[]>
   artifacts: Record<string, Artifact[]>
+  liveCursors: Record<string, number>
 }
 
 const emptySchema = { type: "object", additionalProperties: false }
@@ -113,6 +114,7 @@ const emptyDb = (): Db => ({
   events: [],
   diffs: {},
   artifacts: {},
+  liveCursors: {},
 })
 
 const STORAGE_KEY = "atelier-mock-db"
@@ -201,36 +203,66 @@ export function orderedById<T extends { id: string }>(items: T[], ids: string[])
 
 const liveTimers = new Map<string, ReturnType<typeof setInterval>>()
 
+function svgShot(label: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="100%" height="100%" fill="#e8e8e8"/><text x="16" y="96" font-size="20">${label}</text></svg>`
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+
+const desktopShot = svgShot("desktop")
+const mobileShot = svgShot("mobile")
+const runSummary = {
+  description: "Added a primary button to the page.",
+  filesChanged: ["src/App.tsx", "src/button.tsx", "package.json"],
+  dependencies: [] as string[],
+  criteria: [{ text: "The button is visible", evidence: "https://example.com/preview" }],
+  assumptions: ["The page is a client component."],
+  followUps: ["Add a hover state."],
+}
+
 const script: { type: Event["type"]; payload: Record<string, unknown> }[] = [
   { type: "RUN_STARTED", payload: {} },
   { type: "STATE_CHANGED", payload: { status: "running" } },
   { type: "MODEL_CALLED", payload: {} },
-  { type: "TOOL_CALLED", payload: { name: "files" } },
-  { type: "TOOL_RESULT", payload: { name: "files", ok: true } },
+  { type: "TOOL_CALLED", payload: { name: "shell", command: "ls" } },
+  { type: "TOOL_RESULT", payload: { name: "shell", ok: true, output: "src" } },
+  { type: "CLIENT_TOOL_REQUESTED", payload: { requestId: "ctr_1", name: "confirm_copy", prompt: "Use this heading?" } },
   { type: "MODEL_CALLED", payload: {} },
+  { type: "CLARIFICATION_RAISED", payload: { question: "Which button label should the page use?" } },
+  { type: "MODEL_CALLED", payload: {} },
+  { type: "TOOL_CALLED", payload: { name: "files", path: "src/App.tsx" } },
+  { type: "TOOL_RESULT", payload: { name: "files", ok: true } },
+  { type: "SKILL_LOADED", payload: { name: "react-best-practices" } },
   { type: "TOOL_REFUSED", payload: { name: "package_install", package: "vue", reason: "not on the allow-list" } },
   { type: "MODEL_CALLED", payload: {} },
-  { type: "SKILL_LOADED", payload: { name: "react-best-practices" } },
-  { type: "TOOL_CALLED", payload: { name: "shell" } },
+  { type: "TOOL_CALLED", payload: { name: "build_test" } },
+  { type: "TOOL_RESULT", payload: { name: "build_test", ok: true, log: "\u001b[32mbuild ok\u001b[0m\n\u001b[32mtests ok\u001b[0m" } },
+  { type: "MODEL_CALLED", payload: {} },
+  { type: "TOOL_CALLED", payload: { name: "headless_browser", viewport: "1280x800" } },
+  { type: "TOOL_RESULT", payload: { name: "headless_browser", viewport: "1280x800", screenshotUrl: desktopShot } },
+  { type: "MODEL_CALLED", payload: {} },
+  { type: "TOOL_CALLED", payload: { name: "headless_browser", viewport: "390x844" } },
+  { type: "TOOL_RESULT", payload: { name: "headless_browser", viewport: "390x844", screenshotUrl: mobileShot } },
+  { type: "MODEL_CALLED", payload: {} },
+  { type: "TOOL_CALLED", payload: { name: "shell", command: "git status" } },
   { type: "TOOL_RESULT", payload: { name: "shell", ok: true } },
   { type: "MODEL_CALLED", payload: {} },
-  { type: "TOOL_CALLED", payload: { name: "files" } },
+  { type: "TOOL_CALLED", payload: { name: "files", path: "src/button.tsx" } },
   { type: "TOOL_RESULT", payload: { name: "files", ok: true } },
-  { type: "MODEL_CALLED", payload: {} },
-  { type: "TOOL_CALLED", payload: { name: "build_test" } },
-  { type: "TOOL_RESULT", payload: { name: "build_test", ok: true } },
-  { type: "MODEL_CALLED", payload: {} },
-  { type: "CLIENT_TOOL_REQUESTED", payload: { requestId: "ctr_1", name: "confirm_copy", input: { text: "Use this heading?" } } },
-  { type: "MODEL_CALLED", payload: {} },
-  { type: "TOOL_CALLED", payload: { name: "headless_browser" } },
-  { type: "TOOL_RESULT", payload: { name: "headless_browser", ok: true } },
-  { type: "MODEL_CALLED", payload: {} },
   { type: "STATE_CHANGED", payload: { status: "completed" } },
-  { type: "RUN_COMPLETED", payload: {} },
+  {
+    type: "RUN_COMPLETED",
+    payload: {
+      summary: runSummary,
+      prUrl: "https://github.com/example/repo/pull/1",
+      previewUrl: "https://example.com/preview",
+      branch: "feat/mock-run",
+    },
+  },
 ]
 
 export function startLiveRun(runId: string) {
-  let index = 0
+  if (liveTimers.has(runId)) return
+  let index = db.liveCursors[runId] ?? 0
   const timer = setInterval(() => {
     const run = db.runs.find((item) => item.id === runId)
     if (!run || run.status === "cancelled" || run.status === "completed" || run.status === "failed") {
@@ -246,29 +278,48 @@ export function startLiveRun(runId: string) {
       return
     }
     index += 1
+    db.liveCursors[runId] = index
     const next = appendEvent(runId, step.type, step.payload)
     if (step.type === "MODEL_CALLED") {
       run.iterations += 1
       run.tokensIn += 100
       run.tokensOut += 40
-      run.costUsd = Number((run.costUsd + 0.001).toFixed(4))
-      next.cost = { inputTokens: 100, outputTokens: 40, usd: 0.001 }
+      run.costUsd = Number((run.costUsd + 0.12).toFixed(2))
+      next.cost = { inputTokens: 100, outputTokens: 40, usd: 0.12 }
     }
     if (step.type === "STATE_CHANGED" && step.payload.status === "running") run.status = "running"
     if (step.type === "CLIENT_TOOL_REQUESTED") run.status = "waiting_client"
+    if (step.type === "CLARIFICATION_RAISED") run.status = "waiting_user"
+    if (step.type === "TOOL_RESULT" && step.payload.name === "build_test") {
+      const log = String(step.payload.log ?? "")
+      db.artifacts[runId]?.push(
+        { id: nid("art"), name: "build.log", kind: "log", url: `data:text/plain,${encodeURIComponent(log)}` },
+        { id: nid("art"), name: "test.log", kind: "log", url: `data:text/plain,${encodeURIComponent("tests passed")}` },
+      )
+    }
+    if (step.type === "TOOL_RESULT" && step.payload.name === "headless_browser") {
+      const viewport = String(step.payload.viewport ?? "screen")
+      db.artifacts[runId]?.push({
+        id: nid("art"),
+        name: `${viewport}.svg`,
+        kind: "screenshot",
+        viewport,
+        url: String(step.payload.screenshotUrl ?? ""),
+      })
+    }
     if (step.type === "RUN_COMPLETED") {
       run.status = "completed"
       run.endedAt = now()
-      run.summary = {
-        description: "Mock run finished.",
-        filesChanged: [],
-        dependencies: [],
-        criteria: [],
-        assumptions: [],
-        followUps: [],
-      }
+      run.summary = runSummary
+      run.prUrl = "https://github.com/example/repo/pull/1"
+      run.previewUrl = "https://example.com/preview"
+      run.branch = "feat/mock-run"
+      db.artifacts[runId]?.push(
+        { id: nid("art"), name: "workspace.zip", kind: "zip", url: "https://example.com/workspace.zip" },
+        { id: nid("art"), name: "preview", kind: "preview", url: "https://example.com/preview" },
+      )
     }
-  }, 1200)
+  }, 1300)
   liveTimers.set(runId, timer)
 }
 
@@ -289,4 +340,12 @@ export function appendEvent(runId: string, type: Event["type"], payload: Record<
 
 export function formatSse(item: Event) {
   return `id: ${item.seq}\nevent: ${item.type}\ndata: ${JSON.stringify(item)}\n\n`
+}
+
+const terminalRun = new Set(["completed", "failed", "cancelled"])
+
+if (typeof window !== "undefined") {
+  for (const run of db.runs) {
+    if (!terminalRun.has(run.status)) startLiveRun(run.id)
+  }
 }

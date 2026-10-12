@@ -658,11 +658,6 @@ export interface components {
             provider: string;
             name: string;
         };
-        Budgets: {
-            maxIterations: number;
-            maxMinutes: number;
-            maxTokens: number;
-        };
         PromptSections: {
             role: string;
             goal: string;
@@ -1039,7 +1034,6 @@ export interface components {
             task: string;
             criteria: string[];
             attachmentIds: string[];
-            budget: components["schemas"]["Budgets"];
             status: components["schemas"]["RunStatus"];
             terminalCause?: components["schemas"]["TerminalCause"];
             iterations: number;
@@ -1063,7 +1057,6 @@ export interface components {
             task: string;
             criteria?: string[];
             attachmentIds?: string[];
-            budget?: components["schemas"]["Budgets"];
         };
         RunPage: {
             items: components["schemas"]["Run"][];

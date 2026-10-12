@@ -1,7 +1,6 @@
 import type { components } from "@/lib/api/generated/types"
 import { api, unwrap } from "@/lib/api/client"
 
-type Agent = components["schemas"]["AgentDefinition"]
 type Sections = components["schemas"]["PromptSections"]
 
 export async function listAgents() {
@@ -86,19 +85,6 @@ export async function createDataSource(body: components["schemas"]["DataSourceCr
 
 export async function listEditorModels() {
   return unwrap(await api.GET("/models"))
-}
-
-export async function startTestRun(agent: Agent, template: string) {
-  return unwrap(
-    await api.POST("/runs", {
-      body: {
-        agentId: agent.id,
-        task: agent.evals[0]?.task ?? "Test run",
-        criteria: agent.evals[0]?.criteria ?? [],
-        workspace: { kind: "scaffold", template },
-      },
-    }),
-  )
 }
 
 export function activeBlockReason(

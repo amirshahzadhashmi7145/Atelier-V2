@@ -35,7 +35,6 @@ export const runHandlers = [
       task?: string
       criteria?: string[]
       attachmentIds?: string[]
-      budget?: (typeof db.runs)[number]["budget"]
     }
     const agent = db.agents.find((item) => item.id === body.agentId)
     if (!agent) return error(404, "not_found", "Agent not found")
@@ -54,12 +53,6 @@ export const runHandlers = [
       task: body.task,
       criteria: body.criteria ?? [],
       attachmentIds: body.attachmentIds ?? [],
-      budget: body.budget ?? {
-        maxIterations: db.runSettings.maxIterations,
-        maxMinutes: db.runSettings.maxMinutes,
-        // ponytail: token ceiling stays on the run record; the visible cap is spend
-        maxTokens: 400000,
-      },
       status: "queued" as const,
       iterations: 0,
       tokensIn: 0,
@@ -68,7 +61,11 @@ export const runHandlers = [
       startedAt: now(),
     }
     db.runs.push(run)
-    db.diffs[run.id] = []
+    db.diffs[run.id] = [
+      { path: "src/App.tsx", before: "export {}\n", after: "export function App() {\n  return <button>Go</button>\n}\n" },
+      { path: "src/button.tsx", before: "", after: "export function Button() {\n  return <button>Go</button>\n}\n" },
+      { path: "package.json", before: "{\n}\n", after: "{\n  \"dependencies\": {}\n}\n" },
+    ]
     db.artifacts[run.id] = []
     startLiveRun(run.id)
     return HttpResponse.json(run, { status: 201 })
@@ -127,6 +124,7 @@ export const runHandlers = [
     const body = (await request.json()) as { requestId?: string; output?: Record<string, unknown>; error?: string | null }
     if (!body.requestId) return error(422, "invalid", "requestId is required")
     appendEvent(run.id, "TOOL_RESULT", { requestId: body.requestId, output: body.output ?? {}, error: body.error ?? null })
+    appendEvent(run.id, "STATE_CHANGED", { status: "running" })
     run.status = "running"
     return HttpResponse.json(run)
   }),

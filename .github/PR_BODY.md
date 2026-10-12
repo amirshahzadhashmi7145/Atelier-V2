@@ -1,36 +1,37 @@
 ## What
 
-Finish the S3 settings gaps and add stacks. Agents no longer have budgets. Settings > Runs holds the platform spend cap. The OpenAI key stays in `.env.local`. Settings > Models stores tags and a note. Stacks are created or imported, and they show up in the compiled preview.
+A run can be started, watched live, stopped, answered, and reviewed against the mock stream. The new-run form, the three-pane live view, and the runs list all read the same contract.
 
 ## Why
 
-Spend and safety bounds are platform settings, not something each agent edits. Model choice needs tags and the user's own run history. A stack should exist only after someone creates it or imports it.
+This is the screen that shows the studio works: one agent, one task, and a stream of what it did. The backend session has to implement this stream, not invent a second one.
 
 ## How I tested
 
 - `pnpm typecheck` — pass
-- `pnpm lint` — pass
-- `pnpm test` — 69 passed
-- `pnpm test:e2e` — 9 passed (axe on the studio pages, the agent editor, skills and tools, and Settings > Runs; the new flow checks the spend cap, the missing budget fields, a model tag chip, a created stack in the preview, and Import React)
-- In the browser at http://127.0.0.1:3000: Settings > Runs shows Max spend per run at 5. The Frontend Engineer editor has New stack and Import React, and no Max iterations field.
+- `pnpm lint` — pass (warnings only: react-virtual cannot be memoized, and screenshot `img` tags stay native because the urls are data urls)
+- `pnpm test` — 76 passed
+- `pnpm test:e2e` — 12 passed. The new spec starts a run from the form, sees events, answers the clarification, responds to the client tool, reloads without a duplicate row, and opens the summary and the diff. A second run is cancelled within 2 seconds. Axe is clean on /runs, /runs/new, and the live run.
+- In the browser at http://127.0.0.1:3000, that same path was clicked through: Test run lands on the form with the eval task, Start run opens the live log, Respond and Send answer resume it, and the summary names the three diff files.
 
 ## Screenshots
 
-Settings > Runs shows one spend field and an Advanced disclosure. The agent Access card has New stack, Import React, and Import Next.js. The compiled preview includes `# Enabled stacks`.
+/runs/new shows the agent, the scaffold from its stacks, the task, criteria rows, and the spend cap with a Settings link. /runs/[id] is the activity log, the diff, and the status card with the spend bar. A finished run replaces the status card with the summary, Open PR, Download zip, Open preview, and Re-run with changes.
 
 ## New dependencies
 
-None.
+- `@tanstack/react-virtual`: virtualize the activity log, one row per event.
 
 ## Out of scope / follow-ups
 
-The runs UI and the backend. A spec URL without a pasted document is refused. Loop detection is stored and not enforced until the runtime.
+No backend and no sandbox. Eval runs in the mock still always pass. A spec URL without a pasted document is refused. Loop detection is stored and not enforced. Attachments are ids only.
 
 ## Session summary
 
-Session: S4 feat/finish-s3-settings-stacks
-Built: Budgets left the agent editor. Settings > Runs holds a visible spend cap and advanced bounds. The OpenAI key is read from .env.local again, and Providers only says whether it was found. Settings > Models stores tags and a note in a local JSON file, and the model picker shows those tags plus run stats. Stacks are created on the Access card or imported from the library, and enabled stacks show up in the compiled preview.
-Decisions: S3 was still unmerged, so this branch starts from feat/skills-models-tools. Amendment A was not in the repo; the session text is the spec. Reasoning families seed planning and review; mini, nano, and fast seed cheap and fast; a saved tag replaces the guess. ownStats counts completed runs that have a summary. A data-descriptor zip is read from the central-directory size. A pasted OpenAPI document is parsed from its paths. Run records still keep a token ceiling because the visible cap is spend.
-Failures / known gaps: The runs page is not built. There is no backend, so tags live in web/data/model-tags.json. A spec URL without a pasted document is refused. Eval runs in the mock still always pass. Loop detection is stored and not enforced until the runtime.
-New dependencies: none
-Follow-ups for the next session: The runs UI.
+Session: S5 feat/runs-ui
+Built: A run can be started, watched, stopped, answered, and reviewed against the mock stream. /runs/new picks an agent (and blocks when it has no active prompt), a GitHub repo or a scaffold from that agent's stacks, a task, criteria, and attachments. The spend cap is read-only and links to Settings. /runs/[id] is three resizable panes: an activity log, the diff / logs / screenshots / preview, and a status card with the spend bar. A client-tool card and a clarification card sit above the status while the run is waiting. A finished run shows the summary and links to the PR, the zip, the preview, and a re-run. /runs lists runs with agent and state filters. Test run on the agent editor opens the form with the latest eval filled in.
+Decisions: Amendment A was not in the repo; the session text is the spec. Run and RunCreate no longer have a budget field. The spend cap is Settings > Runs. The log subscribes to the query cache; the SSE hook is the only reader of the stream. The mock keeps a script cursor in sessionStorage and resumes a non-terminal run after a full page load. Attachments are stored as ids (file names and links).
+Failures / known gaps: No backend and no sandbox. Eval runs in the mock still always pass. A spec URL without a pasted document is refused. Loop detection is stored and not enforced.
+Contract the backend must implement exactly as mocked: SSE frames are `id: <seq>`, `event: <type>`, `data: <Event JSON>`, separated by a blank line. `GET /runs/{id}/events?after=<seq>` omits events with seq less than or equal to that value. Event types are RUN_STARTED, MODEL_CALLED (with cost: inputTokens, outputTokens, usd), TOOL_CALLED, TOOL_RESULT, TOOL_REFUSED, SKILL_LOADED, CLIENT_TOOL_REQUESTED, CLARIFICATION_RAISED, STATE_CHANGED, RUN_COMPLETED, and RUN_FAILED. CLIENT_TOOL_REQUESTED sets status waiting_client and pauses until `POST /runs/{id}/client-tool-result` with requestId. CLARIFICATION_RAISED sets status waiting_user and pauses until `POST /runs/{id}/answer` with text; the run then returns to running. `POST /runs/{id}/stop` sets status cancelled, appends STATE_CHANGED, and the event stream ends within 2 seconds. RUN_COMPLETED carries the RunSummary plus prUrl, previewUrl, and branch. RUN_FAILED carries cause and text. `GET /runs/{id}/diff` returns three files (path, before, after). `GET /runs/{id}/artifacts` returns screenshots (one url per viewport), a build log, a test log, a zip url, and a preview. Run has no budget field.
+New dependencies: @tanstack/react-virtual, so the activity log virtualizes one row per event.
+Follow-ups for the next session: The backend that implements this contract.

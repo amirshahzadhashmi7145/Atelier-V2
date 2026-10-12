@@ -90,8 +90,22 @@ export function MergeDiff({ before, after }: { before: string; after: string }) 
       if (cancelled || !parent) return
       view = new MergeView({
         parent,
-        a: { doc: before, extensions: [EditorView.editable.of(false)] },
-        b: { doc: after, extensions: [EditorView.editable.of(false)] },
+        a: {
+          doc: before,
+          extensions: [
+            EditorView.editable.of(false),
+            EditorView.contentAttributes.of({ "aria-label": "Before" }),
+            EditorView.theme({ ".cm-scroller": { overflow: "visible" } }),
+          ],
+        },
+        b: {
+          doc: after,
+          extensions: [
+            EditorView.editable.of(false),
+            EditorView.contentAttributes.of({ "aria-label": "After" }),
+            EditorView.theme({ ".cm-scroller": { overflow: "visible" } }),
+          ],
+        },
       })
     })()
     return () => {

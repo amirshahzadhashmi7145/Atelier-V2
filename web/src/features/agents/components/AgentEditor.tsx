@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -28,7 +29,6 @@ import {
   listEditorTools,
   listVersions,
   runEvals,
-  startTestRun,
   updateAgent,
 } from "@/features/agents/api"
 import { asSchema, defaultsFromSchema, retainConfig, validateConfig } from "@/features/agents/config-schema"
@@ -211,17 +211,6 @@ export function AgentEditor({ id }: { id: string }) {
     mutationFn: (evalId: string) => deleteEval(id, evalId),
     onSuccess: () => invalidate(),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not remove the eval"),
-  })
-
-  const testRun = useMutation({
-    mutationFn: () => {
-      const template =
-        stacksQuery.data?.find((stack) => current?.stackIds.includes(stack.id) && stack.scaffoldTemplate)?.scaffoldTemplate ??
-        "vite-react-ts"
-      return startTestRun(agentQuery.data!, template)
-    },
-    onSuccess: () => toast.success("Run queued"),
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not start a run"),
   })
 
   const tools = useMemo(() => (toolsQuery.data ?? []).filter((tool) => tool.kind !== "control"), [toolsQuery.data])
@@ -471,9 +460,23 @@ export function AgentEditor({ id }: { id: string }) {
         <Button variant="outline" disabled={Boolean(blockReason) || activate.isPending} onClick={() => activate.mutate()}>
           {activate.isPending ? "Setting active…" : "Set active"}
         </Button>
-        <Button variant="outline" disabled={!latest || testRun.isPending} onClick={() => testRun.mutate()}>
-          {testRun.isPending ? "Starting…" : "Test run"}
-        </Button>
+        {latest ? (
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={
+              <Link
+                href={`/runs/new?agentId=${encodeURIComponent(id)}&task=${encodeURIComponent(agent.evals[agent.evals.length - 1]?.task ?? "")}&criteria=${encodeURIComponent((agent.evals[agent.evals.length - 1]?.criteria ?? []).join("\n"))}`}
+              />
+            }
+          >
+            Test run
+          </Button>
+        ) : (
+          <Button variant="outline" disabled>
+            Test run
+          </Button>
+        )}
         <VersionsDrawer id={id} versions={versionsQuery.data ?? []} />
         {blockReason ? <p className="text-sm text-muted-foreground">{blockReason}</p> : <p className="text-sm">Active version ready</p>}
         {agent.activePromptVersionId ? <Badge>Active</Badge> : null}

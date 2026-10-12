@@ -11,5 +11,10 @@ export const queryKeys = {
   providers: ["providers"] as const,
   runSettings: ["settings", "runs"] as const,
   modelTags: ["model-tags"] as const,
-  runs: (page = 1) => ["runs", page] as const,
+  runs: Object.assign((page = 1, agentId = "", status = "") => ["runs", page, agentId, status] as const, {
+    detail: (id: string) => ["runs", "detail", id] as const,
+    events: (id: string) => ["runs", "events", id] as const,
+    diff: (id: string) => ["runs", "diff", id] as const,
+    artifacts: (id: string) => ["runs", "artifacts", id] as const,
+  }),
 }
