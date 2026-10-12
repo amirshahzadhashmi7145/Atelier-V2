@@ -57,26 +57,27 @@ const skillIds = readdirSync(join(root, "skills")).filter((name) =>
 )
 
 const seed = {
-  agent: {
-    id: role.id,
-    name: role.name,
-    roleKey: role.roleKey,
-    description: role.description,
-    model: role.model,
-    budgets: role.budgets,
-    activePromptVersionId: null,
-    toolIds: role.toolIds,
-    skillIds: role.skillIds,
-    stackIds: role.stackIds,
-    zones: role.zones,
-    createdAt,
-    updatedAt: createdAt,
+  library: {
+    agents: [
+      {
+        id: role.id,
+        name: role.name,
+        roleKey: role.roleKey,
+        description: role.description,
+        model: role.model,
+        budgets: role.budgets,
+        toolIds: role.toolIds,
+        skillIds: role.skillIds,
+        stackIds: role.stackIds,
+        zones: role.zones,
+        sections: role.sections,
+        evals: role.evals ?? [],
+      },
+    ],
+    skills: skillIds.map(skillFromDir),
+    stacks,
+    dataSources,
   },
-  sections: role.sections,
-  skills: skillIds.map(skillFromDir),
-  stacks,
-  dataSources,
-  models: JSON.parse(readFileSync(join(root, "api/models.json"), "utf8")),
 }
 
 writeFileSync(

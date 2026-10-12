@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.1.0
+  version: 0.2.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -12,6 +12,8 @@ tags:
   - name: skills
   - name: stacks
   - name: models
+  - name: providers
+  - name: library
   - name: runs
 paths:
   /agents:
@@ -138,7 +140,7 @@ paths:
       tags: [agents]
       responses:
         "200":
-          description: Activated. Rejected unless smokeEvalStatus is pass.
+          description: Activated. Rejected unless every eval on the agent has status pass on this version.
           content:
             application/json:
               schema:
@@ -460,13 +462,182 @@ paths:
       tags: [models]
       responses:
         "200":
-          description: Curated cards plus ownStats computed from runs
+          description: Models the connected provider returned, cached for one hour, plus ownStats from runs. Empty until a refresh.
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: "#/components/schemas/ModelInfo"
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [providers]
+      responses:
+        "200":
+          description: Provider slots. Keys are never returned.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderStatus"
+  /providers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    put:
+      operationId: saveProviderKey
+      tags: [providers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderKey"
+      responses:
+        "200":
+          description: Stored by reference. The key is not in the response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /providers/{id}/test:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: testProvider
+      tags: [providers]
+      responses:
+        "200":
+          description: Connection result. Does not echo the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderStatus"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /providers/{id}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: refreshProviderModels
+      tags: [providers]
+      responses:
+        "200":
+          description: Replaces the model cache.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /library:
+    get:
+      operationId: listLibrary
+      tags: [library]
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/LibraryKind"
+      responses:
+        "200":
+          description: Templates the user can import. Nothing here is installed until import.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LibraryItem"
+        "400":
+          $ref: "#/components/responses/Error"
+  /library/{id}/import:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: importLibraryItem
+      tags: [library]
+      responses:
+        "201":
+          description: Imports the template. An agent import also copies the skills and stacks it names.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryImport"
+        "404":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/evals:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: createEval
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvalCreate"
+      responses:
+        "201":
+          description: Agent with the new eval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDefinition"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/evals/{evalId}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: evalId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: deleteEval
+      tags: [agents]
+      responses:
+        "200":
+          description: Agent without that eval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDefinition"
+        "404":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/versions/{v}/evals/run:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/Version"
+    post:
+      operationId: runEvals
+      tags: [agents]
+      responses:
+        "200":
+          description: Runs every eval and stores the results on this version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
   /runs:
     get:
       operationId: listRuns
@@ -684,16 +855,16 @@ components:
     ModelSelection:
       type: object
       additionalProperties: false
-      required: [provider, name, temperature]
+      required: [provider, name, config]
       properties:
         provider:
           type: string
         name:
           type: string
-        temperature:
-          type: number
-          minimum: 0
-          maximum: 2
+        config:
+          type: object
+          additionalProperties: true
+          description: Validated against the model's configSchema.
     ModelRef:
       type: object
       additionalProperties: false
@@ -747,6 +918,7 @@ components:
         - skillIds
         - stackIds
         - zones
+        - evals
         - createdAt
         - updatedAt
       properties:
@@ -780,6 +952,10 @@ components:
           type: array
           items:
             type: string
+        evals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Eval"
         createdAt:
           type: string
           format: date-time
@@ -847,9 +1023,52 @@ components:
           type: array
           items:
             type: string
-    SmokeEvalStatus:
+    EvalStatus:
       type: string
       enum: [not_run, pass, fail]
+    Eval:
+      type: object
+      additionalProperties: false
+      required: [id, name, task, criteria, passRule]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        task:
+          type: string
+        criteria:
+          type: array
+          items:
+            type: string
+        passRule:
+          type: string
+    EvalCreate:
+      type: object
+      additionalProperties: false
+      required: [name, task, criteria, passRule]
+      properties:
+        name:
+          type: string
+        task:
+          type: string
+        criteria:
+          type: array
+          items:
+            type: string
+        passRule:
+          type: string
+    EvalResult:
+      type: object
+      additionalProperties: false
+      required: [evalId, status]
+      properties:
+        evalId:
+          type: string
+        status:
+          $ref: "#/components/schemas/EvalStatus"
+        evidence:
+          type: [string, "null"]
     PromptVersion:
       type: object
       additionalProperties: false
@@ -860,7 +1079,7 @@ components:
         - sections
         - compiled
         - tokenCount
-        - smokeEvalStatus
+        - evalResults
         - createdAt
       properties:
         id:
@@ -877,8 +1096,10 @@ components:
         tokenCount:
           type: integer
           minimum: 0
-        smokeEvalStatus:
-          $ref: "#/components/schemas/SmokeEvalStatus"
+        evalResults:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvalResult"
         createdAt:
           type: string
           format: date-time
@@ -942,7 +1163,7 @@ components:
           minimum: 0
     ToolKind:
       type: string
-      enum: [builtin, client, mcp, api, data]
+      enum: [builtin, client, mcp, api, data, control]
     ToolPermission:
       type: string
       enum: [read, write, external]
@@ -1300,6 +1521,7 @@ components:
         - priceOutPerM
         - speedTier
         - fitLine
+        - configSchema
         - benchmarks
         - ownStats
       properties:
@@ -1311,13 +1533,17 @@ components:
           type: integer
           minimum: 1
         priceInPerM:
-          type: number
+          type: [number, "null"]
         priceOutPerM:
-          type: number
+          type: [number, "null"]
         speedTier:
           $ref: "#/components/schemas/SpeedTier"
         fitLine:
           type: [string, "null"]
+        configSchema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema for AgentDefinition.model.config.
         benchmarks:
           type: array
           items:
@@ -1326,6 +1552,57 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OwnStats"
+    ProviderStatus:
+      type: object
+      additionalProperties: false
+      required: [id, name, keyRef, connected, modelsCachedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        keyRef:
+          type: [string, "null"]
+          description: Reference to the secret store. Never the key itself.
+        connected:
+          type: boolean
+        modelsCachedAt:
+          type: [string, "null"]
+          format: date-time
+    ProviderKey:
+      type: object
+      additionalProperties: false
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 1
+    LibraryKind:
+      type: string
+      enum: [agent, skill, stack]
+    LibraryItem:
+      type: object
+      additionalProperties: false
+      required: [id, kind, name, description]
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/LibraryKind"
+        name:
+          type: string
+        description:
+          type: string
+    LibraryImport:
+      type: object
+      additionalProperties: false
+      required: [kind, id]
+      properties:
+        kind:
+          $ref: "#/components/schemas/LibraryKind"
+        id:
+          type: string
+          description: Id of the created agent, skill, or stack.
     Workspace:
       oneOf:
         - $ref: "#/components/schemas/RepoWorkspace"

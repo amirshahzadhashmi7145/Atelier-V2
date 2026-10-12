@@ -1,186 +1,194 @@
 {
-  "agent": {
-    "id": "frontend-engineer",
-    "name": "Frontend Engineer",
-    "roleKey": "frontend-engineer",
-    "description": "Implements UI in the stacks this agent is allowed to use, and leaves the project buildable.",
-    "model": {
-      "provider": "openai",
-      "name": "gpt-5",
-      "temperature": 0.2
-    },
-    "budgets": {
-      "maxIterations": 40,
-      "maxMinutes": 30,
-      "maxTokens": 400000
-    },
-    "activePromptVersionId": null,
-    "toolIds": [
-      "shell",
-      "files",
-      "package_install",
-      "build_test",
-      "headless_browser",
-      "preview_deploy",
-      "search_data",
-      "load_skill",
-      "complete",
-      "raise_clarification",
-      "escalate"
+  "library": {
+    "agents": [
+      {
+        "id": "frontend-engineer",
+        "name": "Frontend Engineer",
+        "roleKey": "frontend-engineer",
+        "description": "Implements UI in the stacks this agent is allowed to use, and leaves the project buildable.",
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5",
+          "config": {}
+        },
+        "budgets": {
+          "maxIterations": 40,
+          "maxMinutes": 30,
+          "maxTokens": 400000
+        },
+        "toolIds": [
+          "shell",
+          "files",
+          "package_install",
+          "build_test",
+          "headless_browser",
+          "preview_deploy",
+          "search_data"
+        ],
+        "skillIds": [
+          "react-best-practices",
+          "react-tailwind-conventions",
+          "definition-of-done"
+        ],
+        "stackIds": [
+          "react"
+        ],
+        "zones": [
+          "src/**",
+          "app/**",
+          "public/**",
+          "package.json",
+          "tsconfig.json"
+        ],
+        "sections": {
+          "role": "You are the Frontend Engineer. You implement the requested UI in the enabled stacks and leave the repo buildable.",
+          "goal": "The task is done when every criterion is met and the build and tests pass.",
+          "instructions": "Read the task, call load_skill before using a skill, and change only files inside your zones.",
+          "constraints": "Do not add a dependency that is outside the package allow-list. Do not invent copy, data, or benchmark numbers.",
+          "output": "Finish by calling complete with the summary, the files you changed, and evidence for each criterion."
+        },
+        "evals": [
+          {
+            "id": "eval_buildable",
+            "name": "Buildable UI",
+            "task": "Add a primary button to an empty state.",
+            "criteria": [
+              "The button is visible",
+              "The build passes"
+            ],
+            "passRule": "The build and tests pass."
+          }
+        ]
+      }
     ],
-    "skillIds": [
-      "react-best-practices",
-      "react-tailwind-conventions",
-      "definition-of-done"
+    "skills": [
+      {
+        "id": "definition-of-done",
+        "name": "Definition of done",
+        "description": "Load before calling complete, to check the task criteria and the build.",
+        "body": "Every criterion needs evidence in the summary. The build and tests run once more after the last edit. Unmet criteria are follow-ups, not a silent pass.",
+        "files": [],
+        "version": 1,
+        "origin": "seed",
+        "createdAt": "2026-10-01T00:00:00.000Z"
+      },
+      {
+        "id": "nextjs",
+        "name": "Next.js",
+        "description": "Load when the task is a Next.js App Router page, layout, or route handler.",
+        "body": "Keep server components free of browser APIs. Put client state in a client component at the leaf that needs it. Do not add a second routing style beside the App Router.",
+        "files": [],
+        "version": 1,
+        "origin": "seed",
+        "createdAt": "2026-10-01T00:00:00.000Z"
+      },
+      {
+        "id": "react-best-practices",
+        "name": "React best practices",
+        "description": "Load when writing or reviewing React components, state, or effects.",
+        "body": "Prefer components that take data in and render it. Keep effects for synchronizing with something outside React. Do not invent a data layer when the task already names one.",
+        "files": [],
+        "version": 1,
+        "origin": "seed",
+        "createdAt": "2026-10-01T00:00:00.000Z"
+      },
+      {
+        "id": "react-tailwind-conventions",
+        "name": "React Tailwind conventions",
+        "description": "Load when styling React UI with Tailwind, including layout, tokens, and states.",
+        "body": "Use semantic color tokens and flex or grid with gap. Every interactive control needs a visible name. Loading, empty, and error states are part of the screen, not a follow-up.",
+        "files": [],
+        "version": 1,
+        "origin": "seed",
+        "createdAt": "2026-10-01T00:00:00.000Z"
+      }
     ],
-    "stackIds": [
-      "react"
+    "stacks": [
+      {
+        "id": "nextjs",
+        "name": "Next.js",
+        "version": "16.4.0",
+        "skillIds": [
+          "nextjs"
+        ],
+        "dataSourceIds": [
+          "nextjs-docs"
+        ],
+        "scaffoldTemplate": "next",
+        "packageAllowList": [
+          "react",
+          "react-dom",
+          "@types/react",
+          "next",
+          "tailwindcss",
+          "@tailwindcss/*",
+          "zod",
+          "@tanstack/*",
+          "vitest",
+          "@testing-library/*",
+          "playwright",
+          "eslint*",
+          "typescript",
+          "@vitejs/*",
+          "postcss",
+          "autoprefixer"
+        ],
+        "enabledByDefault": false
+      },
+      {
+        "id": "react",
+        "name": "React",
+        "version": "19.3.0",
+        "skillIds": [
+          "react-best-practices",
+          "react-tailwind-conventions"
+        ],
+        "dataSourceIds": [
+          "react-docs"
+        ],
+        "scaffoldTemplate": "vite-react-ts",
+        "packageAllowList": [
+          "react",
+          "react-dom",
+          "@types/react",
+          "next",
+          "tailwindcss",
+          "@tailwindcss/*",
+          "zod",
+          "@tanstack/*",
+          "vitest",
+          "@testing-library/*",
+          "playwright",
+          "eslint*",
+          "typescript",
+          "@vitejs/*",
+          "postcss",
+          "autoprefixer"
+        ],
+        "enabledByDefault": true
+      }
     ],
-    "zones": [
-      "src/**",
-      "app/**",
-      "public/**",
-      "package.json",
-      "tsconfig.json"
-    ],
-    "createdAt": "2026-10-01T00:00:00.000Z",
-    "updatedAt": "2026-10-01T00:00:00.000Z"
-  },
-  "sections": {
-    "role": "You are the Frontend Engineer. You implement the requested UI in the enabled stacks and leave the repo buildable.",
-    "goal": "The task is done when every criterion is met and the build and tests pass.",
-    "instructions": "Read the task, call load_skill before using a skill, and change only files inside your zones.",
-    "constraints": "Do not add a dependency that is outside the package allow-list. Do not invent copy, data, or benchmark numbers.",
-    "output": "Finish by calling complete with the summary, the files you changed, and evidence for each criterion."
-  },
-  "skills": [
-    {
-      "id": "definition-of-done",
-      "name": "Definition of done",
-      "description": "Load before calling complete, to check the task criteria and the build.",
-      "body": "Every criterion needs evidence in the summary. The build and tests run once more after the last edit. Unmet criteria are follow-ups, not a silent pass.",
-      "files": [],
-      "version": 1,
-      "origin": "seed",
-      "createdAt": "2026-10-01T00:00:00.000Z"
-    },
-    {
-      "id": "nextjs",
-      "name": "Next.js",
-      "description": "Load when the task is a Next.js App Router page, layout, or route handler.",
-      "body": "Keep server components free of browser APIs. Put client state in a client component at the leaf that needs it. Do not add a second routing style beside the App Router.",
-      "files": [],
-      "version": 1,
-      "origin": "seed",
-      "createdAt": "2026-10-01T00:00:00.000Z"
-    },
-    {
-      "id": "react-best-practices",
-      "name": "React best practices",
-      "description": "Load when writing or reviewing React components, state, or effects.",
-      "body": "Prefer components that take data in and render it. Keep effects for synchronizing with something outside React. Do not invent a data layer when the task already names one.",
-      "files": [],
-      "version": 1,
-      "origin": "seed",
-      "createdAt": "2026-10-01T00:00:00.000Z"
-    },
-    {
-      "id": "react-tailwind-conventions",
-      "name": "React Tailwind conventions",
-      "description": "Load when styling React UI with Tailwind, including layout, tokens, and states.",
-      "body": "Use semantic color tokens and flex or grid with gap. Every interactive control needs a visible name. Loading, empty, and error states are part of the screen, not a follow-up.",
-      "files": [],
-      "version": 1,
-      "origin": "seed",
-      "createdAt": "2026-10-01T00:00:00.000Z"
-    }
-  ],
-  "stacks": [
-    {
-      "id": "nextjs",
-      "name": "Next.js",
-      "version": "16.4.0",
-      "skillIds": [
-        "nextjs"
-      ],
-      "dataSourceIds": [
-        "nextjs-docs"
-      ],
-      "scaffoldTemplate": "next",
-      "packageAllowList": [
-        "react",
-        "react-dom",
-        "@types/react",
-        "next",
-        "tailwindcss",
-        "@tailwindcss/*",
-        "zod",
-        "@tanstack/*",
-        "vitest",
-        "@testing-library/*",
-        "playwright",
-        "eslint*",
-        "typescript",
-        "@vitejs/*",
-        "postcss",
-        "autoprefixer"
-      ],
-      "enabledByDefault": false
-    },
-    {
-      "id": "react",
-      "name": "React",
-      "version": "19.3.0",
-      "skillIds": [
-        "react-best-practices",
-        "react-tailwind-conventions"
-      ],
-      "dataSourceIds": [
-        "react-docs"
-      ],
-      "scaffoldTemplate": "vite-react-ts",
-      "packageAllowList": [
-        "react",
-        "react-dom",
-        "@types/react",
-        "next",
-        "tailwindcss",
-        "@tailwindcss/*",
-        "zod",
-        "@tanstack/*",
-        "vitest",
-        "@testing-library/*",
-        "playwright",
-        "eslint*",
-        "typescript",
-        "@vitejs/*",
-        "postcss",
-        "autoprefixer"
-      ],
-      "enabledByDefault": true
-    }
-  ],
-  "dataSources": [
-    {
-      "id": "nextjs-docs",
-      "name": "Next.js docs",
-      "kind": "github_path",
-      "ref": "https://github.com/vercel/next.js/tree/v16.4.0/docs",
-      "refreshPolicy": "manual",
-      "lastPulledAt": null,
-      "pagesChanged": null,
-      "versionTag": null
-    },
-    {
-      "id": "react-docs",
-      "name": "React docs",
-      "kind": "github_path",
-      "ref": "https://github.com/reactjs/react.dev/tree/046f17d04295ba047bb5739026b4ac3110f17028/src/content",
-      "refreshPolicy": "weekly",
-      "lastPulledAt": null,
-      "pagesChanged": null,
-      "versionTag": null
-    }
-  ],
-  "models": []
+    "dataSources": [
+      {
+        "id": "nextjs-docs",
+        "name": "Next.js docs",
+        "kind": "github_path",
+        "ref": "https://github.com/vercel/next.js/tree/v16.4.0/docs",
+        "refreshPolicy": "manual",
+        "lastPulledAt": null,
+        "pagesChanged": null,
+        "versionTag": null
+      },
+      {
+        "id": "react-docs",
+        "name": "React docs",
+        "kind": "github_path",
+        "ref": "https://github.com/reactjs/react.dev/tree/046f17d04295ba047bb5739026b4ac3110f17028/src/content",
+        "refreshPolicy": "weekly",
+        "lastPulledAt": null,
+        "pagesChanged": null,
+        "versionTag": null
+      }
+    ]
+  }
 }

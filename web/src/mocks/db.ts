@@ -1,5 +1,4 @@
 import type { components } from "@/lib/api/generated/types"
-import { compilePrompt } from "@/features/agents/compile"
 import seed from "@/mocks/seed.generated.json"
 
 type Agent = components["schemas"]["AgentDefinition"]
@@ -22,6 +21,7 @@ export type Db = {
   stacks: Stack[]
   dataSources: DataSource[]
   models: ModelCard[]
+  providers: components["schemas"]["ProviderStatus"][]
   runs: Run[]
   events: Event[]
   diffs: Record<string, TextDiff[]>
@@ -36,16 +36,17 @@ function tool(
   description: string,
   properties: Record<string, unknown>,
   required: string[],
+  kind: Tool["kind"] = "builtin",
 ): Tool {
   return {
     id,
-    kind: "builtin",
+    kind,
     name: id,
     description,
     schema: { ...emptySchema, properties, required },
     permission,
     config: {},
-    source: "builtin",
+    source: kind === "control" ? "control" : "builtin",
     enabled: true,
   }
 }
@@ -58,20 +59,71 @@ const tools: Tool[] = [
   tool("headless_browser", "external", "Open a page and capture a screenshot.", { url: { type: "string" } }, ["url"]),
   tool("preview_deploy", "external", "Publish the workspace preview.", {}, []),
   tool("search_data", "read", "Search the data sources attached to this agent.", { query: { type: "string" } }, ["query"]),
-  tool("load_skill", "read", "Load a skill body into the context.", { name: { type: "string" } }, ["name"]),
-  tool("complete", "write", "Finish the run with a summary.", { summary: { type: "object" } }, ["summary"]),
-  tool("raise_clarification", "read", "Ask the user a question and wait.", { question: { type: "string" } }, ["question"]),
-  tool("escalate", "external", "Hand the run to a person.", { reason: { type: "string" } }, ["reason"]),
+  tool("load_skill", "read", "Load a skill body into the context.", { name: { type: "string" } }, ["name"], "control"),
+  tool("complete", "write", "Finish the run with a summary.", { summary: { type: "object" } }, ["summary"], "control"),
+  tool("raise_clarification", "read", "Ask the user a question and wait.", { question: { type: "string" } }, ["question"], "control"),
+  tool("escalate", "external", "Hand the run to a person.", { reason: { type: "string" } }, ["reason"], "control"),
 ]
 
-const authored = seed as unknown as {
-  agent: Agent
+type LibraryAgent = {
+  id: string
+  name: string
+  roleKey: string
+  description: string
+  model: Agent["model"]
+  budgets: Agent["budgets"]
+  toolIds: string[]
+  skillIds: string[]
+  stackIds: string[]
+  zones: string[]
   sections: PromptVersion["sections"]
+  evals: Agent["evals"]
+}
+
+export type Library = {
+  agents: LibraryAgent[]
   skills: Skill[]
   stacks: Stack[]
   dataSources: DataSource[]
-  models: ModelCard[]
 }
+
+export const library = (seed as { library: Library }).library
+
+const temperature = { type: "number", minimum: 0, maximum: 2, default: 0.2, description: "Sampling temperature" }
+const maxOutputTokens = { type: "integer", minimum: 1, maximum: 128000, default: 4096, description: "Maximum tokens to generate" }
+const reasoningEffort = { type: "string", enum: ["low", "medium", "high"], default: "medium", description: "How hard the model thinks" }
+const webSearch = { type: "boolean", default: false, description: "Allow the model to search the web" }
+const structuredOutputs = { type: "boolean", default: false, description: "Require a JSON schema response" }
+
+function objectSchema(properties: Record<string, unknown>) {
+  return { type: "object", additionalProperties: false, properties }
+}
+
+function modelCard(name: string, speedTier: ModelCard["speedTier"], properties: Record<string, unknown>): ModelCard {
+  return {
+    provider: "openai",
+    name,
+    // ponytail: placeholder window until a real provider response replaces this catalog
+    contextWindow: 128000,
+    priceInPerM: null,
+    priceOutPerM: null,
+    speedTier,
+    fitLine: null,
+    configSchema: objectSchema(properties),
+    benchmarks: [],
+  }
+}
+
+export const modelCatalog: ModelCard[] = [
+  modelCard("gpt-5", "balanced", { temperature, maxOutputTokens, reasoningEffort, webSearch, structuredOutputs }),
+  modelCard("gpt-5-mini", "fast", { temperature, maxOutputTokens, reasoningEffort, structuredOutputs }),
+  modelCard("gpt-5-nano", "fast", { temperature, maxOutputTokens }),
+  modelCard("o3", "slow", { maxOutputTokens, reasoningEffort, structuredOutputs }),
+  modelCard("gpt-4.1", "balanced", { temperature, maxOutputTokens, webSearch }),
+  modelCard("gpt-4.1-mini", "fast", { temperature, maxOutputTokens, structuredOutputs }),
+]
+
+export const MODEL_CACHE_MS = 60 * 60 * 1000
 
 function ordered<T extends { id: string }>(items: T[], ids: string[]): T[] {
   return ids.flatMap((id) => {
@@ -80,182 +132,103 @@ function ordered<T extends { id: string }>(items: T[], ids: string[]): T[] {
   })
 }
 
-function initialVersion(): PromptVersion {
-  const compiled = compilePrompt({
-    sections: authored.sections,
-    stacks: ordered(authored.stacks, authored.agent.stackIds).map((stack) => ({
-      name: stack.name,
-      version: stack.version,
-    })),
-    tools: ordered(tools, authored.agent.toolIds).map((item) => ({
-      name: item.name,
-      description: item.description,
-    })),
-    skills: ordered(authored.skills, authored.agent.skillIds).map((skill) => ({
-      name: skill.name,
-      description: skill.description,
-    })),
-  })
-  return {
-    id: "pv_frontend_engineer_1",
-    agentId: authored.agent.id,
-    version: 1,
-    sections: authored.sections,
-    compiled: compiled.compiled,
-    tokenCount: compiled.tokenCount,
-    smokeEvalStatus: "not_run",
-    createdAt: "2026-10-01T00:00:00.000Z",
-  }
-}
+const emptyDb = (): Db => ({
+  agents: [],
+  versions: [],
+  tools: structuredClone(tools),
+  skills: [],
+  stacks: [],
+  dataSources: [],
+  models: [],
+  providers: [{ id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null }],
+  runs: [],
+  events: [],
+  diffs: {},
+  artifacts: {},
+})
 
-function initialRuns(versionId: string): Pick<Db, "runs" | "events" | "diffs" | "artifacts"> {
-  const agentId = authored.agent.id
-  const model = { provider: authored.agent.model.provider, name: authored.agent.model.name }
-  const budget = authored.agent.budgets
-  const runs: Run[] = [
-    {
-      id: "run_completed",
-      agentId,
-      promptVersionId: versionId,
-      model,
-      workspace: { kind: "repo", url: "https://github.com/example/atelier-fixtures" },
-      task: "Add a primary button to the empty state.",
-      criteria: ["The button is visible", "The build passes"],
-      attachmentIds: [],
-      budget,
-      status: "completed",
-      iterations: 4,
-      tokensIn: 1200,
-      tokensOut: 400,
-      costUsd: 0.04,
-      summary: {
-        description: "Added a primary button on the empty state.",
-        filesChanged: ["src/Empty.tsx"],
-        dependencies: [],
-        criteria: [
-          { text: "The button is visible", evidence: "src/Empty.tsx renders Button" },
-          { text: "The build passes", evidence: "build_test returned exit 0" },
-        ],
-        assumptions: [],
-        followUps: [],
-      },
-      branch: "feat/empty-button",
-      prUrl: "https://github.com/example/atelier-fixtures/pull/1",
-      startedAt: "2026-10-02T12:00:00.000Z",
-      endedAt: "2026-10-02T12:05:00.000Z",
-    },
-    {
-      id: "run_failed",
-      agentId,
-      promptVersionId: versionId,
-      model,
-      workspace: { kind: "scaffold", template: "vite-react-ts" },
-      task: "Replace the header.",
-      criteria: ["The header reads Studio"],
-      attachmentIds: [],
-      budget,
-      status: "failed",
-      terminalCause: "error",
-      iterations: 2,
-      tokensIn: 300,
-      tokensOut: 80,
-      costUsd: 0.01,
-      startedAt: "2026-10-03T12:00:00.000Z",
-      endedAt: "2026-10-03T12:02:00.000Z",
-    },
-    {
-      id: "run_cancelled",
-      agentId,
-      promptVersionId: versionId,
-      model,
-      workspace: { kind: "repo", url: "https://github.com/example/atelier-fixtures" },
-      task: "Move the nav to the left.",
-      criteria: ["Nav is on the left"],
-      attachmentIds: [],
-      budget,
-      status: "cancelled",
-      iterations: 1,
-      tokensIn: 100,
-      tokensOut: 20,
-      costUsd: 0,
-      startedAt: "2026-10-04T12:00:00.000Z",
-      endedAt: "2026-10-04T12:01:00.000Z",
-    },
-  ]
-  const events: Event[] = [
-    event("run_completed", 1, "RUN_STARTED", "2026-10-02T12:00:00.000Z"),
-    event("run_completed", 2, "RUN_COMPLETED", "2026-10-02T12:05:00.000Z"),
-    event("run_failed", 1, "RUN_STARTED", "2026-10-03T12:00:00.000Z"),
-    event("run_failed", 2, "RUN_FAILED", "2026-10-03T12:02:00.000Z", { message: "build failed" }),
-    event("run_cancelled", 1, "RUN_STARTED", "2026-10-04T12:00:00.000Z"),
-    event("run_cancelled", 2, "STATE_CHANGED", "2026-10-04T12:01:00.000Z", { status: "cancelled" }),
-  ]
-  return {
-    runs,
-    events,
-    diffs: {
-      run_completed: [{ path: "src/Empty.tsx", before: "", after: "export function Empty() { return <button>Start</button> }\n" }],
-    },
-    artifacts: {
-      run_completed: [
-        { id: "shot_desktop", name: "desktop.png", kind: "screenshot", viewport: "1280x800", url: "/fixtures/desktop.png" },
-      ],
-    },
-  }
-}
+const STORAGE_KEY = "atelier-mock-db"
 
-function event(
-  runId: string,
-  seq: number,
-  type: Event["type"],
-  occurredAt: string,
-  payload: Record<string, unknown> = {},
-): Event {
-  return {
-    id: `${runId}_${seq}`,
-    runId,
-    seq,
-    type,
-    actor: { kind: "agent", role: "frontend-engineer" },
-    payload,
-    occurredAt,
+function storedDb(): Db | null {
+  if (typeof window === "undefined") return null
+  const raw = window.sessionStorage.getItem(STORAGE_KEY)
+  if (!raw) return null
+  try {
+    const saved = JSON.parse(raw) as Db
+    return { ...emptyDb(), ...saved, tools: structuredClone(tools) }
+  } catch {
+    return null
   }
 }
 
 export function createDb(): Db {
-  const version = initialVersion()
-  const history = initialRuns(version.id)
-  return {
-    agents: [structuredClone(authored.agent)],
-    versions: [version],
-    tools: structuredClone(tools),
-    skills: structuredClone(authored.skills),
-    stacks: structuredClone(authored.stacks),
-    dataSources: structuredClone(authored.dataSources),
-    models: structuredClone(authored.models),
-    runs: history.runs,
-    events: history.events,
-    diffs: history.diffs,
-    artifacts: history.artifacts,
-  }
+  return storedDb() ?? emptyDb()
+}
+
+let rememberQueued = false
+
+export function remember() {
+  if (typeof window === "undefined" || rememberQueued) return
+  rememberQueued = true
+  queueMicrotask(() => {
+    rememberQueued = false
+    if (typeof window === "undefined") return
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(db))
+  })
 }
 
 export let db = createDb()
 let counter = 100
+let providerSecret: string | null = null
 
 export function resetDb() {
+  rememberQueued = false
+  if (typeof window !== "undefined") window.sessionStorage.removeItem(STORAGE_KEY)
   db = createDb()
   counter = 100
+  providerSecret = null
   for (const timer of liveTimers.values()) clearInterval(timer)
   liveTimers.clear()
 }
 
+export function setProviderSecret(value: string | null) {
+  providerSecret = value
+}
+
+export function hasProviderSecret() {
+  return Boolean(providerSecret)
+}
+
+export function freshModels() {
+  const provider = db.providers.find((item) => item.id === "openai")
+  if (!provider?.modelsCachedAt) return []
+  if (Date.now() - Date.parse(provider.modelsCachedAt) > MODEL_CACHE_MS) return []
+  return db.models
+}
+
+export function modelList() {
+  return freshModels().map((model) => {
+    const roleKeys = [...new Set(db.agents.map((agent) => agent.roleKey))]
+    const ownStats = roleKeys.flatMap((roleKey) => {
+      const agentIds = new Set(db.agents.filter((agent) => agent.roleKey === roleKey).map((agent) => agent.id))
+      const runs = db.runs.filter((run) => run.model.name === model.name && agentIds.has(run.agentId))
+      if (runs.length === 0) return []
+      const passed = runs.filter((run) => run.status === "completed" && run.summary)
+      const avgCostUsd = passed.reduce((sum, run) => sum + run.costUsd, 0) / (passed.length || 1)
+      return [{ roleKey, runs: runs.length, passed: passed.length, avgCostUsd }]
+    })
+    return { ...model, ownStats }
+  })
+}
+
 export function nid(prefix: string) {
   counter += 1
+  remember()
   return `${prefix}_${counter}`
 }
 
 export function now() {
+  remember()
   return new Date().toISOString()
 }
 

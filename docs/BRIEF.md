@@ -4,6 +4,10 @@
 
 A web app where a user defines AI agents (prompt sections, tools, skills, tech stacks, model), runs ONE agent on a task inside a sandbox, and watches the run live. Week 1 ships the studio (four pages), the runtime, and one working agent: the Frontend Engineer. Later roles (Backend, Team Lead, PM) are added through the same pages with no new code paths.
 
+## Direction from S2
+
+A fresh install has no agents, skills, or stacks. `roles/`, `skills/`, and `stacks/` are a library (`GET /library?kind=`, `POST /library/{id}/import`), not a seed. Models come from Settings > Providers. `AgentDefinition.model` is `{provider, name, config}` validated against the model's `configSchema`. Each agent has evals; results live on the prompt version; Set active requires every eval to pass. `complete`, `raise_clarification`, `escalate`, and `load_skill` are kind `control`: always on, hidden from Tools, not removable.
+
 Order of work: contract first, UI against mocks, then the backend that implements the same contract, then the runtime. Each session below is one feature branch and one PR.
 
 ## Git workflow (mandatory, every session)
