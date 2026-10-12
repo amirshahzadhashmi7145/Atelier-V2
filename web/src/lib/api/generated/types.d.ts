@@ -314,6 +314,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["saveProviderKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["testProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["refreshProviderModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listLibrary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/library/{id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importLibraryItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/evals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createEval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/evals/{evalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                evalId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteEval"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/versions/{v}/evals/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                v: components["parameters"]["Version"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["runEvals"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs": {
         parameters: {
             query?: never;
@@ -473,7 +633,10 @@ export interface components {
         ModelSelection: {
             provider: string;
             name: string;
-            temperature: number;
+            /** @description Validated against the model's configSchema. */
+            config: {
+                [key: string]: unknown;
+            };
         };
         ModelRef: {
             provider: string;
@@ -503,6 +666,7 @@ export interface components {
             skillIds: string[];
             stackIds: string[];
             zones: string[];
+            evals: components["schemas"]["Eval"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -531,7 +695,25 @@ export interface components {
             zones?: string[];
         };
         /** @enum {string} */
-        SmokeEvalStatus: "not_run" | "pass" | "fail";
+        EvalStatus: "not_run" | "pass" | "fail";
+        Eval: {
+            id: string;
+            name: string;
+            task: string;
+            criteria: string[];
+            passRule: string;
+        };
+        EvalCreate: {
+            name: string;
+            task: string;
+            criteria: string[];
+            passRule: string;
+        };
+        EvalResult: {
+            evalId: string;
+            status: components["schemas"]["EvalStatus"];
+            evidence?: string | null;
+        };
         PromptVersion: {
             id: string;
             agentId: string;
@@ -539,7 +721,7 @@ export interface components {
             sections: components["schemas"]["PromptSections"];
             compiled: string;
             tokenCount: number;
-            smokeEvalStatus: components["schemas"]["SmokeEvalStatus"];
+            evalResults: components["schemas"]["EvalResult"][];
             /** Format: date-time */
             createdAt: string;
         };
@@ -566,7 +748,7 @@ export interface components {
             tokenCount: number;
         };
         /** @enum {string} */
-        ToolKind: "builtin" | "client" | "mcp" | "api" | "data";
+        ToolKind: "builtin" | "client" | "mcp" | "api" | "data" | "control";
         /** @enum {string} */
         ToolPermission: "read" | "write" | "external";
         ToolDefinition: {
@@ -732,12 +914,41 @@ export interface components {
             provider: string;
             name: string;
             contextWindow: number;
-            priceInPerM: number;
-            priceOutPerM: number;
+            priceInPerM: number | null;
+            priceOutPerM: number | null;
             speedTier: components["schemas"]["SpeedTier"];
             fitLine: string | null;
+            /** @description JSON Schema for AgentDefinition.model.config. */
+            configSchema: {
+                [key: string]: unknown;
+            };
             benchmarks: components["schemas"]["Benchmark"][];
             ownStats: components["schemas"]["OwnStats"][];
+        };
+        ProviderStatus: {
+            id: string;
+            name: string;
+            /** @description Reference to the secret store. Never the key itself. */
+            keyRef: string | null;
+            connected: boolean;
+            /** Format: date-time */
+            modelsCachedAt: string | null;
+        };
+        ProviderKey: {
+            apiKey: string;
+        };
+        /** @enum {string} */
+        LibraryKind: "agent" | "skill" | "stack";
+        LibraryItem: {
+            id: string;
+            kind: components["schemas"]["LibraryKind"];
+            name: string;
+            description: string;
+        };
+        LibraryImport: {
+            kind: components["schemas"]["LibraryKind"];
+            /** @description Id of the created agent, skill, or stack. */
+            id: string;
         };
         Workspace: components["schemas"]["RepoWorkspace"] | components["schemas"]["ScaffoldWorkspace"];
         RepoWorkspace: {
@@ -1064,7 +1275,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Activated. Rejected unless smokeEvalStatus is pass. */
+            /** @description Activated. Rejected unless every eval on the agent has status pass on this version. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1507,7 +1718,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Curated cards plus ownStats computed from runs */
+            /** @description Models the connected provider returned, cached for one hour, plus ownStats from runs. Empty until a refresh. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1516,6 +1727,225 @@ export interface operations {
                     "application/json": components["schemas"]["ModelInfo"][];
                 };
             };
+        };
+    };
+    listProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider slots. Keys are never returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatus"][];
+                };
+            };
+        };
+    };
+    saveProviderKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderKey"];
+            };
+        };
+        responses: {
+            /** @description Stored by reference. The key is not in the response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    testProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection result. Does not echo the key. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    refreshProviderModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replaces the model cache. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelInfo"][];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    listLibrary: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["LibraryKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Templates the user can import. Nothing here is installed until import. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryItem"][];
+                };
+            };
+            400: components["responses"]["Error"];
+        };
+    };
+    importLibraryItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Imports the template. An agent import also copies the skills and stacks it names. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryImport"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    createEval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalCreate"];
+            };
+        };
+        responses: {
+            /** @description Agent with the new eval */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDefinition"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    deleteEval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                evalId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agent without that eval */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentDefinition"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    runEvals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                v: components["parameters"]["Version"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runs every eval and stores the results on this version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptVersion"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
         };
     };
     listRuns: {

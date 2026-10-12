@@ -1,13 +1,13 @@
 import { http, HttpResponse } from "msw"
 import { parse } from "yaml"
-import { db, nid, now } from "@/mocks/db"
+import { db, modelList, nid, now } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
   return HttpResponse.json({ code, message }, { status })
 }
 
 export const toolHandlers = [
-  http.get("/tools", () => HttpResponse.json(db.tools)),
+  http.get("/tools", () => HttpResponse.json(db.tools.filter((tool) => tool.kind !== "control"))),
   http.post("/tools/mcp/discover", async ({ request }) => {
     const body = (await request.json()) as { serverUrl?: string }
     if (!body.serverUrl) return error(400, "invalid", "serverUrl is required")
@@ -131,20 +131,5 @@ export const toolHandlers = [
     if (body.dataSourceIds) stack.dataSourceIds = body.dataSourceIds
     return HttpResponse.json(stack)
   }),
-  http.get("/models", () => {
-    return HttpResponse.json(
-      db.models.map((model) => {
-        const roleKeys = [...new Set(db.agents.map((agent) => agent.roleKey))]
-        const ownStats = roleKeys.flatMap((roleKey) => {
-          const agentIds = new Set(db.agents.filter((agent) => agent.roleKey === roleKey).map((agent) => agent.id))
-          const runs = db.runs.filter((run) => run.model.name === model.name && agentIds.has(run.agentId))
-          if (runs.length === 0) return []
-          const passed = runs.filter((run) => run.status === "completed" && run.summary)
-          const avgCostUsd = passed.reduce((sum, run) => sum + run.costUsd, 0) / (passed.length || 1)
-          return [{ roleKey, runs: runs.length, passed: passed.length, avgCostUsd }]
-        })
-        return { ...model, ownStats }
-      }),
-    )
-  }),
+  http.get("/models", () => HttpResponse.json(modelList())),
 ]
