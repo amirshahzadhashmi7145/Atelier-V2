@@ -6,7 +6,7 @@ const MODEL_IDS = ["o3", "gpt-5", "gpt-4.1", "gpt-4.1-mini"]
 async function mockModelRoute(page: Page) {
   await page.route("**/api/providers/openai/models**", (route) => route.fulfill({ json: { ids: MODEL_IDS } }))
   await page.addInitScript((ids) => {
-    sessionStorage.setItem("atelier-discovered-models", JSON.stringify(ids))
+    sessionStorage.setItem("atelier-test-models", JSON.stringify(ids))
     const original = window.fetch.bind(window)
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url

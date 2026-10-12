@@ -10,7 +10,7 @@ function providerOr404(id: string) {
   return db.providers.find((item) => item.id === id)
 }
 
-const FIXTURE_KEY = "atelier-discovered-models"
+const FIXTURE_KEY = "atelier-test-models"
 
 function fixtureIds() {
   if (typeof sessionStorage === "undefined") return null

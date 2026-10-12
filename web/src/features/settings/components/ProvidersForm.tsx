@@ -62,7 +62,9 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
                     </CardTitle>
                     <CardDescription>
                       {keyFound ? "key found" : "key missing"}
-                      {provider.modelsCachedAt ? ` · models cached ${provider.modelsCachedAt}` : ""}
+                      {provider.modelsCachedAt && (models.data ?? []).length > 0
+                        ? ` · models cached ${provider.modelsCachedAt}`
+                        : ""}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
