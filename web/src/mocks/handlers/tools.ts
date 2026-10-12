@@ -125,16 +125,20 @@ export const toolHandlers = [
     return HttpResponse.json(stack)
   }),
   http.get("/models", async () => {
-    const ids = await discoveredModelIds()
-    if (ids) {
-      db.models = ids.filter(isChatModel).map((id) => modelInfoFromId(id))
-      const provider = db.providers.find((item) => item.id === "openai")
+    const found = await discoveredModelIds()
+    const provider = db.providers.find((item) => item.id === "openai")
+    if (found) {
+      db.models = found.ids.filter(isChatModel).map((id) => modelInfoFromId(id))
       if (provider) {
         provider.modelsCachedAt = now()
-        provider.connected = true
+        provider.connected = found.fromProvider
       }
-      remember()
+    } else if (provider) {
+      db.models = []
+      provider.connected = false
+      provider.modelsCachedAt = null
     }
+    remember()
     return HttpResponse.json(modelList())
   }),
 ]

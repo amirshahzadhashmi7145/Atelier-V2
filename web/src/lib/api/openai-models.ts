@@ -2,7 +2,7 @@ import { isChatModel } from "@/lib/models/schema"
 
 const HOUR = 60 * 60 * 1000
 
-let cache: { at: number; ids: string[] } | null = null
+let cache: { at: number; key: string; ids: string[] } | null = null
 
 export function clearOpenAIModelCache() {
   cache = null
@@ -15,7 +15,7 @@ export async function listOpenAIModelIds(
   refresh = false,
   fetchImpl: typeof fetch = fetch,
 ) {
-  if (!refresh && cache && Date.now() - cache.at < HOUR) return cache.ids
+  if (!refresh && cache && cache.key === key && Date.now() - cache.at < HOUR) return cache.ids
   const response = await fetchImpl("https://api.openai.com/v1/models", {
     headers: { authorization: `Bearer ${key}` },
     cache: "no-store",
@@ -23,6 +23,6 @@ export async function listOpenAIModelIds(
   const body = (await response.json()) as ModelsResponse
   if (!response.ok) throw new Error(body.error?.message || "OpenAI rejected the key")
   const ids = (body.data ?? []).flatMap((item) => (item.id && isChatModel(item.id) ? [item.id] : []))
-  cache = { at: Date.now(), ids }
+  cache = { at: Date.now(), key, ids }
   return ids
 }

@@ -1,4 +1,5 @@
 import { bypass, http, HttpResponse } from "msw"
+import { providerAuthHeaders } from "@/lib/api/provider-route"
 import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, hasProviderSecret, modelList, now, remember, setProviderSecret } from "@/mocks/db"
 
@@ -24,17 +25,20 @@ function fixtureIds() {
   }
 }
 
-export async function discoveredModelIds() {
+export async function discoveredModelIds(): Promise<{ ids: string[]; fromProvider: boolean } | null> {
   try {
-    const response = await fetch(bypass(new URL("/api/providers/openai/models", location.origin)))
+    const response = await fetch(bypass(new URL("/api/providers/openai/models", location.origin)), {
+      headers: providerAuthHeaders(),
+    })
     if (response.ok) {
       const body = (await response.json()) as { ids?: string[] }
-      return body.ids ?? []
+      return { ids: body.ids ?? [], fromProvider: true }
     }
   } catch {
     // The provider route is down. A test can leave ids in sessionStorage.
   }
-  return fixtureIds()
+  const fixture = fixtureIds()
+  return fixture ? { ids: fixture, fromProvider: false } : null
 }
 
 export const providerHandlers = [
@@ -61,11 +65,11 @@ export const providerHandlers = [
   http.post("/providers/:id/refresh", async ({ params }) => {
     const provider = providerOr404(String(params.id))
     if (!provider) return error(404, "not_found", "Provider not found")
-    const ids = await discoveredModelIds()
-    if (!ids) return error(422, "invalid", "Could not reach the provider")
-    db.models = ids.filter(isChatModel).map((id) => modelInfoFromId(id))
+    const found = await discoveredModelIds()
+    if (!found) return error(422, "invalid", "Could not reach the provider")
+    db.models = found.ids.filter(isChatModel).map((id) => modelInfoFromId(id))
     provider.modelsCachedAt = now()
-    provider.connected = true
+    provider.connected = found.fromProvider
     remember()
     return HttpResponse.json(modelList())
   }),

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/shared/PageHeader"
@@ -8,15 +8,21 @@ import { QueryBody } from "@/components/shared/QueryBody"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { listModels, listProviders, refreshProviderModels, testProviderConnection } from "@/features/settings/api"
 import { queryKeys } from "@/lib/api/query-keys"
+import { readProviderKey, writeProviderKey } from "@/lib/api/provider-route"
 
-export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
+export function ProvidersForm() {
   const queryClient = useQueryClient()
   const providers = useQuery({ queryKey: queryKeys.providers, queryFn: listProviders })
   const models = useQuery({ queryKey: queryKeys.models, queryFn: listModels })
+  const [apiKey, setApiKey] = useState("")
+  const [saved, setSaved] = useState(false)
   const [connection, setConnection] = useState<string | null>(null)
   const [connectionError, setConnectionError] = useState<string | null>(null)
+  useEffect(() => setSaved(Boolean(readProviderKey())), [])
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.providers })
     await queryClient.invalidateQueries({ queryKey: queryKeys.models })
@@ -31,7 +37,7 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "Connection failed"
-      setConnection(null)
+      setConnection("failed")
       setConnectionError(message)
       toast.error(message)
     },
@@ -47,12 +53,12 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Providers" description="The key stays in .env.local. The browser never sees it." />
+      <PageHeader title="Providers" description="Paste the OpenAI key here. It stays in this browser tab." />
       <QueryBody query={providers} emptyTitle="No providers" emptyDescription="No provider is configured.">
         {(items) => (
           <div className="flex flex-col gap-4">
             {items.map((provider) => {
-              const connected = connection === "Connected" || provider.connected
+              const connected = connection === "Connected" || (connection !== "failed" && provider.connected)
               return (
                 <Card key={provider.id}>
                   <CardHeader>
@@ -61,12 +67,35 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
                       <Badge variant="secondary">{connected ? "Connected" : "Not connected"}</Badge>
                     </CardTitle>
                     <CardDescription>
-                      {keyFound ? "key found in .env.local" : "Add OPENAI_API_KEY to .env.local"}
+                      {saved ? "Key saved in this browser." : "Enter an API key."}
                       {provider.modelsCachedAt ? ` · models cached ${provider.modelsCachedAt}` : ""}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
+                    <Field>
+                      <FieldLabel htmlFor="openai-api-key">API key</FieldLabel>
+                      <Input
+                        id="openai-api-key"
+                        type="password"
+                        autoComplete="off"
+                        value={apiKey}
+                        placeholder={saved ? "Saved. Paste a new key to replace it." : "sk-..."}
+                        onChange={(event) => setApiKey(event.target.value)}
+                      />
+                    </Field>
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        disabled={!apiKey.trim()}
+                        onClick={() => {
+                          writeProviderKey(apiKey.trim())
+                          setApiKey("")
+                          setSaved(true)
+                          toast.success("Key saved in this browser")
+                        }}
+                      >
+                        Save key
+                      </Button>
                       <Button type="button" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
                         {test.isPending ? "Testing…" : "Test connection"}
                       </Button>
