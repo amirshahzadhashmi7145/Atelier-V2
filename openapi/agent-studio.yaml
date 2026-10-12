@@ -1,0 +1,1619 @@
+openapi: 3.1.0
+info:
+  title: Agent Studio API
+  version: 0.1.0
+  description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
+servers:
+  - url: http://localhost:8000
+    description: Local API
+tags:
+  - name: agents
+  - name: tools
+  - name: skills
+  - name: stacks
+  - name: models
+  - name: runs
+paths:
+  /agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      responses:
+        "200":
+          description: Agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentDefinition"
+        "400":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createAgent
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDefinition"
+        "400":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /agents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getAgent
+      tags: [agents]
+      responses:
+        "200":
+          description: Agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDefinition"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentDefinition"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteAgent
+      tags: [agents]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listPromptVersions
+      tags: [agents]
+      responses:
+        "200":
+          description: Versions, newest last
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PromptVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createPromptVersion
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromptVersionCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/versions/{v}/activate:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/Version"
+    post:
+      operationId: activatePromptVersion
+      tags: [agents]
+      responses:
+        "200":
+          description: Activated. Rejected unless smokeEvalStatus is pass.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptVersion"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/versions/{v}/diff:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/Version"
+      - name: against
+        in: query
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+    get:
+      operationId: diffPromptVersions
+      tags: [agents]
+      responses:
+        "200":
+          description: Section diff of version v against the against version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromptDiff"
+        "404":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/compile-preview:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: compilePreview
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompilePreviewRequest"
+      responses:
+        "200":
+          description: Compiled prompt for the unsaved draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompilePreview"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /tools:
+    get:
+      operationId: listTools
+      tags: [tools]
+      responses:
+        "200":
+          description: Tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolDefinition"
+    post:
+      operationId: createTool
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolDefinition"
+        "422":
+          $ref: "#/components/responses/Error"
+  /tools/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateTool
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolDefinition"
+        "404":
+          $ref: "#/components/responses/Error"
+  /tools/mcp/discover:
+    post:
+      operationId: discoverMcpTools
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/McpDiscoverRequest"
+      responses:
+        "200":
+          description: Tools advertised by the server. Does not create entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpDiscoverResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /tools/api/import:
+    post:
+      operationId: importApiSpec
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiImportRequest"
+      responses:
+        "200":
+          description: Operations in the spec. Does not create entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiImportResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /data-sources:
+    get:
+      operationId: listDataSources
+      tags: [tools]
+      responses:
+        "200":
+          description: Data sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataSource"
+    post:
+      operationId: createDataSource
+      tags: [tools]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataSourceCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataSource"
+        "422":
+          $ref: "#/components/responses/Error"
+  /data-sources/{id}/refresh:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: refreshDataSource
+      tags: [tools]
+      responses:
+        "200":
+          description: Refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataSource"
+        "404":
+          $ref: "#/components/responses/Error"
+  /skills:
+    get:
+      operationId: listSkills
+      tags: [skills]
+      responses:
+        "200":
+          description: Skills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Skill"
+    post:
+      operationId: createSkill
+      tags: [skills]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+        "422":
+          $ref: "#/components/responses/Error"
+  /skills/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getSkill
+      tags: [skills]
+      responses:
+        "200":
+          description: Skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateSkill
+      tags: [skills]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+        "404":
+          $ref: "#/components/responses/Error"
+  /skills/import:
+    post:
+      operationId: importSkill
+      tags: [skills]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillImportRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/SkillZipImport"
+      responses:
+        "200":
+          description: Preview, not saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillImportResult"
+        "201":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillImportResult"
+        "400":
+          $ref: "#/components/responses/Error"
+  /stacks:
+    get:
+      operationId: listStacks
+      tags: [stacks]
+      responses:
+        "200":
+          description: Stacks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TechStack"
+  /stacks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      operationId: updateStack
+      tags: [stacks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StackPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TechStack"
+        "404":
+          $ref: "#/components/responses/Error"
+  /models:
+    get:
+      operationId: listModels
+      tags: [models]
+      responses:
+        "200":
+          description: Curated cards plus ownStats computed from runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelInfo"
+  /runs:
+    get:
+      operationId: listRuns
+      tags: [runs]
+      parameters:
+        - name: agentId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/RunStatus"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+      responses:
+        "200":
+          description: One page of runs, 20 per page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunPage"
+    post:
+      operationId: createRun
+      tags: [runs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunCreate"
+      responses:
+        "201":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getRun
+      tags: [runs]
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/Error"
+  /runs/{id}/events:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: after
+        in: query
+        description: Last seq the client already applied. Events with seq less than or equal to this are omitted.
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+    get:
+      operationId: streamRunEvents
+      tags: [runs]
+      responses:
+        "200":
+          description: |
+            Server-sent events. Each frame is `id: <seq>`, `event: <type>`, `data: <Event JSON>`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/Error"
+  /runs/{id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: stopRun
+      tags: [runs]
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /runs/{id}/client-tool-result:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: submitClientToolResult
+      tags: [runs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientToolResult"
+      responses:
+        "200":
+          description: Accepted and the run resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /runs/{id}/answer:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: answerClarification
+      tags: [runs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClarificationAnswer"
+      responses:
+        "200":
+          description: Accepted and the run resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+  /runs/{id}/diff:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getRunDiff
+      tags: [runs]
+      responses:
+        "200":
+          description: Workspace diff
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunDiff"
+        "404":
+          $ref: "#/components/responses/Error"
+  /runs/{id}/artifacts:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listRunArtifacts
+      tags: [runs]
+      responses:
+        "200":
+          description: Screenshots, zip, and preview
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Artifact"
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    Version:
+      name: v
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: [object, "null"]
+          additionalProperties: true
+    ModelSelection:
+      type: object
+      additionalProperties: false
+      required: [provider, name, temperature]
+      properties:
+        provider:
+          type: string
+        name:
+          type: string
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+    ModelRef:
+      type: object
+      additionalProperties: false
+      required: [provider, name]
+      properties:
+        provider:
+          type: string
+        name:
+          type: string
+    Budgets:
+      type: object
+      additionalProperties: false
+      required: [maxIterations, maxMinutes, maxTokens]
+      properties:
+        maxIterations:
+          type: integer
+          minimum: 1
+        maxMinutes:
+          type: integer
+          minimum: 1
+        maxTokens:
+          type: integer
+          minimum: 1
+    PromptSections:
+      type: object
+      additionalProperties: false
+      required: [role, goal, instructions, constraints, output]
+      properties:
+        role:
+          type: string
+        goal:
+          type: string
+        instructions:
+          type: string
+        constraints:
+          type: string
+        output:
+          type: string
+    AgentDefinition:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - roleKey
+        - description
+        - model
+        - budgets
+        - activePromptVersionId
+        - toolIds
+        - skillIds
+        - stackIds
+        - zones
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        roleKey:
+          type: string
+        description:
+          type: string
+        model:
+          $ref: "#/components/schemas/ModelSelection"
+        budgets:
+          $ref: "#/components/schemas/Budgets"
+        activePromptVersionId:
+          type: [string, "null"]
+        toolIds:
+          type: array
+          items:
+            type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+        stackIds:
+          type: array
+          items:
+            type: string
+        zones:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AgentCreate:
+      type: object
+      additionalProperties: false
+      required: [name, roleKey, description, model, budgets]
+      properties:
+        name:
+          type: string
+        roleKey:
+          type: string
+        description:
+          type: string
+        model:
+          $ref: "#/components/schemas/ModelSelection"
+        budgets:
+          $ref: "#/components/schemas/Budgets"
+        toolIds:
+          type: array
+          items:
+            type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+        stackIds:
+          type: array
+          items:
+            type: string
+        zones:
+          type: array
+          items:
+            type: string
+    AgentPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        roleKey:
+          type: string
+        description:
+          type: string
+        model:
+          $ref: "#/components/schemas/ModelSelection"
+        budgets:
+          $ref: "#/components/schemas/Budgets"
+        toolIds:
+          type: array
+          items:
+            type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+        stackIds:
+          type: array
+          items:
+            type: string
+        zones:
+          type: array
+          items:
+            type: string
+    SmokeEvalStatus:
+      type: string
+      enum: [not_run, pass, fail]
+    PromptVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - agentId
+        - version
+        - sections
+        - compiled
+        - tokenCount
+        - smokeEvalStatus
+        - createdAt
+      properties:
+        id:
+          type: string
+        agentId:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+        sections:
+          $ref: "#/components/schemas/PromptSections"
+        compiled:
+          type: string
+        tokenCount:
+          type: integer
+          minimum: 0
+        smokeEvalStatus:
+          $ref: "#/components/schemas/SmokeEvalStatus"
+        createdAt:
+          type: string
+          format: date-time
+    PromptVersionCreate:
+      type: object
+      additionalProperties: false
+      required: [sections]
+      properties:
+        sections:
+          $ref: "#/components/schemas/PromptSections"
+    PromptDiff:
+      type: object
+      additionalProperties: false
+      required: [againstVersion, sections]
+      properties:
+        againstVersion:
+          type: integer
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/TextDiff"
+    TextDiff:
+      type: object
+      additionalProperties: false
+      required: [path, before, after]
+      properties:
+        path:
+          type: string
+        before:
+          type: string
+        after:
+          type: string
+    CompilePreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [sections, toolIds, skillIds, stackIds]
+      properties:
+        sections:
+          $ref: "#/components/schemas/PromptSections"
+        toolIds:
+          type: array
+          items:
+            type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+        stackIds:
+          type: array
+          items:
+            type: string
+    CompilePreview:
+      type: object
+      additionalProperties: false
+      required: [compiled, tokenCount]
+      properties:
+        compiled:
+          type: string
+        tokenCount:
+          type: integer
+          minimum: 0
+    ToolKind:
+      type: string
+      enum: [builtin, client, mcp, api, data]
+    ToolPermission:
+      type: string
+      enum: [read, write, external]
+    ToolDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, kind, name, description, schema, permission, config, source, enabled]
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ToolKind"
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+          additionalProperties: true
+        permission:
+          $ref: "#/components/schemas/ToolPermission"
+        config:
+          type: object
+          additionalProperties: true
+        source:
+          type: string
+        enabled:
+          type: boolean
+    ToolCreate:
+      type: object
+      additionalProperties: false
+      required: [kind, name, description, schema, permission]
+      properties:
+        kind:
+          $ref: "#/components/schemas/ToolKind"
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+          additionalProperties: true
+        permission:
+          $ref: "#/components/schemas/ToolPermission"
+        config:
+          type: object
+          additionalProperties: true
+        source:
+          type: string
+        enabled:
+          type: boolean
+    ToolPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+          additionalProperties: true
+        permission:
+          $ref: "#/components/schemas/ToolPermission"
+        config:
+          type: object
+          additionalProperties: true
+        enabled:
+          type: boolean
+    McpDiscoverRequest:
+      type: object
+      additionalProperties: false
+      required: [serverUrl]
+      properties:
+        serverUrl:
+          type: string
+    McpToolDescriptor:
+      type: object
+      additionalProperties: false
+      required: [name, description, schema]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        schema:
+          type: object
+          additionalProperties: true
+    McpDiscoverResult:
+      type: object
+      additionalProperties: false
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/McpToolDescriptor"
+    ApiImportRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        spec:
+          type: string
+        specUrl:
+          type: string
+      anyOf:
+        - required: [spec]
+        - required: [specUrl]
+    ApiOperation:
+      type: object
+      additionalProperties: false
+      required: [method, path, operationId]
+      properties:
+        method:
+          type: string
+        path:
+          type: string
+        operationId:
+          type: string
+        description:
+          type: string
+    ApiImportResult:
+      type: object
+      additionalProperties: false
+      required: [operations]
+      properties:
+        operations:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiOperation"
+    DataSourceKind:
+      type: string
+      enum: [url, llms_txt, github_path, upload]
+    RefreshPolicy:
+      type: string
+      enum: [manual, weekly]
+    DataSource:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, ref, refreshPolicy, lastPulledAt, pagesChanged, versionTag]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/DataSourceKind"
+        ref:
+          type: string
+        refreshPolicy:
+          $ref: "#/components/schemas/RefreshPolicy"
+        lastPulledAt:
+          type: [string, "null"]
+          format: date-time
+        pagesChanged:
+          type: [integer, "null"]
+        versionTag:
+          type: [string, "null"]
+    DataSourceCreate:
+      type: object
+      additionalProperties: false
+      required: [name, kind, ref, refreshPolicy]
+      properties:
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/DataSourceKind"
+        ref:
+          type: string
+        refreshPolicy:
+          $ref: "#/components/schemas/RefreshPolicy"
+    SkillFile:
+      type: object
+      additionalProperties: false
+      required: [id, name, size]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+    Skill:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, body, files, version, origin, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        body:
+          type: string
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillFile"
+        version:
+          type: integer
+          minimum: 1
+        origin:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    SkillCreate:
+      type: object
+      additionalProperties: false
+      required: [name, description, body]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        body:
+          type: string
+    SkillPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        body:
+          type: string
+    SkillImportRequest:
+      type: object
+      additionalProperties: false
+      required: [repoUrl, path]
+      properties:
+        repoUrl:
+          type: string
+        path:
+          type: string
+        ref:
+          type: string
+        preview:
+          type: boolean
+          default: false
+    SkillZipImport:
+      type: object
+      additionalProperties: false
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+        preview:
+          type: boolean
+    SkillImportResult:
+      type: object
+      additionalProperties: false
+      required: [skill, persisted, diff]
+      properties:
+        skill:
+          $ref: "#/components/schemas/Skill"
+        persisted:
+          type: boolean
+        diff:
+          type: array
+          items:
+            $ref: "#/components/schemas/TextDiff"
+    TechStack:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - version
+        - skillIds
+        - dataSourceIds
+        - scaffoldTemplate
+        - packageAllowList
+        - enabledByDefault
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+        dataSourceIds:
+          type: array
+          items:
+            type: string
+        scaffoldTemplate:
+          type: [string, "null"]
+        packageAllowList:
+          type: array
+          items:
+            type: string
+        enabledByDefault:
+          type: boolean
+    StackPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        packageAllowList:
+          type: array
+          items:
+            type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+        dataSourceIds:
+          type: array
+          items:
+            type: string
+    Benchmark:
+      type: object
+      additionalProperties: false
+      required: [name, score, sourceUrl]
+      properties:
+        name:
+          type: string
+        score:
+          type: number
+        sourceUrl:
+          type: string
+    OwnStats:
+      type: object
+      additionalProperties: false
+      required: [roleKey, runs, passed, avgCostUsd]
+      properties:
+        roleKey:
+          type: string
+        runs:
+          type: integer
+          minimum: 0
+        passed:
+          type: integer
+          minimum: 0
+        avgCostUsd:
+          type: number
+    SpeedTier:
+      type: string
+      enum: [fast, balanced, slow]
+    ModelInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - name
+        - contextWindow
+        - priceInPerM
+        - priceOutPerM
+        - speedTier
+        - fitLine
+        - benchmarks
+        - ownStats
+      properties:
+        provider:
+          type: string
+        name:
+          type: string
+        contextWindow:
+          type: integer
+          minimum: 1
+        priceInPerM:
+          type: number
+        priceOutPerM:
+          type: number
+        speedTier:
+          $ref: "#/components/schemas/SpeedTier"
+        fitLine:
+          type: [string, "null"]
+        benchmarks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Benchmark"
+        ownStats:
+          type: array
+          items:
+            $ref: "#/components/schemas/OwnStats"
+    Workspace:
+      oneOf:
+        - $ref: "#/components/schemas/RepoWorkspace"
+        - $ref: "#/components/schemas/ScaffoldWorkspace"
+      discriminator:
+        propertyName: kind
+        mapping:
+          repo: "#/components/schemas/RepoWorkspace"
+          scaffold: "#/components/schemas/ScaffoldWorkspace"
+    RepoWorkspace:
+      type: object
+      additionalProperties: false
+      required: [kind, url]
+      properties:
+        kind:
+          type: string
+          const: repo
+        url:
+          type: string
+    ScaffoldWorkspace:
+      type: object
+      additionalProperties: false
+      required: [kind, template]
+      properties:
+        kind:
+          type: string
+          const: scaffold
+        template:
+          type: string
+    RunStatus:
+      type: string
+      enum: [queued, running, waiting_client, waiting_user, completed, failed, cancelled]
+    TerminalCause:
+      type: string
+      enum: [budget, loop, timeout, error, escalated]
+    CriterionResult:
+      type: object
+      additionalProperties: false
+      required: [text, evidence]
+      properties:
+        text:
+          type: string
+        evidence:
+          type: string
+    RunSummary:
+      type: object
+      additionalProperties: false
+      required: [description, filesChanged, dependencies, criteria, assumptions, followUps]
+      properties:
+        description:
+          type: string
+        filesChanged:
+          type: array
+          items:
+            type: string
+        dependencies:
+          type: array
+          items:
+            type: string
+        criteria:
+          type: array
+          items:
+            $ref: "#/components/schemas/CriterionResult"
+        assumptions:
+          type: array
+          items:
+            type: string
+        followUps:
+          type: array
+          items:
+            type: string
+    Run:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - agentId
+        - promptVersionId
+        - model
+        - workspace
+        - task
+        - criteria
+        - attachmentIds
+        - budget
+        - status
+        - iterations
+        - tokensIn
+        - tokensOut
+        - costUsd
+        - startedAt
+      properties:
+        id:
+          type: string
+        agentId:
+          type: string
+        promptVersionId:
+          type: string
+        model:
+          $ref: "#/components/schemas/ModelRef"
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        task:
+          type: string
+        criteria:
+          type: array
+          items:
+            type: string
+        attachmentIds:
+          type: array
+          items:
+            type: string
+        budget:
+          $ref: "#/components/schemas/Budgets"
+        status:
+          $ref: "#/components/schemas/RunStatus"
+        terminalCause:
+          $ref: "#/components/schemas/TerminalCause"
+        iterations:
+          type: integer
+          minimum: 0
+        tokensIn:
+          type: integer
+          minimum: 0
+        tokensOut:
+          type: integer
+          minimum: 0
+        costUsd:
+          type: number
+        summary:
+          $ref: "#/components/schemas/RunSummary"
+        branch:
+          type: string
+        prUrl:
+          type: string
+        previewUrl:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+    RunCreate:
+      type: object
+      additionalProperties: false
+      required: [agentId, workspace, task]
+      properties:
+        agentId:
+          type: string
+        promptVersionId:
+          type: string
+        model:
+          $ref: "#/components/schemas/ModelRef"
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        task:
+          type: string
+        criteria:
+          type: array
+          items:
+            type: string
+        attachmentIds:
+          type: array
+          items:
+            type: string
+        budget:
+          $ref: "#/components/schemas/Budgets"
+    RunPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Run"
+        page:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+    ActorKind:
+      type: string
+      enum: [agent, user, system]
+    Actor:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          $ref: "#/components/schemas/ActorKind"
+        role:
+          type: string
+    EventCost:
+      type: object
+      additionalProperties: false
+      required: [inputTokens, outputTokens, usd]
+      properties:
+        inputTokens:
+          type: integer
+          minimum: 0
+        outputTokens:
+          type: integer
+          minimum: 0
+        usd:
+          type: number
+    EventType:
+      type: string
+      enum:
+        - RUN_STARTED
+        - MODEL_CALLED
+        - TOOL_CALLED
+        - TOOL_RESULT
+        - TOOL_REFUSED
+        - SKILL_LOADED
+        - CLIENT_TOOL_REQUESTED
+        - CLARIFICATION_RAISED
+        - STATE_CHANGED
+        - RUN_COMPLETED
+        - RUN_FAILED
+    Event:
+      type: object
+      additionalProperties: false
+      required: [id, runId, seq, type, actor, payload, occurredAt]
+      properties:
+        id:
+          type: string
+        runId:
+          type: string
+        seq:
+          type: integer
+          minimum: 1
+        type:
+          $ref: "#/components/schemas/EventType"
+        actor:
+          $ref: "#/components/schemas/Actor"
+        payload:
+          type: object
+          additionalProperties: true
+        cost:
+          $ref: "#/components/schemas/EventCost"
+        occurredAt:
+          type: string
+          format: date-time
+    ClientToolResult:
+      type: object
+      additionalProperties: false
+      required: [requestId]
+      properties:
+        requestId:
+          type: string
+        output:
+          type: object
+          additionalProperties: true
+        error:
+          type: [string, "null"]
+    ClarificationAnswer:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    RunDiff:
+      type: object
+      additionalProperties: false
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/TextDiff"
+    ArtifactKind:
+      type: string
+      enum: [screenshot, zip, log, preview]
+    Artifact:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ArtifactKind"
+        viewport:
+          type: string
+        url:
+          type: string
