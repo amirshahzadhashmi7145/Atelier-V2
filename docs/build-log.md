@@ -17,3 +17,21 @@ Decisions: Library templates stay in roles/, skills/, and stacks/ and are copied
 Failures / known gaps: The provider test does not call OpenAI; any stored key counts as connected. Zip import, tool tabs, the skills editor, and the runs UI are unchanged. Test run queues a mock run and does not open a live view. A full browser reload keeps the mock data for the tab, and the API key itself is dropped because it is not stored in the page.
 New dependencies: react-hook-form: forms for a new agent, an eval, and the provider key. zod: validate those forms. @codemirror/view, @codemirror/state, @codemirror/lang-markdown, @codemirror/commands: the five prompt editors. @codemirror/merge: read-only version diff. @codemirror/language: required by the markdown mode.
 Follow-ups for the next session: Tools page tabs, MCP discover, and API import against the same mock. Control tools stay off that page.
+
+## S3 feat/skills-models-tools
+
+Session: S3 feat/skills-models-tools
+Built: Skills can be created in the editor or imported from a GitHub path, a zip, or a folder, with a review step and a diff when the same origin is imported again. Settings > Providers keeps the OpenAI key in this browser tab and lists the chat models OpenAI returns. The agent editor renders settings from each id's family schema. The Tools page has Built-in, Client-side, MCP, APIs, and Data; confirming a discovery or an import adds those tools, and a data source is one search_data tool.
+Decisions: Model ids are never hardcoded. Reasoning families (o-series and gpt-5, except chat snapshots) get the documented reasoning_effort enum and no temperature; other gpt/chatgpt ids get temperature and maxOutputTokens; every chat model gets webSearch and structuredOutputs; anything else gets that base pair. The key stays in sessionStorage for this tab and is sent only on the models request. A failed discovery clears the cached catalog instead of leaving Connected. Select options use dark text on white so the menu stays readable in the dark theme. The mock returns one canned SKILL.md for any URL and five canned operations for any spec. Control tools stay off the Tools page. Prices and benchmarks stay empty.
+Failures / known gaps: Zip entries that use a data descriptor are not unpacked. The API mock does not parse the pasted spec. The runs UI and the stacks sheet are not built. Eval runs in the mock still always pass.
+New dependencies: none
+Follow-ups for the next session: Stacks on the Access card, and a real spec parser when the API exists.
+
+## S4 feat/finish-s3-settings-stacks
+
+Session: S4 feat/finish-s3-settings-stacks
+Built: Budgets left the agent editor. Settings > Runs holds a visible spend cap and advanced bounds. The OpenAI key is read from .env.local again, and Providers only says whether it was found. Settings > Models stores tags and a note in a local JSON file, and the model picker shows those tags plus run stats. Stacks are created on the Access card or imported from the library, and enabled stacks show up in the compiled preview.
+Decisions: S3 was still unmerged, so this branch starts from feat/skills-models-tools. Amendment A was not in the repo; the session text is the spec. Reasoning families seed planning and review; mini, nano, and fast seed cheap and fast; a saved tag replaces the guess. ownStats counts completed runs that have a summary. A data-descriptor zip is read from the central-directory size. A pasted OpenAPI document is parsed from its paths. Run records still keep a token ceiling because the visible cap is spend.
+Failures / known gaps: The runs page is not built. There is no backend, so tags live in web/data/model-tags.json. A spec URL without a pasted document is refused. Eval runs in the mock still always pass. Loop detection is stored and not enforced until the runtime.
+New dependencies: none
+Follow-ups for the next session: The runs UI.

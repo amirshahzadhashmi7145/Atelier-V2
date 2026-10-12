@@ -1,4 +1,5 @@
 import type { components } from "@/lib/api/generated/types"
+import { ownStatsFor } from "@/lib/models/stats"
 import seed from "@/mocks/seed.generated.json"
 
 type Agent = components["schemas"]["AgentDefinition"]
@@ -23,6 +24,7 @@ export type Db = {
   models: ModelCard[]
   providers: components["schemas"]["ProviderStatus"][]
   runs: Run[]
+  runSettings: components["schemas"]["RunSettings"]
   events: Event[]
   diffs: Record<string, TextDiff[]>
   artifacts: Record<string, Artifact[]>
@@ -71,7 +73,6 @@ type LibraryAgent = {
   roleKey: string
   description: string
   model: Agent["model"]
-  budgets: Agent["budgets"]
   toolIds: string[]
   skillIds: string[]
   stackIds: string[]
@@ -88,40 +89,6 @@ export type Library = {
 }
 
 export const library = (seed as { library: Library }).library
-
-const temperature = { type: "number", minimum: 0, maximum: 2, default: 0.2, description: "Sampling temperature" }
-const maxOutputTokens = { type: "integer", minimum: 1, maximum: 128000, default: 4096, description: "Maximum tokens to generate" }
-const reasoningEffort = { type: "string", enum: ["low", "medium", "high"], default: "medium", description: "How hard the model thinks" }
-const webSearch = { type: "boolean", default: false, description: "Allow the model to search the web" }
-const structuredOutputs = { type: "boolean", default: false, description: "Require a JSON schema response" }
-
-function objectSchema(properties: Record<string, unknown>) {
-  return { type: "object", additionalProperties: false, properties }
-}
-
-function modelCard(name: string, speedTier: ModelCard["speedTier"], properties: Record<string, unknown>): ModelCard {
-  return {
-    provider: "openai",
-    name,
-    // ponytail: placeholder window until a real provider response replaces this catalog
-    contextWindow: 128000,
-    priceInPerM: null,
-    priceOutPerM: null,
-    speedTier,
-    fitLine: null,
-    configSchema: objectSchema(properties),
-    benchmarks: [],
-  }
-}
-
-export const modelCatalog: ModelCard[] = [
-  modelCard("gpt-5", "balanced", { temperature, maxOutputTokens, reasoningEffort, webSearch, structuredOutputs }),
-  modelCard("gpt-5-mini", "fast", { temperature, maxOutputTokens, reasoningEffort, structuredOutputs }),
-  modelCard("gpt-5-nano", "fast", { temperature, maxOutputTokens }),
-  modelCard("o3", "slow", { maxOutputTokens, reasoningEffort, structuredOutputs }),
-  modelCard("gpt-4.1", "balanced", { temperature, maxOutputTokens, webSearch }),
-  modelCard("gpt-4.1-mini", "fast", { temperature, maxOutputTokens, structuredOutputs }),
-]
 
 export const MODEL_CACHE_MS = 60 * 60 * 1000
 
@@ -142,6 +109,7 @@ const emptyDb = (): Db => ({
   models: [],
   providers: [{ id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null }],
   runs: [],
+  runSettings: { maxSpendPerRunUsd: 5, maxIterations: 60, maxMinutes: 45, loopDetection: true },
   events: [],
   diffs: {},
   artifacts: {},
@@ -155,7 +123,10 @@ function storedDb(): Db | null {
   if (!raw) return null
   try {
     const saved = JSON.parse(raw) as Db
-    return { ...emptyDb(), ...saved, tools: structuredClone(tools) }
+    const builtinIds = new Set(tools.map((item) => item.id))
+    const extra = (saved.tools ?? []).filter((item) => !builtinIds.has(item.id) && item.kind !== "control")
+    const base = emptyDb()
+    return { ...base, ...saved, tools: [...structuredClone(tools), ...extra], runSettings: saved.runSettings ?? base.runSettings }
   } catch {
     return null
   }
@@ -207,18 +178,10 @@ export function freshModels() {
 }
 
 export function modelList() {
-  return freshModels().map((model) => {
-    const roleKeys = [...new Set(db.agents.map((agent) => agent.roleKey))]
-    const ownStats = roleKeys.flatMap((roleKey) => {
-      const agentIds = new Set(db.agents.filter((agent) => agent.roleKey === roleKey).map((agent) => agent.id))
-      const runs = db.runs.filter((run) => run.model.name === model.name && agentIds.has(run.agentId))
-      if (runs.length === 0) return []
-      const passed = runs.filter((run) => run.status === "completed" && run.summary)
-      const avgCostUsd = passed.reduce((sum, run) => sum + run.costUsd, 0) / (passed.length || 1)
-      return [{ roleKey, runs: runs.length, passed: passed.length, avgCostUsd }]
-    })
-    return { ...model, ownStats }
-  })
+  return freshModels().map((model) => ({
+    ...model,
+    ownStats: ownStatsFor(model.name, db.agents, db.runs),
+  }))
 }
 
 export function nid(prefix: string) {

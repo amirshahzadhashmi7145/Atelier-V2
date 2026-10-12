@@ -29,30 +29,41 @@ describe("mock contract", () => {
     expect(((await denied.json()) as { code: string }).code).toBe("evals_required")
   })
 
-  it("caches provider models only after a key is stored", async () => {
+  it("does not echo a provider key and leaves models empty until the provider route answers", async () => {
     expect(await (await fetch("http://localhost/models")).json()).toEqual([])
-    const refused = await fetch("http://localhost/providers/openai/refresh", { method: "POST" })
-    expect(refused.status).toBe(422)
-
     const saved = await fetch("http://localhost/providers/openai", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ apiKey: "sk-test" }),
     })
-    const status = (await saved.json()) as { keyRef: string; connected: boolean }
+    const status = (await saved.json()) as { keyRef: string }
     expect(status.keyRef).toBe("secret:openai")
     expect(JSON.stringify(status)).not.toContain("sk-test")
+    const refused = await fetch("http://localhost/providers/openai/refresh", { method: "POST" })
+    expect(refused.status).toBe(422)
+    expect(await (await fetch("http://localhost/models")).json()).toEqual([])
+  })
 
-    await fetch("http://localhost/providers/openai/test", { method: "POST" })
-    const models = (await (await fetch("http://localhost/providers/openai/refresh", { method: "POST" })).json()) as {
-      name: string
-      configSchema: { properties: Record<string, unknown> }
-      benchmarks: unknown[]
-      priceInPerM: number | null
-    }[]
-    expect(models).toHaveLength(6)
-    expect(models.find((model) => model.name === "gpt-5")?.configSchema.properties).toHaveProperty("webSearch")
-    expect(models.find((model) => model.name === "o3")?.configSchema.properties).not.toHaveProperty("temperature")
-    expect(models.every((model) => model.benchmarks.length === 0 && model.priceInPerM === null)).toBe(true)
+  it("discovers four mcp tools and five api operations", async () => {
+    const mcp = (await (
+      await fetch("http://localhost/tools/mcp/discover", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ serverUrl: "https://mcp.example", auth: "none" }),
+      })
+    ).json()) as { tools: { permission?: string }[] }
+    expect(mcp.tools).toHaveLength(4)
+    expect(mcp.tools.filter((tool) => tool.permission === "external")).toHaveLength(1)
+
+    const api = (await (
+      await fetch("http://localhost/tools/api/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+        spec: `paths:\n  /users:\n    get:\n      operationId: listUsers\n    post:\n      operationId: createUser\n  /users/{id}:\n    get:\n      operationId: getUser\n    patch:\n      operationId: updateUser\n    delete:\n      operationId: deleteUser\n`,
+      }),
+      })
+    ).json()) as { operations: unknown[] }
+    expect(api.operations).toHaveLength(5)
   })
 })

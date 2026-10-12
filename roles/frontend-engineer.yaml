@@ -6,10 +6,6 @@ model:
   provider: openai
   name: gpt-5
   config: {}
-budgets:
-  maxIterations: 40
-  maxMinutes: 30
-  maxTokens: 400000
 toolIds:
   - shell
   - files

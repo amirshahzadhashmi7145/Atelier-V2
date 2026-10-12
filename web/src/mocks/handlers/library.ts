@@ -53,7 +53,6 @@ export const libraryHandlers = [
         roleKey: template.roleKey,
         description: template.description,
         model: structuredClone(template.model),
-        budgets: structuredClone(template.budgets),
         activePromptVersionId: null,
         toolIds: [...template.toolIds],
         skillIds: [...template.skillIds],

@@ -1,6 +1,8 @@
 import { http, HttpResponse } from "msw"
-import { parse } from "yaml"
-import { db, modelList, nid, now } from "@/mocks/db"
+import { operationsFromSpec } from "@/features/tools/import-map"
+import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
+import { db, modelList, nid, now, remember } from "@/mocks/db"
+import { discoveredModelIds } from "@/mocks/handlers/providers"
 
 function error(status: number, code: string, message: string) {
   return HttpResponse.json({ code, message }, { status })
@@ -11,50 +13,21 @@ export const toolHandlers = [
   http.post("/tools/mcp/discover", async ({ request }) => {
     const body = (await request.json()) as { serverUrl?: string }
     if (!body.serverUrl) return error(400, "invalid", "serverUrl is required")
+    const schema = { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
     return HttpResponse.json({
       tools: [
-        {
-          name: "repo.search",
-          description: "Search the connected repository.",
-          schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-        },
-        {
-          name: "repo.read",
-          description: "Read a file from the connected repository.",
-          schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
-        },
+        { name: "repo.search", description: "Search the connected repository.", schema, permission: "read" },
+        { name: "repo.read", description: "Read a file from the connected repository.", schema, permission: "read" },
+        { name: "repo.write", description: "Write a file in the connected repository.", schema, permission: "write" },
+        { name: "repo.web", description: "Fetch a page from the web.", schema, permission: "external" },
       ],
     })
   }),
   http.post("/tools/api/import", async ({ request }) => {
     const body = (await request.json()) as { spec?: string; specUrl?: string }
     if (!body.spec && !body.specUrl) return error(400, "invalid", "spec or specUrl is required")
-    if (!body.spec) {
-      return HttpResponse.json({
-        operations: [
-          { method: "GET", path: "/status", operationId: "getStatus", description: body.specUrl },
-        ],
-      })
-    }
-    let doc: { paths?: Record<string, Record<string, { operationId?: string; description?: string }>> }
-    try {
-      doc = parse(body.spec) as typeof doc
-    } catch {
-      return error(400, "invalid", "spec is not valid YAML or JSON")
-    }
-    const operations = []
-    for (const [path, methods] of Object.entries(doc.paths ?? {})) {
-      for (const [method, operation] of Object.entries(methods ?? {})) {
-        if (!["get", "post", "put", "patch", "delete"].includes(method)) continue
-        operations.push({
-          method: method.toUpperCase(),
-          path,
-          operationId: operation.operationId ?? `${method}_${path}`,
-          description: operation.description ?? "",
-        })
-      }
-    }
-    return HttpResponse.json({ operations })
+    if (!body.spec) return error(422, "invalid", "Paste the spec to import operations")
+    return HttpResponse.json({ operations: operationsFromSpec(body.spec) })
   }),
   http.post("/tools", async ({ request }) => {
     const body = (await request.json()) as {
@@ -112,16 +85,53 @@ export const toolHandlers = [
       versionTag: null,
     }
     db.dataSources.push(created)
+    db.tools.push({
+      id: nid("tool"),
+      kind: "data",
+      name: "search_data",
+      description: `Search ${created.name}`,
+      schema: { type: "object", additionalProperties: false, properties: { query: { type: "string" } }, required: ["query"] },
+      permission: "read",
+      config: { dataSourceId: created.id },
+      source: created.ref,
+      enabled: true,
+    })
+    remember()
     return HttpResponse.json(created, { status: 201 })
   }),
   http.post("/data-sources/:id/refresh", ({ params }) => {
     const source = db.dataSources.find((item) => item.id === String(params.id))
     if (!source) return error(404, "not_found", "Data source not found")
     source.lastPulledAt = now()
-    source.pagesChanged = 0
+    source.pagesChanged = (source.pagesChanged ?? 0) + 1
+    remember()
     return HttpResponse.json(source)
   }),
   http.get("/stacks", () => HttpResponse.json(db.stacks)),
+  http.post("/stacks", async ({ request }) => {
+    const body = (await request.json()) as {
+      name?: string
+      version?: string
+      packageAllowList?: string[]
+      scaffoldTemplate?: string | null
+      skillIds?: string[]
+      dataSourceIds?: string[]
+    }
+    if (!body.name || !body.version) return error(422, "invalid", "name and version are required")
+    const created = {
+      id: nid("stack"),
+      name: body.name,
+      version: body.version,
+      skillIds: body.skillIds ?? [],
+      dataSourceIds: body.dataSourceIds ?? [],
+      scaffoldTemplate: body.scaffoldTemplate ?? null,
+      packageAllowList: body.packageAllowList ?? [],
+      enabledByDefault: false,
+    }
+    db.stacks.push(created)
+    remember()
+    return HttpResponse.json(created, { status: 201 })
+  }),
   http.patch("/stacks/:id", async ({ params, request }) => {
     const stack = db.stacks.find((item) => item.id === String(params.id))
     if (!stack) return error(404, "not_found", "Stack not found")
@@ -131,5 +141,21 @@ export const toolHandlers = [
     if (body.dataSourceIds) stack.dataSourceIds = body.dataSourceIds
     return HttpResponse.json(stack)
   }),
-  http.get("/models", () => HttpResponse.json(modelList())),
+  http.get("/models", async () => {
+    const found = await discoveredModelIds()
+    const provider = db.providers.find((item) => item.id === "openai")
+    if (found) {
+      db.models = found.ids.filter(isChatModel).map((id) => modelInfoFromId(id))
+      if (provider) {
+        provider.modelsCachedAt = now()
+        provider.connected = found.fromProvider
+      }
+    } else if (provider) {
+      db.models = []
+      provider.connected = false
+      provider.modelsCachedAt = null
+    }
+    remember()
+    return HttpResponse.json(modelList())
+  }),
 ]

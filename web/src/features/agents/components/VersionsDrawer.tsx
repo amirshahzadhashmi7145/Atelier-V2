@@ -13,7 +13,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { diffVersions } from "@/features/agents/api"
-import { MergeDiff } from "@/features/agents/components/MarkdownField"
+import { MergeDiff } from "@/components/shared/MarkdownField"
 import type { components } from "@/lib/api/generated/types"
 
 type Version = components["schemas"]["PromptVersion"]

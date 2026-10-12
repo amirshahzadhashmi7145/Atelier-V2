@@ -11,11 +11,6 @@
           "name": "gpt-5",
           "config": {}
         },
-        "budgets": {
-          "maxIterations": 40,
-          "maxMinutes": 30,
-          "maxTokens": 400000
-        },
         "toolIds": [
           "shell",
           "files",
@@ -69,6 +64,12 @@
         "body": "Every criterion needs evidence in the summary. The build and tests run once more after the last edit. Unmet criteria are follow-ups, not a silent pass.",
         "files": [],
         "version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "createdAt": "2026-10-01T00:00:00.000Z"
+          }
+        ],
         "origin": "seed",
         "createdAt": "2026-10-01T00:00:00.000Z"
       },
@@ -79,6 +80,12 @@
         "body": "Keep server components free of browser APIs. Put client state in a client component at the leaf that needs it. Do not add a second routing style beside the App Router.",
         "files": [],
         "version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "createdAt": "2026-10-01T00:00:00.000Z"
+          }
+        ],
         "origin": "seed",
         "createdAt": "2026-10-01T00:00:00.000Z"
       },
@@ -89,6 +96,12 @@
         "body": "Prefer components that take data in and render it. Keep effects for synchronizing with something outside React. Do not invent a data layer when the task already names one.",
         "files": [],
         "version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "createdAt": "2026-10-01T00:00:00.000Z"
+          }
+        ],
         "origin": "seed",
         "createdAt": "2026-10-01T00:00:00.000Z"
       },
@@ -99,6 +112,12 @@
         "body": "Use semantic color tokens and flex or grid with gap. Every interactive control needs a visible name. Loading, empty, and error states are part of the screen, not a follow-up.",
         "files": [],
         "version": 1,
+        "versions": [
+          {
+            "version": 1,
+            "createdAt": "2026-10-01T00:00:00.000Z"
+          }
+        ],
         "origin": "seed",
         "createdAt": "2026-10-01T00:00:00.000Z"
       }

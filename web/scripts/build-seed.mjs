@@ -30,6 +30,7 @@ function skillFromDir(id) {
     body: match[2].trim(),
     files,
     version: 1,
+    versions: [{ version: 1, createdAt }],
     origin: "seed",
     createdAt,
   }
@@ -65,7 +66,6 @@ const seed = {
         roleKey: role.roleKey,
         description: role.description,
         model: role.model,
-        budgets: role.budgets,
         toolIds: role.toolIds,
         skillIds: role.skillIds,
         stackIds: role.stackIds,

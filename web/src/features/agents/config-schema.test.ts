@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { defaultsFromSchema, validateConfig, type JsonSchema } from "@/features/agents/config-schema"
+import { defaultsFromSchema, retainConfig, validateConfig, type JsonSchema } from "@/features/agents/config-schema"
 
 const schema: JsonSchema = {
   type: "object",
@@ -19,6 +19,21 @@ describe("config schema", () => {
       webSearch: false,
     })
     expect(validateConfig(schema, { temperature: 0.2, reasoningEffort: "low", webSearch: true })).toBeNull()
+  })
+
+  it("keeps values that still validate on the next schema", () => {
+    const next: JsonSchema = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        temperature: { type: "number", minimum: 0, maximum: 2, default: 0.4 },
+        webSearch: { type: "boolean", default: false },
+      },
+    }
+    expect(retainConfig(next, { reasoningEffort: "high", webSearch: true, temperature: 9 })).toEqual({
+      temperature: 0.4,
+      webSearch: true,
+    })
   })
 
   it("rejects values and keys the schema does not allow", () => {

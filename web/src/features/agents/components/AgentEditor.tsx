@@ -31,12 +31,15 @@ import {
   startTestRun,
   updateAgent,
 } from "@/features/agents/api"
-import { asSchema, defaultsFromSchema, validateConfig } from "@/features/agents/config-schema"
-import { MarkdownField } from "@/features/agents/components/MarkdownField"
+import { asSchema, defaultsFromSchema, retainConfig, validateConfig } from "@/features/agents/config-schema"
+import { ModelPicker } from "@/features/agents/components/ModelPicker"
+import { StackSheet } from "@/features/agents/components/StackSheet"
+import { MarkdownField } from "@/components/shared/MarkdownField"
 import { ModelCard } from "@/features/agents/components/ModelCard"
 import { SchemaForm } from "@/features/agents/components/SchemaForm"
 import { VersionsDrawer } from "@/features/agents/components/VersionsDrawer"
 import type { components } from "@/lib/api/generated/types"
+import { listModelTags } from "@/lib/api/model-tags"
 import { queryKeys } from "@/lib/api/query-keys"
 import { useUiStore } from "@/stores/ui-store"
 
@@ -48,7 +51,6 @@ type Draft = {
   roleKey: string
   description: string
   model: Agent["model"]
-  budgets: Agent["budgets"]
   toolIds: string[]
   skillIds: string[]
   stackIds: string[]
@@ -79,7 +81,6 @@ function draftFrom(agent: Agent, sections: Sections | undefined): Draft {
     roleKey: agent.roleKey,
     description: agent.description,
     model: agent.model,
-    budgets: agent.budgets,
     toolIds: agent.toolIds,
     skillIds: agent.skillIds,
     stackIds: agent.stackIds,
@@ -97,6 +98,7 @@ export function AgentEditor({ id }: { id: string }) {
   const skillsQuery = useQuery({ queryKey: queryKeys.skills, queryFn: listEditorSkills })
   const stacksQuery = useQuery({ queryKey: queryKeys.stacks, queryFn: listEditorStacks })
   const modelsQuery = useQuery({ queryKey: queryKeys.models, queryFn: listEditorModels })
+  const tagsQuery = useQuery({ queryKey: queryKeys.modelTags, queryFn: listModelTags })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [previewBody, setPreviewBody] = useState<components["schemas"]["CompilePreviewRequest"] | null>(null)
   const [evalForm, setEvalForm] = useState({ name: "", task: "", criteria: "", passRule: "" })
@@ -156,7 +158,6 @@ export function AgentEditor({ id }: { id: string }) {
         roleKey: current.roleKey,
         description: current.description,
         model: { ...current.model, config },
-        budgets: current.budgets,
         toolIds: current.toolIds,
         skillIds: current.skillIds,
         stackIds: current.stackIds,
@@ -267,35 +268,24 @@ export function AgentEditor({ id }: { id: string }) {
           <CardDescription>Settings come from the model schema, so a new option shows up without a code change.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <Field>
-            <FieldLabel htmlFor="model">Model</FieldLabel>
-            <select
-              id="model"
-              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-              value={current.model.name}
-              onChange={(event) => {
-                const model = modelsQuery.data?.find((item) => item.name === event.target.value)
-                if (!model) return
-                patch({
-                  model: {
-                    provider: model.provider,
-                    name: model.name,
-                    config: defaultsFromSchema(asSchema(model.configSchema)),
-                  },
-                })
-              }}
-            >
-              <option value="">Choose a model</option>
-              {(modelsQuery.data ?? []).map((model) => (
-                <option key={model.name} value={model.name}>
-                  {model.name}
-                </option>
-              ))}
-              {current.model.name && !(modelsQuery.data ?? []).some((model) => model.name === current.model.name) ? (
-                <option value={current.model.name}>{current.model.name}</option>
-              ) : null}
-            </select>
-          </Field>
+          <ModelPicker
+            models={modelsQuery.data ?? []}
+            value={current.model.name}
+            roleKey={current.roleKey}
+            tags={tagsQuery.data}
+            onChange={(name) => {
+              const model = modelsQuery.data?.find((item) => item.name === name)
+              if (!model) return
+              const schemaForModel = asSchema(model.configSchema)
+              patch({
+                model: {
+                  provider: model.provider,
+                  name: model.name,
+                  config: retainConfig(schemaForModel, current.model.config),
+                },
+              })
+            }}
+          />
           {schema ? (
             <SchemaForm
               schema={schema}
@@ -307,35 +297,6 @@ export function AgentEditor({ id }: { id: string }) {
           )}
           {configError ? <p className="text-sm text-destructive">{configError}</p> : null}
           {selectedModel ? <ModelCard model={selectedModel} /> : null}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Budgets</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            {(
-              [
-                ["maxIterations", "Max iterations"],
-                ["maxMinutes", "Max minutes"],
-                ["maxTokens", "Max tokens"],
-              ] as const
-            ).map(([key, label]) => (
-              <Field key={key}>
-                <FieldLabel htmlFor={key}>{label}</FieldLabel>
-                <Input
-                  id={key}
-                  type="number"
-                  min={1}
-                  value={current.budgets[key]}
-                  onChange={(event) =>
-                    patch({ budgets: { ...current.budgets, [key]: Number(event.target.value) } })
-                  }
-                />
-              </Field>
-            ))}
-          </FieldGroup>
         </CardContent>
       </Card>
       <Card>
@@ -359,7 +320,7 @@ export function AgentEditor({ id }: { id: string }) {
             <p className="text-sm text-muted-foreground">
               {preview.data ? `${preview.data.tokenCount} tokens` : "Compiling…"}
             </p>
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border p-3 text-sm">
+            <pre tabIndex={0} className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border p-3 text-sm">
               {preview.data?.compiled ?? ""}
             </pre>
           </div>
@@ -371,20 +332,37 @@ export function AgentEditor({ id }: { id: string }) {
           <CardDescription>Control tools stay on and are hidden from the Tools page.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          <Checklist
-            legend="Tools"
-            empty="No tools yet."
-            items={tools.map((tool) => ({
-              id: tool.id,
-              label: tool.name,
-              detail: tool.description,
-              badge: <PermissionBadge permission={tool.permission} />,
-            }))}
-            selected={current.toolIds}
-            onToggle={(toolId, on) =>
-              patch({ toolIds: on ? [...current.toolIds, toolId] : current.toolIds.filter((item) => item !== toolId) })
-            }
-          />
+          {(
+            [
+              ["builtin", "Built-in"],
+              ["client", "Client-side"],
+              ["mcp", "MCP"],
+              ["api", "APIs"],
+              ["data", "Data"],
+            ] as const
+          ).map(([kind, legend]) => {
+            const items = tools
+              .filter((tool) => tool.kind === kind)
+              .map((tool) => ({
+                id: tool.id,
+                label: tool.kind === "data" ? `${tool.name} (${tool.description})` : tool.name,
+                detail: tool.description,
+                badge: <PermissionBadge permission={tool.permission} />,
+              }))
+            if (items.length === 0 && kind !== "builtin") return null
+            return (
+              <Checklist
+                key={kind}
+                legend={legend}
+                empty="No tools yet."
+                items={items}
+                selected={current.toolIds}
+                onToggle={(toolId, on) =>
+                  patch({ toolIds: on ? [...current.toolIds, toolId] : current.toolIds.filter((item) => item !== toolId) })
+                }
+              />
+            )
+          })}
           <Checklist
             legend="Skills"
             empty="No skills yet. Import an agent to copy the skills it uses."
@@ -394,9 +372,14 @@ export function AgentEditor({ id }: { id: string }) {
               patch({ skillIds: on ? [...current.skillIds, skillId] : current.skillIds.filter((item) => item !== skillId) })
             }
           />
+          <StackSheet
+            onCreated={(stackId) =>
+              patch({ stackIds: current.stackIds.includes(stackId) ? current.stackIds : [...current.stackIds, stackId] })
+            }
+          />
           <Checklist
             legend="Stacks"
-            empty="No stacks yet. Import an agent to copy the stacks it uses."
+            empty="No stacks yet. Create one, or import React or Next.js."
             items={(stacksQuery.data ?? []).map((stack) => ({
               id: stack.id,
               label: `${stack.name} ${stack.version}`,

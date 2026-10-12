@@ -1,7 +1,7 @@
-import { ToolList } from "@/features/tools/components/ToolList"
+import { ToolsPage } from "@/features/tools/components/ToolsPage"
 
 export const instant = false
 
-export default function ToolsPage() {
-  return <ToolList />
+export default function ToolsRoute() {
+  return <ToolsPage />
 }
