@@ -1,6 +1,12 @@
 export const queryKeys = {
   agents: ["agents"] as const,
+  agent: (id: string) => ["agents", id] as const,
+  versions: (id: string) => ["agents", id, "versions"] as const,
+  library: (kind: string) => ["library", kind] as const,
   tools: ["tools"] as const,
   skills: ["skills"] as const,
+  stacks: ["stacks"] as const,
+  models: ["models"] as const,
+  providers: ["providers"] as const,
   runs: (page = 1) => ["runs", page] as const,
 }

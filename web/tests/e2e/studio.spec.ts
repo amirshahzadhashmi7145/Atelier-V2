@@ -2,10 +2,11 @@ import { expect, test } from "@playwright/test"
 import AxeBuilder from "@axe-core/playwright"
 
 const pages = [
-  ["/agents", "Agents", "Frontend Engineer"],
+  ["/agents", "Agents", "No agents yet"],
   ["/tools", "Tools", "shell"],
-  ["/skills", "Skills", "React best practices"],
-  ["/runs", "Runs", "Add a primary button to the empty state."],
+  ["/skills", "Skills", "No skills yet"],
+  ["/runs", "Runs", "No runs yet"],
+  ["/settings/providers", "Providers", "API key"],
 ] as const
 
 for (const [path, heading, text] of pages) {

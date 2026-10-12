@@ -19,7 +19,7 @@ export function ToolList() {
       <QueryBody
         query={query}
         emptyTitle="No tools yet"
-        emptyDescription="Built-in tools show up here once the seed loads."
+        emptyDescription="Built-in tools are part of the runtime. Control tools stay hidden."
       >
         {(tools) => (
           <ul className="flex flex-col gap-3">

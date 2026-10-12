@@ -15,9 +15,16 @@ function renderList() {
 }
 
 describe("AgentList", () => {
-  it("shows the seeded agent", async () => {
+  it("shows agents returned by the API", async () => {
+    server.use(
+      http.get("/agents", () =>
+        HttpResponse.json([
+          { id: "agt_1", name: "Frontend Engineer", description: "Builds UI" },
+        ]),
+      ),
+    )
     renderList()
-    expect(await screen.findByText("Frontend Engineer")).toBeInTheDocument()
+    expect(await screen.findByRole("link", { name: "Frontend Engineer" })).toBeInTheDocument()
   })
 
   it("shows an empty state", async () => {

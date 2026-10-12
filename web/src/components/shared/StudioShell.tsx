@@ -3,7 +3,7 @@
 import { useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BotIcon, LibraryIcon, PlayIcon, WrenchIcon } from "lucide-react"
+import { BotIcon, LibraryIcon, PlayIcon, SettingsIcon, WrenchIcon } from "lucide-react"
 import { Toaster } from "@/components/ui/sonner"
 import {
   Sidebar,
@@ -28,6 +28,7 @@ const items = [
   { href: "/tools", label: "Tools", icon: WrenchIcon },
   { href: "/skills", label: "Skills", icon: LibraryIcon },
   { href: "/runs", label: "Runs", icon: PlayIcon },
+  { href: "/settings/providers", label: "Settings", icon: SettingsIcon },
 ]
 
 function ThemeClass() {
@@ -106,7 +107,7 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <header className="flex items-center gap-2 border-b px-4 py-3">
           <SidebarTrigger />
-          <span className="text-sm text-muted-foreground">Week 1 scaffold</span>
+          <span className="text-sm text-muted-foreground">Studio</span>
         </header>
         <div className="flex flex-1 flex-col gap-6 p-6">{children}</div>
       </SidebarInset>

@@ -2,7 +2,7 @@ import { defineConfig, globalIgnores } from "eslint/config"
 import nextVitals from "eslint-config-next/core-web-vitals"
 import nextTs from "eslint-config-next/typescript"
 
-const features = ["agents", "tools", "skills", "runs"]
+const features = ["agents", "tools", "skills", "runs", "settings"]
 
 function featureBoundary(feature) {
   const others = features.filter((name) => name !== feature)
