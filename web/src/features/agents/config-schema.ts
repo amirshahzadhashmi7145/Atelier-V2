@@ -27,6 +27,16 @@ export function defaultsFromSchema(schema: JsonSchema): Record<string, unknown> 
   return config
 }
 
+export function retainConfig(schema: JsonSchema, config: Record<string, unknown>) {
+  const next = defaultsFromSchema(schema)
+  const properties = schema.properties ?? {}
+  for (const [key, value] of Object.entries(config)) {
+    if (!(key in properties)) continue
+    if (validateConfig(schema, { ...next, [key]: value }) === null) next[key] = value
+  }
+  return next
+}
+
 export function validateConfig(schema: JsonSchema, config: Record<string, unknown>): string | null {
   const properties = schema.properties ?? {}
   if (schema.additionalProperties === false) {

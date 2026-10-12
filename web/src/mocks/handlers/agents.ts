@@ -1,7 +1,8 @@
 import { http, HttpResponse } from "msw"
 import { compilePrompt } from "@/features/agents/compile"
 import { asSchema, validateConfig } from "@/features/agents/config-schema"
-import { db, modelCatalog, nid, now, orderedById } from "@/mocks/db"
+import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
+import { db, nid, now, orderedById } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
   return HttpResponse.json({ code, message }, { status })
@@ -12,9 +13,8 @@ function agentOr404(id: string) {
 }
 
 function modelError(model: { provider: string; name: string; config: Record<string, unknown> }) {
-  const known = modelCatalog.find((item) => item.provider === model.provider && item.name === model.name)
-  if (!known) return "Unknown model. Refresh models in Settings."
-  return validateConfig(asSchema(known.configSchema), model.config)
+  if (!isChatModel(model.name)) return "Unknown model. Refresh models in Settings."
+  return validateConfig(asSchema(modelInfoFromId(model.name).configSchema), model.config)
 }
 
 function compileFor(

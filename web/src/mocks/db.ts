@@ -89,40 +89,6 @@ export type Library = {
 
 export const library = (seed as { library: Library }).library
 
-const temperature = { type: "number", minimum: 0, maximum: 2, default: 0.2, description: "Sampling temperature" }
-const maxOutputTokens = { type: "integer", minimum: 1, maximum: 128000, default: 4096, description: "Maximum tokens to generate" }
-const reasoningEffort = { type: "string", enum: ["low", "medium", "high"], default: "medium", description: "How hard the model thinks" }
-const webSearch = { type: "boolean", default: false, description: "Allow the model to search the web" }
-const structuredOutputs = { type: "boolean", default: false, description: "Require a JSON schema response" }
-
-function objectSchema(properties: Record<string, unknown>) {
-  return { type: "object", additionalProperties: false, properties }
-}
-
-function modelCard(name: string, speedTier: ModelCard["speedTier"], properties: Record<string, unknown>): ModelCard {
-  return {
-    provider: "openai",
-    name,
-    // ponytail: placeholder window until a real provider response replaces this catalog
-    contextWindow: 128000,
-    priceInPerM: null,
-    priceOutPerM: null,
-    speedTier,
-    fitLine: null,
-    configSchema: objectSchema(properties),
-    benchmarks: [],
-  }
-}
-
-export const modelCatalog: ModelCard[] = [
-  modelCard("gpt-5", "balanced", { temperature, maxOutputTokens, reasoningEffort, webSearch, structuredOutputs }),
-  modelCard("gpt-5-mini", "fast", { temperature, maxOutputTokens, reasoningEffort, structuredOutputs }),
-  modelCard("gpt-5-nano", "fast", { temperature, maxOutputTokens }),
-  modelCard("o3", "slow", { maxOutputTokens, reasoningEffort, structuredOutputs }),
-  modelCard("gpt-4.1", "balanced", { temperature, maxOutputTokens, webSearch }),
-  modelCard("gpt-4.1-mini", "fast", { temperature, maxOutputTokens, structuredOutputs }),
-]
-
 export const MODEL_CACHE_MS = 60 * 60 * 1000
 
 function ordered<T extends { id: string }>(items: T[], ids: string[]): T[] {
@@ -155,7 +121,9 @@ function storedDb(): Db | null {
   if (!raw) return null
   try {
     const saved = JSON.parse(raw) as Db
-    return { ...emptyDb(), ...saved, tools: structuredClone(tools) }
+    const builtinIds = new Set(tools.map((item) => item.id))
+    const extra = (saved.tools ?? []).filter((item) => !builtinIds.has(item.id) && item.kind !== "control")
+    return { ...emptyDb(), ...saved, tools: [...structuredClone(tools), ...extra] }
   } catch {
     return null
   }

@@ -793,7 +793,10 @@ export interface components {
             enabled?: boolean;
         };
         McpDiscoverRequest: {
+            name?: string;
             serverUrl: string;
+            /** @enum {string} */
+            auth?: "none" | "header" | "oauth";
         };
         McpToolDescriptor: {
             name: string;
@@ -801,6 +804,7 @@ export interface components {
             schema: {
                 [key: string]: unknown;
             };
+            permission?: components["schemas"]["ToolPermission"];
         };
         McpDiscoverResult: {
             tools: components["schemas"]["McpToolDescriptor"][];
@@ -808,11 +812,14 @@ export interface components {
         ApiImportRequest: {
             spec?: string;
             specUrl?: string;
+            /** @description Reference to a stored credential. The secret is never in this body. */
+            authRef?: string;
         } | unknown | unknown;
         ApiOperation: {
             method: string;
             path: string;
             operationId: string;
+            summary?: string;
             description?: string;
         };
         ApiImportResult: {
@@ -851,19 +858,32 @@ export interface components {
             body: string;
             files: components["schemas"]["SkillFile"][];
             version: number;
+            versions: components["schemas"]["SkillVersion"][];
             origin: string;
             /** Format: date-time */
             createdAt: string;
+        };
+        SkillVersion: {
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SkillFileInput: {
+            name: string;
+            size: number;
         };
         SkillCreate: {
             name: string;
             description: string;
             body: string;
+            origin?: string;
+            files?: components["schemas"]["SkillFileInput"][];
         };
         SkillPatch: {
             name?: string;
             description?: string;
             body?: string;
+            files?: components["schemas"]["SkillFileInput"][];
         };
         SkillImportRequest: {
             repoUrl: string;
@@ -1718,7 +1738,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Models the connected provider returned, cached for one hour, plus ownStats from runs. Empty until a refresh. */
+            /** @description Chat models discovered from the provider, cached for one hour, plus ownStats from runs. Non-chat families are omitted. Empty until a refresh. */
             200: {
                 headers: {
                     [name: string]: unknown;

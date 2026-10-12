@@ -30,6 +30,7 @@ function skillFromDir(id) {
     body: match[2].trim(),
     files,
     version: 1,
+    versions: [{ version: 1, createdAt }],
     origin: "seed",
     createdAt,
   }
