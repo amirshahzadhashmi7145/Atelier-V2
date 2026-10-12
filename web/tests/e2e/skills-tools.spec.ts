@@ -50,6 +50,7 @@ test("skills, discovered models, and the tools registry", async ({ page }) => {
   await page.getByRole("button", { name: "Refresh models" }).click()
   await expect(page.getByText("o3", { exact: true })).toBeVisible()
   await expect(page.getByText("gpt-4.1-mini", { exact: true })).toBeVisible()
+  await expect(page.getByText("4 models cached")).toBeHidden()
   await axe(page)
 
   await page.goto("/tools")
@@ -68,7 +69,7 @@ test("skills, discovered models, and the tools registry", async ({ page }) => {
 
   await page.getByRole("tab", { name: "APIs" }).click()
   await page.getByRole("button", { name: "Import spec" }).click()
-  await page.getByLabel("Spec URL").fill("https://example.com/openapi.yaml")
+  await page.getByLabel("OpenAPI").fill("paths:\n  /users:\n    get:\n      operationId: listUsers\n      summary: List users\n")
   await page.getByRole("button", { name: "Preview" }).click()
   await page.getByRole("checkbox", { name: /GET \/users List users/ }).check()
   await page.getByRole("button", { name: "Confirm" }).click()

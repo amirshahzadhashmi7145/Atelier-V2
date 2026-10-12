@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw"
+import { operationsFromSpec } from "@/features/tools/import-map"
 import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, modelList, nid, now, remember } from "@/mocks/db"
 import { discoveredModelIds } from "@/mocks/handlers/providers"
@@ -25,16 +26,8 @@ export const toolHandlers = [
   http.post("/tools/api/import", async ({ request }) => {
     const body = (await request.json()) as { spec?: string; specUrl?: string }
     if (!body.spec && !body.specUrl) return error(400, "invalid", "spec or specUrl is required")
-    // ponytail: any spec returns the same five operations until the API parses the document
-    return HttpResponse.json({
-      operations: [
-        { method: "GET", path: "/users", operationId: "listUsers", summary: "List users" },
-        { method: "POST", path: "/users", operationId: "createUser", summary: "Create a user" },
-        { method: "GET", path: "/users/{id}", operationId: "getUser", summary: "Get a user" },
-        { method: "PATCH", path: "/users/{id}", operationId: "updateUser", summary: "Update a user" },
-        { method: "DELETE", path: "/users/{id}", operationId: "deleteUser", summary: "Delete a user" },
-      ],
-    })
+    if (!body.spec) return error(422, "invalid", "Paste the spec to import operations")
+    return HttpResponse.json({ operations: operationsFromSpec(body.spec) })
   }),
   http.post("/tools", async ({ request }) => {
     const body = (await request.json()) as {
@@ -115,6 +108,30 @@ export const toolHandlers = [
     return HttpResponse.json(source)
   }),
   http.get("/stacks", () => HttpResponse.json(db.stacks)),
+  http.post("/stacks", async ({ request }) => {
+    const body = (await request.json()) as {
+      name?: string
+      version?: string
+      packageAllowList?: string[]
+      scaffoldTemplate?: string | null
+      skillIds?: string[]
+      dataSourceIds?: string[]
+    }
+    if (!body.name || !body.version) return error(422, "invalid", "name and version are required")
+    const created = {
+      id: nid("stack"),
+      name: body.name,
+      version: body.version,
+      skillIds: body.skillIds ?? [],
+      dataSourceIds: body.dataSourceIds ?? [],
+      scaffoldTemplate: body.scaffoldTemplate ?? null,
+      packageAllowList: body.packageAllowList ?? [],
+      enabledByDefault: false,
+    }
+    db.stacks.push(created)
+    remember()
+    return HttpResponse.json(created, { status: 201 })
+  }),
   http.patch("/stacks/:id", async ({ params, request }) => {
     const stack = db.stacks.find((item) => item.id === String(params.id))
     if (!stack) return error(404, "not_found", "Stack not found")

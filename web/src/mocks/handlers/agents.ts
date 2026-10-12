@@ -46,14 +46,13 @@ export const agentHandlers = [
       roleKey?: string
       description?: string
       model?: { provider: string; name: string; config: Record<string, unknown> }
-      budgets?: { maxIterations: number; maxMinutes: number; maxTokens: number }
       toolIds?: string[]
       skillIds?: string[]
       stackIds?: string[]
       zones?: string[]
     }
-    if (!body.name || !body.roleKey || !body.description || !body.model || !body.budgets) {
-      return error(422, "invalid", "name, roleKey, description, model, and budgets are required")
+    if (!body.name || !body.roleKey || !body.description || !body.model) {
+      return error(422, "invalid", "name, roleKey, description, and model are required")
     }
     const invalid = modelError(body.model)
     if (invalid) return error(422, "invalid_config", invalid)
@@ -64,7 +63,6 @@ export const agentHandlers = [
       roleKey: body.roleKey,
       description: body.description,
       model: body.model,
-      budgets: body.budgets,
       activePromptVersionId: null,
       toolIds: body.toolIds ?? [],
       skillIds: body.skillIds ?? [],

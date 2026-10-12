@@ -9,5 +9,7 @@ export const queryKeys = {
   models: ["models"] as const,
   dataSources: ["data-sources"] as const,
   providers: ["providers"] as const,
+  runSettings: ["settings", "runs"] as const,
+  modelTags: ["model-tags"] as const,
   runs: (page = 1) => ["runs", page] as const,
 }

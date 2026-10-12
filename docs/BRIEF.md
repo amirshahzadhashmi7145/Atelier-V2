@@ -4,6 +4,10 @@
 
 A web app where a user defines AI agents (prompt sections, tools, skills, tech stacks, model), runs ONE agent on a task inside a sandbox, and watches the run live. Week 1 ships the studio (four pages), the runtime, and one working agent: the Frontend Engineer. Later roles (Backend, Team Lead, PM) are added through the same pages with no new code paths.
 
+## Direction from S4
+
+Budgets are not an agent setting. Settings > Runs holds the platform cap (max spend, default $5) and the advanced bounds. The OpenAI key stays in `web/.env.local`; the Providers page only says whether it was found. Model tags and a one-line note live in `web/data/model-tags.json` until the backend exists. Stacks are created in the UI or imported from the library. Nothing is installed until then.
+
 ## Direction from S3
 
 Skills are created or imported in the UI (GitHub path, zip, or folder). Re-import of the same origin returns a diff before it is saved. Model ids come from OpenAI's models list (`OPENAI_API_KEY` in `.env.local`, server-only); `configSchema` is chosen by family pattern, never by a hardcoded name list. The Tools page is the five tabs. Control tools stay hidden.

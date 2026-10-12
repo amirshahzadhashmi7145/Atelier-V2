@@ -6,7 +6,7 @@ const pages = [
   ["/tools", "Tools", "shell"],
   ["/skills", "Skills", "No skills yet"],
   ["/runs", "Runs", "No runs yet"],
-  ["/settings/providers", "Providers", "API key"],
+  ["/settings/providers", "Providers", "key missing"],
 ] as const
 
 for (const [path, heading, text] of pages) {

@@ -54,7 +54,12 @@ export const runHandlers = [
       task: body.task,
       criteria: body.criteria ?? [],
       attachmentIds: body.attachmentIds ?? [],
-      budget: body.budget ?? agent.budgets,
+      budget: body.budget ?? {
+        maxIterations: db.runSettings.maxIterations,
+        maxMinutes: db.runSettings.maxMinutes,
+        // ponytail: token ceiling stays on the run record; the visible cap is spend
+        maxTokens: 400000,
+      },
       status: "queued" as const,
       iterations: 0,
       tokensIn: 0,

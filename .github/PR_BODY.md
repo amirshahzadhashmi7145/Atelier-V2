@@ -1,22 +1,22 @@
 ## What
 
-Skills, discovered OpenAI models, and the Tools page. A user creates or imports a skill, picks a model whose settings come from its family schema, and adds MCP tools, API operations, and data sources from the registry.
+Finish the S3 settings gaps and add stacks. Agents no longer have budgets. Settings > Runs holds the platform spend cap. The OpenAI key stays in `.env.local`. Settings > Models stores tags and a note. Stacks are created or imported, and they show up in the compiled preview.
 
 ## Why
 
-Nothing in the studio is a fixture. Skills and tools have to be added in the UI, and the model list has to be whatever the provider returns so a new model shows up without a code change.
+Spend and safety bounds are platform settings, not something each agent edits. Model choice needs tags and the user's own run history. A stack should exist only after someone creates it or imports it.
 
 ## How I tested
 
 - `pnpm typecheck` — pass
 - `pnpm lint` — pass
-- `pnpm test` — 63 passed
-- `pnpm test:e2e` — 8 passed (axe on Agents, Tools, Skills, Runs, Providers, the agent editor, and the new skill page; the editor flow still imports the Frontend Engineer, sets reasoning effort and web search, saves, runs evals, and diffs; the new flow creates a skill, imports one from a URL, attaches it, switches a reasoning model for a non-reasoning one, imports two MCP tools and one API operation, and refreshes a data source)
-- In the browser at http://127.0.0.1:3000: Tools shows the five tabs and seven built-in cards, Configure on files opens Allowed paths, Skills shows New skill and Import, Providers takes an API key in the page and Test connection sends it to OpenAI
+- `pnpm test` — 69 passed
+- `pnpm test:e2e` — 9 passed (axe on the studio pages, the agent editor, skills and tools, and Settings > Runs; the new flow checks the spend cap, the missing budget fields, a model tag chip, a created stack in the preview, and Import React)
+- In the browser at http://127.0.0.1:3000: Settings > Runs shows Max spend per run at 5. The Frontend Engineer editor has New stack and Import React, and no Max iterations field.
 
 ## Screenshots
 
-Tools opens on Built-in (shell through search_data) with a permission badge, a cost note, and Configure. Skills starts with New skill and Import. Providers has an API key field. The model menu uses dark text on a white list.
+Settings > Runs shows one spend field and an Advanced disclosure. The agent Access card has New stack, Import React, and Import Next.js. The compiled preview includes `# Enabled stacks`.
 
 ## New dependencies
 
@@ -24,13 +24,13 @@ None.
 
 ## Out of scope / follow-ups
 
-Runs UI, the stacks sheet, and the backend. The API mock returns five canned operations for any spec. Zip archives that store sizes in a data descriptor are not unpacked. Next session can add stacks on the Access card.
+The runs UI and the backend. A spec URL without a pasted document is refused. Loop detection is stored and not enforced until the runtime.
 
 ## Session summary
 
-Session: S3 feat/skills-models-tools
-Built: Skills can be created in the editor or imported from a GitHub path, a zip, or a folder, with a review step and a diff when the same origin is imported again. Settings > Providers keeps the OpenAI key in this browser tab and lists the chat models OpenAI returns. The agent editor renders settings from each id's family schema. The Tools page has Built-in, Client-side, MCP, APIs, and Data; confirming a discovery or an import adds those tools, and a data source is one search_data tool.
-Decisions: Model ids are never hardcoded. Reasoning families (o-series and gpt-5, except chat snapshots) get the documented reasoning_effort enum and no temperature; other gpt/chatgpt ids get temperature and maxOutputTokens; every chat model gets webSearch and structuredOutputs; anything else gets that base pair. The key stays in sessionStorage for this tab and is sent only on the models request. A failed discovery clears the cached catalog instead of leaving Connected. Select options use dark text on white so the menu stays readable in the dark theme. The mock returns one canned SKILL.md for any URL and five canned operations for any spec. Control tools stay off the Tools page. Prices and benchmarks stay empty.
-Failures / known gaps: Zip entries that use a data descriptor are not unpacked. The API mock does not parse the pasted spec. The runs UI and the stacks sheet are not built. Eval runs in the mock still always pass.
+Session: S4 feat/finish-s3-settings-stacks
+Built: Budgets left the agent editor. Settings > Runs holds a visible spend cap and advanced bounds. The OpenAI key is read from .env.local again, and Providers only says whether it was found. Settings > Models stores tags and a note in a local JSON file, and the model picker shows those tags plus run stats. Stacks are created on the Access card or imported from the library, and enabled stacks show up in the compiled preview.
+Decisions: S3 was still unmerged, so this branch starts from feat/skills-models-tools. Amendment A was not in the repo; the session text is the spec. Reasoning families seed planning and review; mini, nano, and fast seed cheap and fast; a saved tag replaces the guess. ownStats counts completed runs that have a summary. A data-descriptor zip is read from the central-directory size. A pasted OpenAPI document is parsed from its paths. Run records still keep a token ceiling because the visible cap is spend.
+Failures / known gaps: The runs page is not built. There is no backend, so tags live in web/data/model-tags.json. A spec URL without a pasted document is refused. Eval runs in the mock still always pass. Loop detection is stored and not enforced until the runtime.
 New dependencies: none
-Follow-ups for the next session: Stacks on the Access card, and a real spec parser when the API exists.
+Follow-ups for the next session: The runs UI.

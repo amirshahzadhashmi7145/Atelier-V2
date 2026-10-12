@@ -1,5 +1,4 @@
 import { bypass, http, HttpResponse } from "msw"
-import { providerAuthHeaders } from "@/lib/api/provider-route"
 import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, hasProviderSecret, modelList, now, remember, setProviderSecret } from "@/mocks/db"
 
@@ -27,9 +26,7 @@ function fixtureIds() {
 
 export async function discoveredModelIds(): Promise<{ ids: string[]; fromProvider: boolean } | null> {
   try {
-    const response = await fetch(bypass(new URL("/api/providers/openai/models", location.origin)), {
-      headers: providerAuthHeaders(),
-    })
+    const response = await fetch(bypass(new URL("/api/providers/openai/models", location.origin)))
     if (response.ok) {
       const body = (await response.json()) as { ids?: string[] }
       return { ids: body.ids ?? [], fromProvider: true }
@@ -72,5 +69,15 @@ export const providerHandlers = [
     provider.connected = found.fromProvider
     remember()
     return HttpResponse.json(modelList())
+  }),
+  http.get("/settings/runs", () => HttpResponse.json(db.runSettings)),
+  http.put("/settings/runs", async ({ request }) => {
+    const body = (await request.json()) as typeof db.runSettings
+    if (body.maxSpendPerRunUsd == null || !body.maxIterations || !body.maxMinutes || body.loopDetection == null) {
+      return error(422, "invalid", "Run settings are incomplete")
+    }
+    db.runSettings = body
+    remember()
+    return HttpResponse.json(db.runSettings)
   }),
 ]

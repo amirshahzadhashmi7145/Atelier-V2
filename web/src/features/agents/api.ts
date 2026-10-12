@@ -76,6 +76,14 @@ export async function listEditorStacks() {
   return unwrap(await api.GET("/stacks"))
 }
 
+export async function createStack(body: components["schemas"]["StackCreate"]) {
+  return unwrap(await api.POST("/stacks", { body }))
+}
+
+export async function createDataSource(body: components["schemas"]["DataSourceCreate"]) {
+  return unwrap(await api.POST("/data-sources", { body }))
+}
+
 export async function listEditorModels() {
   return unwrap(await api.GET("/models"))
 }

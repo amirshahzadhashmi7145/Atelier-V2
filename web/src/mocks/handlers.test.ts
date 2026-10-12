@@ -59,7 +59,9 @@ describe("mock contract", () => {
       await fetch("http://localhost/tools/api/import", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ specUrl: "https://example.com/openapi.yaml", authRef: "secret:docs" }),
+        body: JSON.stringify({
+        spec: `paths:\n  /users:\n    get:\n      operationId: listUsers\n    post:\n      operationId: createUser\n  /users/{id}:\n    get:\n      operationId: getUser\n    patch:\n      operationId: updateUser\n    delete:\n      operationId: deleteUser\n`,
+      }),
       })
     ).json()) as { operations: unknown[] }
     expect(api.operations).toHaveLength(5)

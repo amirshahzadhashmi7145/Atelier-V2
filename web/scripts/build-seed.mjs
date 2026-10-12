@@ -66,7 +66,6 @@ const seed = {
         roleKey: role.roleKey,
         description: role.description,
         model: role.model,
-        budgets: role.budgets,
         toolIds: role.toolIds,
         skillIds: role.skillIds,
         stackIds: role.stackIds,

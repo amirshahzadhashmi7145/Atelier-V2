@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.3.0
+  version: 0.4.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -13,6 +13,7 @@ tags:
   - name: stacks
   - name: models
   - name: providers
+  - name: settings
   - name: library
   - name: runs
 paths:
@@ -435,6 +436,24 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TechStack"
+    post:
+      operationId: createStack
+      tags: [stacks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StackCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TechStack"
+        "422":
+          $ref: "#/components/responses/Error"
   /stacks/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -469,6 +488,33 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ModelInfo"
+  /settings/runs:
+    get:
+      operationId: getRunSettings
+      tags: [settings]
+      responses:
+        "200":
+          description: Platform defaults for every run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSettings"
+    put:
+      operationId: saveRunSettings
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunSettings"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunSettings"
   /providers:
     get:
       operationId: listProviders
@@ -912,7 +958,6 @@ components:
         - roleKey
         - description
         - model
-        - budgets
         - activePromptVersionId
         - toolIds
         - skillIds
@@ -932,8 +977,6 @@ components:
           type: string
         model:
           $ref: "#/components/schemas/ModelSelection"
-        budgets:
-          $ref: "#/components/schemas/Budgets"
         activePromptVersionId:
           type: [string, "null"]
         toolIds:
@@ -965,7 +1008,7 @@ components:
     AgentCreate:
       type: object
       additionalProperties: false
-      required: [name, roleKey, description, model, budgets]
+      required: [name, roleKey, description, model]
       properties:
         name:
           type: string
@@ -975,8 +1018,6 @@ components:
           type: string
         model:
           $ref: "#/components/schemas/ModelSelection"
-        budgets:
-          $ref: "#/components/schemas/Budgets"
         toolIds:
           type: array
           items:
@@ -1005,8 +1046,6 @@ components:
           type: string
         model:
           $ref: "#/components/schemas/ModelSelection"
-        budgets:
-          $ref: "#/components/schemas/Budgets"
         toolIds:
           type: array
           items:
@@ -1512,6 +1551,29 @@ components:
             type: string
         enabledByDefault:
           type: boolean
+    StackCreate:
+      type: object
+      additionalProperties: false
+      required: [name, version, packageAllowList, scaffoldTemplate, skillIds, dataSourceIds]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        packageAllowList:
+          type: array
+          items:
+            type: string
+        scaffoldTemplate:
+          type: [string, "null"]
+        skillIds:
+          type: array
+          items:
+            type: string
+        dataSourceIds:
+          type: array
+          items:
+            type: string
     StackPatch:
       type: object
       additionalProperties: false
@@ -1616,6 +1678,22 @@ components:
         modelsCachedAt:
           type: [string, "null"]
           format: date-time
+    RunSettings:
+      type: object
+      additionalProperties: false
+      required: [maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection]
+      properties:
+        maxSpendPerRunUsd:
+          type: number
+          minimum: 0
+        maxIterations:
+          type: integer
+          minimum: 1
+        maxMinutes:
+          type: integer
+          minimum: 1
+        loopDetection:
+          type: boolean
     ProviderKey:
       type: object
       additionalProperties: false

@@ -273,7 +273,7 @@ export interface paths {
         };
         get: operations["listStacks"];
         put?: never;
-        post?: never;
+        post: operations["createStack"];
         delete?: never;
         options?: never;
         head?: never;
@@ -307,6 +307,22 @@ export interface paths {
         };
         get: operations["listModels"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/settings/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getRunSettings"];
+        put: operations["saveRunSettings"];
         post?: never;
         delete?: never;
         options?: never;
@@ -660,7 +676,6 @@ export interface components {
             roleKey: string;
             description: string;
             model: components["schemas"]["ModelSelection"];
-            budgets: components["schemas"]["Budgets"];
             activePromptVersionId: string | null;
             toolIds: string[];
             skillIds: string[];
@@ -677,7 +692,6 @@ export interface components {
             roleKey: string;
             description: string;
             model: components["schemas"]["ModelSelection"];
-            budgets: components["schemas"]["Budgets"];
             toolIds?: string[];
             skillIds?: string[];
             stackIds?: string[];
@@ -688,7 +702,6 @@ export interface components {
             roleKey?: string;
             description?: string;
             model?: components["schemas"]["ModelSelection"];
-            budgets?: components["schemas"]["Budgets"];
             toolIds?: string[];
             skillIds?: string[];
             stackIds?: string[];
@@ -912,6 +925,14 @@ export interface components {
             packageAllowList: string[];
             enabledByDefault: boolean;
         };
+        StackCreate: {
+            name: string;
+            version: string;
+            packageAllowList: string[];
+            scaffoldTemplate: string | null;
+            skillIds: string[];
+            dataSourceIds: string[];
+        };
         StackPatch: {
             packageAllowList?: string[];
             skillIds?: string[];
@@ -953,6 +974,12 @@ export interface components {
             connected: boolean;
             /** Format: date-time */
             modelsCachedAt: string | null;
+        };
+        RunSettings: {
+            maxSpendPerRunUsd: number;
+            maxIterations: number;
+            maxMinutes: number;
+            loopDetection: boolean;
         };
         ProviderKey: {
             apiKey: string;
@@ -1702,6 +1729,31 @@ export interface operations {
             };
         };
     };
+    createStack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StackCreate"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TechStack"];
+                };
+            };
+            422: components["responses"]["Error"];
+        };
+    };
     updateStack: {
         parameters: {
             query?: never;
@@ -1745,6 +1797,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelInfo"][];
+                };
+            };
+        };
+    };
+    getRunSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform defaults for every run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSettings"];
+                };
+            };
+        };
+    };
+    saveRunSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunSettings"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSettings"];
                 };
             };
         };

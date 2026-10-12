@@ -1,9 +1,8 @@
 import { clearOpenAIModelCache, listOpenAIModelIds } from "@/lib/api/openai-models"
 
 export async function GET(request: Request) {
-  const header = request.headers.get("authorization") ?? ""
-  const key = header.toLowerCase().startsWith("bearer ") ? header.slice(7).trim() : ""
-  if (!key) return Response.json({ error: "Enter an API key" }, { status: 503 })
+  const key = process.env.OPENAI_API_KEY
+  if (!key) return Response.json({ error: "OPENAI_API_KEY is not set" }, { status: 503 })
   const refresh = new URL(request.url).searchParams.get("refresh") === "1"
   if (refresh) clearOpenAIModelCache()
   try {

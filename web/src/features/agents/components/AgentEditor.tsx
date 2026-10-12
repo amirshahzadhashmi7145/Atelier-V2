@@ -33,11 +33,13 @@ import {
 } from "@/features/agents/api"
 import { asSchema, defaultsFromSchema, retainConfig, validateConfig } from "@/features/agents/config-schema"
 import { ModelPicker } from "@/features/agents/components/ModelPicker"
+import { StackSheet } from "@/features/agents/components/StackSheet"
 import { MarkdownField } from "@/components/shared/MarkdownField"
 import { ModelCard } from "@/features/agents/components/ModelCard"
 import { SchemaForm } from "@/features/agents/components/SchemaForm"
 import { VersionsDrawer } from "@/features/agents/components/VersionsDrawer"
 import type { components } from "@/lib/api/generated/types"
+import { listModelTags } from "@/lib/api/model-tags"
 import { queryKeys } from "@/lib/api/query-keys"
 import { useUiStore } from "@/stores/ui-store"
 
@@ -49,7 +51,6 @@ type Draft = {
   roleKey: string
   description: string
   model: Agent["model"]
-  budgets: Agent["budgets"]
   toolIds: string[]
   skillIds: string[]
   stackIds: string[]
@@ -80,7 +81,6 @@ function draftFrom(agent: Agent, sections: Sections | undefined): Draft {
     roleKey: agent.roleKey,
     description: agent.description,
     model: agent.model,
-    budgets: agent.budgets,
     toolIds: agent.toolIds,
     skillIds: agent.skillIds,
     stackIds: agent.stackIds,
@@ -98,6 +98,7 @@ export function AgentEditor({ id }: { id: string }) {
   const skillsQuery = useQuery({ queryKey: queryKeys.skills, queryFn: listEditorSkills })
   const stacksQuery = useQuery({ queryKey: queryKeys.stacks, queryFn: listEditorStacks })
   const modelsQuery = useQuery({ queryKey: queryKeys.models, queryFn: listEditorModels })
+  const tagsQuery = useQuery({ queryKey: queryKeys.modelTags, queryFn: listModelTags })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [previewBody, setPreviewBody] = useState<components["schemas"]["CompilePreviewRequest"] | null>(null)
   const [evalForm, setEvalForm] = useState({ name: "", task: "", criteria: "", passRule: "" })
@@ -157,7 +158,6 @@ export function AgentEditor({ id }: { id: string }) {
         roleKey: current.roleKey,
         description: current.description,
         model: { ...current.model, config },
-        budgets: current.budgets,
         toolIds: current.toolIds,
         skillIds: current.skillIds,
         stackIds: current.stackIds,
@@ -271,6 +271,8 @@ export function AgentEditor({ id }: { id: string }) {
           <ModelPicker
             models={modelsQuery.data ?? []}
             value={current.model.name}
+            roleKey={current.roleKey}
+            tags={tagsQuery.data}
             onChange={(name) => {
               const model = modelsQuery.data?.find((item) => item.name === name)
               if (!model) return
@@ -295,35 +297,6 @@ export function AgentEditor({ id }: { id: string }) {
           )}
           {configError ? <p className="text-sm text-destructive">{configError}</p> : null}
           {selectedModel ? <ModelCard model={selectedModel} /> : null}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Budgets</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <FieldGroup>
-            {(
-              [
-                ["maxIterations", "Max iterations"],
-                ["maxMinutes", "Max minutes"],
-                ["maxTokens", "Max tokens"],
-              ] as const
-            ).map(([key, label]) => (
-              <Field key={key}>
-                <FieldLabel htmlFor={key}>{label}</FieldLabel>
-                <Input
-                  id={key}
-                  type="number"
-                  min={1}
-                  value={current.budgets[key]}
-                  onChange={(event) =>
-                    patch({ budgets: { ...current.budgets, [key]: Number(event.target.value) } })
-                  }
-                />
-              </Field>
-            ))}
-          </FieldGroup>
         </CardContent>
       </Card>
       <Card>
@@ -399,9 +372,14 @@ export function AgentEditor({ id }: { id: string }) {
               patch({ skillIds: on ? [...current.skillIds, skillId] : current.skillIds.filter((item) => item !== skillId) })
             }
           />
+          <StackSheet
+            onCreated={(stackId) =>
+              patch({ stackIds: current.stackIds.includes(stackId) ? current.stackIds : [...current.stackIds, stackId] })
+            }
+          />
           <Checklist
             legend="Stacks"
-            empty="No stacks yet. Import an agent to copy the stacks it uses."
+            empty="No stacks yet. Create one, or import React or Next.js."
             items={(stacksQuery.data ?? []).map((stack) => ({
               id: stack.id,
               label: `${stack.name} ${stack.version}`,

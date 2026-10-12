@@ -54,7 +54,6 @@ export function NewAgent() {
           name: model.name,
           config: defaultsFromSchema(asSchema(model.configSchema)),
         },
-        budgets: { maxIterations: 40, maxMinutes: 30, maxTokens: 400000 },
         zones: ["src/**"],
       })
       await createVersion(agent.id, { role: "", goal: "", instructions: "", constraints: "", output: "" })

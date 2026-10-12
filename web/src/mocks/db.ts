@@ -1,4 +1,5 @@
 import type { components } from "@/lib/api/generated/types"
+import { ownStatsFor } from "@/lib/models/stats"
 import seed from "@/mocks/seed.generated.json"
 
 type Agent = components["schemas"]["AgentDefinition"]
@@ -23,6 +24,7 @@ export type Db = {
   models: ModelCard[]
   providers: components["schemas"]["ProviderStatus"][]
   runs: Run[]
+  runSettings: components["schemas"]["RunSettings"]
   events: Event[]
   diffs: Record<string, TextDiff[]>
   artifacts: Record<string, Artifact[]>
@@ -71,7 +73,6 @@ type LibraryAgent = {
   roleKey: string
   description: string
   model: Agent["model"]
-  budgets: Agent["budgets"]
   toolIds: string[]
   skillIds: string[]
   stackIds: string[]
@@ -108,6 +109,7 @@ const emptyDb = (): Db => ({
   models: [],
   providers: [{ id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null }],
   runs: [],
+  runSettings: { maxSpendPerRunUsd: 5, maxIterations: 60, maxMinutes: 45, loopDetection: true },
   events: [],
   diffs: {},
   artifacts: {},
@@ -123,7 +125,8 @@ function storedDb(): Db | null {
     const saved = JSON.parse(raw) as Db
     const builtinIds = new Set(tools.map((item) => item.id))
     const extra = (saved.tools ?? []).filter((item) => !builtinIds.has(item.id) && item.kind !== "control")
-    return { ...emptyDb(), ...saved, tools: [...structuredClone(tools), ...extra] }
+    const base = emptyDb()
+    return { ...base, ...saved, tools: [...structuredClone(tools), ...extra], runSettings: saved.runSettings ?? base.runSettings }
   } catch {
     return null
   }
@@ -175,18 +178,10 @@ export function freshModels() {
 }
 
 export function modelList() {
-  return freshModels().map((model) => {
-    const roleKeys = [...new Set(db.agents.map((agent) => agent.roleKey))]
-    const ownStats = roleKeys.flatMap((roleKey) => {
-      const agentIds = new Set(db.agents.filter((agent) => agent.roleKey === roleKey).map((agent) => agent.id))
-      const runs = db.runs.filter((run) => run.model.name === model.name && agentIds.has(run.agentId))
-      if (runs.length === 0) return []
-      const passed = runs.filter((run) => run.status === "completed" && run.summary)
-      const avgCostUsd = passed.reduce((sum, run) => sum + run.costUsd, 0) / (passed.length || 1)
-      return [{ roleKey, runs: runs.length, passed: passed.length, avgCostUsd }]
-    })
-    return { ...model, ownStats }
-  })
+  return freshModels().map((model) => ({
+    ...model,
+    ownStats: ownStatsFor(model.name, db.agents, db.runs),
+  }))
 }
 
 export function nid(prefix: string) {
