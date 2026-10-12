@@ -1,0 +1,14 @@
+{
+  "name": "atelier",
+  "private": true,
+  "packageManager": "pnpm@12.11.2",
+  "scripts": {
+    "dev": "pnpm --dir web dev",
+    "typecheck": "pnpm --dir web typecheck",
+    "lint": "pnpm --dir web lint",
+    "test": "pnpm --dir web test",
+    "test:e2e": "pnpm --dir web test:e2e",
+    "gen:api": "pnpm --dir web gen:api",
+    "gen:seed": "pnpm --dir web gen:seed"
+  }
+}
