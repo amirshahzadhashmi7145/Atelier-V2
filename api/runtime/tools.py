@@ -138,20 +138,25 @@ def _install(run: dict, folder: Path | None, name: str, should_stop) -> dict:
 
 
 def _build(run: dict, folder: Path | None, should_stop) -> dict:
-    if folder is None or not (folder / "package.json").exists():
-        db.put("artifact", db.nid("art"), {"id": "pending", "runId": run["id"], "name": "build.log", "kind": "log", "text": "no package.json"})
-        return {"output": "no package.json"}
-    package = json.loads((folder / "package.json").read_text())
-    scripts = package.get("scripts") or {}
     log = ""
-    for script in ("build", "test"):
-        if script in scripts:
+    ok = False
+    if folder is not None and (folder / "package.json").exists():
+        package = json.loads((folder / "package.json").read_text())
+        scripts = package.get("scripts") or {}
+        ok = "build" in scripts and "test" in scripts
+        for script in ("build", "test"):
+            if script not in scripts:
+                ok = False
+                continue
             code, output = sandbox.run_command(folder, f"npm run {script}", should_stop)
             log += output
             if code:
+                ok = False
                 break
+    else:
+        log = "no package.json"
     artifact_id = db.nid("art")
-    db.put("artifact", artifact_id, {"id": artifact_id, "runId": run["id"], "name": f"{script}.log", "kind": "log", "text": log})
+    db.put("artifact", artifact_id, {"id": artifact_id, "runId": run["id"], "name": "build.log", "kind": "log", "text": log, "ok": ok})
     return {"output": log or "no build or test script"}
 
 
@@ -181,13 +186,28 @@ def _browser(run: dict, url: str) -> dict:
         """
         result = subprocess.run(["node", "-e", node], capture_output=True, text=True)
         errors = result.stdout
+    console: list = []
+    if errors.strip().startswith("["):
+        try:
+            console = json.loads(errors)
+        except json.JSONDecodeError:
+            console = [errors]
     artifacts = []
     for name, _width, _height in viewports:
         path = shots / f"{name}.png"
         if not path.exists():
+            # ponytail: empty file when Playwright cannot launch; the viewport is still recorded
             path.write_bytes(b"")
         artifact_id = db.nid("art")
-        record = {"id": artifact_id, "runId": run["id"], "name": f"{name}.png", "kind": "screenshot", "viewport": name, "path": str(path)}
+        record = {
+            "id": artifact_id,
+            "runId": run["id"],
+            "name": f"{name}.png",
+            "kind": "screenshot",
+            "viewport": name,
+            "path": str(path),
+            "consoleErrors": console,
+        }
         db.put("artifact", artifact_id, record)
         artifacts.append(artifact_id)
     return {"output": errors or "captured", "screenshots": artifacts}

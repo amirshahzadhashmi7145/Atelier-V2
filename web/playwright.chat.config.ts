@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test"
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "**/chat.spec.ts",
+  workers: 1,
   use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:3000" },
   webServer: [
     {
@@ -12,6 +13,7 @@ export default defineConfig({
       env: {
         GATEWAY_MOCK: "1",
         FORCE_LOCAL: "1",
+        STREAM_PACE_MS: "800",
         DATABASE_URL: "sqlite:////tmp/atelier-chat-e2e.db",
         PROJECTS_DIR: "/tmp/atelier-chat-projects",
       },

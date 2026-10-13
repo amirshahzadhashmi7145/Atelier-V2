@@ -4,6 +4,10 @@
 
 A web app where a user defines AI agents (prompt sections, tools, skills, tech stacks, model), runs ONE agent on a task inside a sandbox, and watches the run live. Week 1 ships the studio (four pages), the runtime, and one working agent: the Frontend Engineer. Later roles (Backend, Team Lead, PM) are added through the same pages with no new code paths.
 
+## Direction from S7
+
+The chat shows the run as it happens. The gateway streams text. Each piece is a MODEL_DELTA on the existing SSE channel, then one MODEL_OUTPUT per model call so the event table does not keep every token. Tool calls appear when they start. A prompt version's evals are real runs in a throwaway folder, judged by the pass rule, and they count against the spend cap. Set active stays off until every eval on that version is `pass`. Compiled prompt counts use tiktoken. Messages older than the last 20 are summarised onto the project. The Docker sandbox can reach the npm registry, GitHub, and the preview host; another host is refused. DEV LOCAL MODE remains the fallback when Docker does not answer.
+
 ## Direction from S6
 
 The product path is the API. `NEXT_PUBLIC_USE_MOCKS` is false unless a test sets it. The OpenAI key lives in `api/.env`. A chat message creates a task, `route_task` assigns the project's only member, and a run works in that project's folder. Projects, tasks, `reportsTo`, and `capabilities` are on the contract so a supervisor can be added later by replacing `route_task` and granting the supervisor tools. Evals still always pass.

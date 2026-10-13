@@ -38,7 +38,7 @@ On New project, add the repository URL. Paste a token in the form, or set `GITHU
 
 If Docker does not answer, or `FORCE_LOCAL=1` is set, commands run in the project folder on this machine. A write outside that folder is refused. The chat shows a yellow banner. This mode is for the developer's own machine.
 
-When Docker is available, each run uses an unprivileged container with only the project mounted at `/workspace`. The container image is `node:22-bookworm`. A domain allow-list for that container's network is not enforced.
+When Docker is available, each run uses an unprivileged container with only the project mounted at `/workspace`. The container image is `node:22-bookworm`. The container sits on an internal network and reaches the internet only through a proxy that allows the npm registry, GitHub, and the preview host. A fetch to any other host fails. DEV LOCAL MODE is unchanged when Docker does not answer.
 
 ## Tests
 

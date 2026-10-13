@@ -1,9 +1,17 @@
-import math
-
 from store import db
 
 
-def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], stack_ids: list[str]) -> dict:
+def token_count(text: str, model: str = "gpt-4o") -> int:
+    import tiktoken
+
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+    except KeyError:
+        encoding = tiktoken.get_encoding("o200k_base")
+    return len(encoding.encode(text))
+
+
+def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], stack_ids: list[str], model: str = "gpt-4o") -> dict:
     tools = {item["id"]: item for item in db.listing("tool")}
     skills = {item["id"]: item for item in db.listing("skill")}
     stacks = {item["id"]: item for item in db.listing("stack")}
@@ -41,5 +49,4 @@ def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], st
             "\n".join(["# Skills", *skill_lines, "Call load_skill(name) before using a skill."]),
         ]
     )
-    # ponytail: character count divided by four until a tokenizer is wired in
-    return {"compiled": compiled, "tokenCount": math.ceil(len(compiled) / 4)}
+    return {"compiled": compiled, "tokenCount": token_count(compiled, model)}

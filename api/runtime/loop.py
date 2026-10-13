@@ -27,10 +27,12 @@ def drive(run_id: str) -> None:
     run["folder"] = workspace.get("folder")
     agent = db.get("agent", run["agentId"]) or {}
     settings = db.get("settings", "runs") or {}
-    cap = float(settings.get("maxSpendPerRunUsd") or 5)
+    raw_cap = settings.get("maxSpendPerRunUsd")
+    cap = float(5 if raw_cap is None else raw_cap)
     max_iterations = int(settings.get("maxIterations") or 60)
     max_minutes = int(settings.get("maxMinutes") or 45)
     detect_loops = settings.get("loopDetection", True)
+    openai_gateway.begin()
     db.append_event(run_id, "RUN_STARTED", {})
     _status(run, "running")
     blocked = _blocked_framework(run, agent)
@@ -48,12 +50,21 @@ def drive(run_id: str) -> None:
         if time.time() - started > max_minutes * 60:
             _fail(run, "timeout", "The run exceeded the time limit.")
             return
-        turn = openai_gateway.complete(
+        call_id = db.nid("call")
+        parts: list[str] = []
+        turn = {"content": "", "tool_calls": [], "usage": {"input_tokens": 0, "output_tokens": 0}, "usd": 0}
+        for item in openai_gateway.stream_turn(
             run["model"]["name"],
             _messages(run, agent, answer),
             tools.openai_tools(agent),
             run["model"].get("config") or {},
-        )
+        ):
+            if item["kind"] == "delta":
+                parts.append(item["text"])
+                db.append_event(run_id, "MODEL_DELTA", {"callId": call_id, "text": item["text"]})
+            else:
+                turn = item
+        db.merge_deltas(run_id, call_id, "".join(parts))
         answer = None
         usage = turn["usage"]
         cost = {"inputTokens": usage["input_tokens"], "outputTokens": usage["output_tokens"], "usd": turn["usd"]}
@@ -81,6 +92,7 @@ def drive(run_id: str) -> None:
             result = tools.dispatch(run, call["name"], call["arguments"], lambda: _cancelled(run_id))
             if result.get("refused"):
                 db.append_event(run_id, "TOOL_REFUSED", {"name": call["name"], "reason": result["reason"]})
+                _say(run, f"{call['name']} was refused: {result['reason']}")
                 continue
             if result.get("changed") is False:
                 unchanged += 1
@@ -119,13 +131,16 @@ def _calls(raw: list) -> list[dict]:
     for call in raw:
         arguments = call.get("arguments") or {}
         if isinstance(arguments, str):
-            arguments = json.loads(arguments or "{}")
+            try:
+                arguments = json.loads(arguments or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
         parsed.append({**call, "arguments": arguments})
     return parsed
 
 
 def _messages(run: dict, agent: dict, answer: str | None) -> list[dict]:
-    version = _active_version(agent)
+    version = db.get("version", run.get("promptVersionId") or "") or _active_version(agent)
     compiled = version["compiled"] if version else compile_prompt.compile_prompt(agent.get("sections") or {}, agent.get("toolIds") or [], agent.get("skillIds") or [], agent.get("stackIds") or [])["compiled"]
     folder = Path(run["folder"]) if run.get("folder") else None
     tree = _tree(folder) if folder else ""
@@ -138,11 +153,10 @@ def _messages(run: dict, agent: dict, answer: str | None) -> list[dict]:
     messages = [{"role": "system", "content": system}]
     history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
     history.sort(key=lambda item: item["createdAt"])
-    older, recent = history[:-20], history[-20:]
-    if older:
-        # ponytail: older messages are truncated, not summarised by a model
-        messages.append({"role": "user", "content": "Earlier messages omitted. Last of them: " + older[-1]["text"][:180]})
-    for item in recent:
+    project = db.get("project", run.get("projectId")) if run.get("projectId") else None
+    if project and project.get("summary"):
+        messages.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
+    for item in history[-20:]:
         messages.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
     messages.append({"role": "user", "content": run["task"]})
     if answer:
@@ -226,12 +240,11 @@ def _complete(run: dict, summary: dict) -> None:
             task["screenshotRefs"] = shots
             db.put("task", task["id"], task)
     if project:
-        message_id = db.nid("msg")
-        db.put(
-            "message",
-            message_id,
-            {"id": message_id, "projectId": project["id"], "role": "agent", "text": summary["description"], "runId": run["id"], "createdAt": db.now()},
-        )
+        reply = summary["description"]
+        if git.get("prUrl"):
+            reply = reply + "\n" + git["prUrl"]
+        _say(run, reply)
+        refresh_summary(project["id"], run["model"]["name"])
 
 
 def _publish(project: dict, run: dict) -> dict:
@@ -273,10 +286,13 @@ def _pull_request(url: str, token: str, branch: str, title: str) -> str | None:
     slug = url.removeprefix("https://github.com/").removesuffix(".git")
     import httpx
 
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    repo = httpx.get(f"https://api.github.com/repos/{slug}", headers=headers, timeout=20)
+    base = (repo.json().get("default_branch") if repo.status_code < 300 else None) or "main"
     response = httpx.post(
         f"https://api.github.com/repos/{slug}/pulls",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-        json={"title": title[:80], "head": branch, "base": "main"},
+        headers=headers,
+        json={"title": title[:80], "head": branch, "base": base},
         timeout=20,
     )
     if response.status_code >= 300:
@@ -292,7 +308,7 @@ def _git(folder: Path, args: list[str]) -> str:
         "GIT_COMMITTER_NAME": "Agent Studio",
         "GIT_COMMITTER_EMAIL": "agent@localhost",
     }
-    result = subprocess.run(["git", *args], cwd=folder, capture_output=True, text=True, env=env)
+    result = subprocess.run(["git", "-c", "safe.directory=*", *args], cwd=folder, capture_output=True, text=True, env=env)
     return result.stdout + result.stderr
 
 
@@ -307,6 +323,35 @@ def _fail(run: dict, cause: str, text: str) -> None:
         if task:
             task["status"] = "failed"
             db.put("task", task["id"], task)
+    _say(run, text)
+    if run.get("projectId"):
+        refresh_summary(run["projectId"], (run.get("model") or {}).get("name") or "gpt-4o")
+
+
+def refresh_summary(project_id: str | None, model: str) -> None:
+    if not project_id:
+        return
+    history = [item for item in db.listing("message") if item.get("projectId") == project_id]
+    history.sort(key=lambda item: item["createdAt"])
+    if len(history) <= 20:
+        return
+    older = "\n".join(f"{item['role']}: {item['text']}" for item in history[:-20])
+    project = db.get("project", project_id)
+    if project is None:
+        return
+    project["summary"] = openai_gateway.summarize(model, project.get("summary") or "", older)
+    db.put("project", project_id, project)
+
+
+def _say(run: dict, text: str) -> None:
+    if not run.get("projectId") or not text:
+        return
+    message_id = db.nid("msg")
+    db.put(
+        "message",
+        message_id,
+        {"id": message_id, "projectId": run["projectId"], "role": "agent", "text": text, "runId": run["id"], "createdAt": db.now()},
+    )
 
 
 def _status(run: dict, status: str) -> None:
@@ -316,7 +361,11 @@ def _status(run: dict, status: str) -> None:
 
 
 def _cancelled(run_id: str) -> bool:
-    fresh = db.get("run", run_id)
+    try:
+        fresh = db.get("run", run_id)
+    except Exception:
+        # ponytail: the database was reset under a live command, so stop
+        return True
     return bool(fresh and fresh["status"] == "cancelled")
 
 

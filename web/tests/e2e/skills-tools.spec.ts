@@ -50,7 +50,9 @@ test("skills, discovered models, and the tools registry", async ({ page }) => {
   await page.getByRole("button", { name: "Refresh models" }).click()
   await expect(page.getByText("o3", { exact: true })).toBeVisible()
   await expect(page.getByText("gpt-4.1-mini", { exact: true })).toBeVisible()
-  await expect(page.getByText("4 models cached")).toBeHidden()
+  const cached = page.getByText("4 models cached")
+  await expect(cached).toBeVisible()
+  await expect(cached).toHaveCount(0, { timeout: 10_000 })
   await axe(page)
 
   await page.goto("/tools")

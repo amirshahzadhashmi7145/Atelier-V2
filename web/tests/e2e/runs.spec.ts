@@ -66,8 +66,11 @@ test("start a run, answer it, and open the summary", async ({ page }) => {
   await page.getByRole("button", { name: "Send answer" }).click()
 
   await page.reload()
-  await expect(page.getByRole("button", { name: "Run started" })).toBeVisible()
-  await page.getByRole("button", { name: "Run started" }).click()
+  const started = page.getByRole("button", { name: "Run started", exact: true })
+  await expect(started).toBeVisible()
+  await page.waitForTimeout(2_000)
+  await expect(started).toBeVisible()
+  await started.click()
   await expect(page.locator("[data-seq]")).toHaveCount(1)
 
   await expect(page.getByText("Added a primary button to the page.")).toBeVisible({ timeout: 90_000 })

@@ -86,7 +86,7 @@ def activate(id: str, v: int):
     version = _version(id, v)
     if agent is None or version is None:
         return missing()
-    pending = [item for item in version["evalResults"] if item["status"] != "passed"]
+    pending = [item for item in version["evalResults"] if item["status"] != "pass"]
     if pending:
         return error(409, "evals_required", "Every eval on this version must pass before it can be active")
     agent["activePromptVersionId"] = version["id"]
@@ -137,13 +137,25 @@ def delete_eval(id: str, evalId: str):
 
 @router.post("/agents/{id}/versions/{v}/evals/run")
 def run_evals(id: str, v: int):
-    # ponytail: evals always pass until the eval session
+    agent = db.get("agent", id)
     version = _version(id, v)
-    if version is None:
+    if agent is None or version is None:
         return missing()
-    version["evalResults"] = [{"evalId": item["evalId"], "status": "passed", "evidence": "passed"} for item in version["evalResults"]]
-    db.put("version", version["id"], version)
-    return version
+    if not agent.get("evals"):
+        return error(422, "no_evals", "Add an eval first")
+    return bridge.run_evals(agent, version)
+
+
+@router.post("/agents/{id}/versions/{v}/evals/compare")
+def compare_evals(id: str, v: int, body: dict):
+    agent = db.get("agent", id)
+    version = _version(id, v)
+    if agent is None or version is None:
+        return missing()
+    models = body.get("models") or []
+    if not models or not agent.get("evals"):
+        return error(422, "no_evals", "Choose models and add an eval first")
+    return bridge.compare_evals(agent, version, models)
 
 
 @router.get("/tools")
@@ -476,13 +488,14 @@ def run_events(id: str, after: int = 0):
         return missing()
 
     def frames():
-        sent = after
+        yielded: set[str] = set()
         while True:
-            for event in db.events_for(id, sent):
-                sent = event["seq"]
+            pending = [event for event in db.events_for(id, after) if event["id"] not in yielded]
+            for event in pending:
+                yielded.add(event["id"])
                 yield f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
             run = db.get("run", id)
-            if run and run["status"] in ("completed", "failed", "cancelled") and not db.events_for(id, sent):
+            if run and run["status"] in ("completed", "failed", "cancelled") and not [event for event in db.events_for(id, after) if event["id"] not in yielded]:
                 break
             time.sleep(0.2)
 
@@ -681,7 +694,7 @@ def _agent(body: dict) -> dict:
 
 def _save_version(agent: dict, sections: dict) -> dict:
     existing = [item for item in db.listing("version") if item["agentId"] == agent["id"]]
-    compiled = bridge.compile_prompt(sections, agent["toolIds"], agent["skillIds"], agent["stackIds"])
+    compiled = bridge.compile_prompt(sections, agent["toolIds"], agent["skillIds"], agent["stackIds"], (agent.get("model") or {}).get("name") or "gpt-4o")
     version = {
         "id": db.nid("pv"),
         "agentId": agent["id"],

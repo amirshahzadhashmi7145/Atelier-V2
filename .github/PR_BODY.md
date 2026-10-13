@@ -1,49 +1,40 @@
 ## What
 
-The chat is no longer a mock. A message creates a task and a run, the API calls OpenAI through the gateway, and the agent works in a project folder on this machine. The user sees the summary, the files, and the preview.
+The chat shows the agent's work as it happens, and evals are real runs instead of an automatic pass.
 
-What is real: the FastAPI contract, including the SSE stream, stop, answer, diff, and artifacts. Project folders and git init. Tool calls for the shell, files, the package allow-list, build and test, preview, search, and load_skill. Spend cap, loop detection, the path guard, and refusal of supervisor tools for a normal agent. route_task assigns the only member.
+What is real: the gateway streams text. Each piece is a MODEL_DELTA on the existing SSE channel, then one MODEL_OUTPUT per model call. The thread grows the reply, shows tool lines, and replaces that with the summary, the files, and the links. A failed run (spend cap, loop, a refused tool) is an agent message with Try again. "Run evals" creates one run per eval in a throwaway folder, judges `build_and_tests` and `build_tests_and_screenshots`, stores pass or fail with cost, duration, and a link, and blocks Set active until every eval on that version passed. Those runs count against the spend cap. Settings > Models can compare models. Compiled prompt counts use tiktoken. Messages older than the last 20 are summarised onto the project and included in the next run. In Docker, the container can reach the npm registry, GitHub, and the preview host; a connection to another host is refused.
 
-What is not real yet: evals still always pass. The Docker network has no domain allow-list. Token counts are still ceil(chars/4). Older messages are truncated, not summarised. The mocked chat run does not take screenshots. The GitHub push and pull request path was not exercised against GitHub. The landing-page test that calls OpenAI runs only when RUN_REAL_LLM_TESTS=1.
+What is not real yet: the GitHub branch, push, and pull request path. The test is in the suite and did not run, because GITHUB_TOKEN in api/.env is empty. The landing-page test that calls OpenAI still runs only when RUN_REAL_LLM_TESTS=1. An empty screenshot file can satisfy the viewport check when Playwright cannot launch. The mock preview in the web unit tests still estimates tokens as characters divided by four. Studio browser tests still use the mock, which marks evals as pass without a run. Backend Engineer, routing rules, and supervisors are not in this PR. route_task still assigns the only member.
 
 ## Why
 
-The studio could show a run, and the run was a script. This session makes the same contract do the work, and leaves task assignment in one function so a supervisor can replace it later.
+The engine could finish a task, but the thread only updated when the run ended, and every eval passed. This session makes the same channel show the work, and makes Set active mean the evals actually passed.
 
 ## How I tested
 
-- `uv run --directory api pytest` — 10 passed, 1 skipped (the real OpenAI landing-page test)
+- `uv run --directory api pytest` — 17 passed, 2 skipped (the real OpenAI landing-page test, and the GitHub test because the token is empty). The Docker allow-list test ran here and a CONNECT to example.com returned 403.
 - `pnpm typecheck` — pass
 - `pnpm lint` — pass (the existing react-virtual and img warnings)
-- `pnpm test` — 76 passed
-- `pnpm test:e2e` — 12 passed on the mock studio, then 1 passed for chat against the API with the model mocked at the gateway. The chat spec creates an agent, creates a project, sends a message, and sees the summary and index.html.
+- `pnpm test` — 77 passed
+- `pnpm test:e2e` — 12 passed on the mock studio, then 3 passed against the API with the model mocked at the gateway: streaming text appears before the summary, Run evals shows a pass chip and enables Set active, and a spend-cap failure shows Try again.
 
 ## Screenshots
 
-/chat lists projects and New project (name, agent, optional repo URL and token). /chat/[projectId] is the thread, a working card that expands into the live run, and a preview pane. DEV LOCAL MODE shows a yellow banner. A finished run adds an agent message with the summary, the files, and the preview link.
+/chat shows the reply growing under the user message, with a cursor while the run is active and a short line for the tool in progress. When the run finishes, that is replaced by the summary, then the files, then the preview or pull request link. A failed run shows the reason and Try again. The agent editor shows pass or fail, cost, duration, and a link to the run. Settings > Models has Run evals and a comparison table.
 
 ## New dependencies
 
-- fastapi: the HTTP API
-- uvicorn: serve it
-- sqlalchemy and alembic: SQLite and the documents migration
-- pydantic: request models via FastAPI
-- httpx: the GitHub pull request call
-- pyyaml: pasted OpenAPI specs
-- python-dotenv: load api/.env
-- openai: model calls, imported only in the gateway
-- docker: the sandbox client when Docker answers
-- pytest: the API tests
+- tiktoken: count compiled prompt tokens with OpenAI's tokenizer. Actual usage still comes from the API response.
 
 ## Out of scope / follow-ups
 
-Real evals, a Backend Engineer agent, and routing rules. Those replace route_task later. They are not in this PR.
+A Backend Engineer agent, routing rules, and supervisors. Those replace route_task later. They are not in this PR. The GitHub test needs a token in api/.env and RUN_GITHUB_TESTS=1.
 
-## Session summary
+## S7 feat/streaming-real-evals
 
-Session: S6 feat/real-engine-chat
-Built: The chat talks to FastAPI. A message creates a task, route_task assigns the project's only member, and a run works in a real folder on this machine. OpenAI is called through the gateway, tool calls are executed, and the thread shows the summary, the files, and the preview. The same task and agent shape can take a supervisor later.
-Decisions: Amendment A was not in the repo; the session text is the spec. One SQLite documents table holds the records. The event stream is a poll of that table, so resume does not depend on a live socket. route_task is the only place a task is assigned. DEV LOCAL MODE runs commands in the project folder when Docker does not answer. The OpenAI key stays in api/.env. Model tags moved to the API. Mocks stay on for the web unit tests and the studio browser tests.
-Failures / known gaps: Evals still always pass. The Docker container does not enforce a domain allow-list. Token counts are still ceil(chars/4). Messages older than the last 20 are truncated, not summarised by a model. Screenshots are captured with Playwright when it is installed and the gateway is not mocked; the mocked chat run does not take them. The GitHub branch, push, and pull request path is implemented and was not exercised against GitHub. One run at a time is not enforced. Tool results are not wrapped as untrusted. The real landing-page test runs only when RUN_REAL_LLM_TESTS=1.
-New dependencies: fastapi, uvicorn, sqlalchemy, alembic, pydantic, httpx, pyyaml, python-dotenv, and pytest for the API. openai is imported only in the gateway. docker is the sandbox client when Docker answers.
-Follow-ups for the next session: Real evals. A Backend Engineer agent. Routing rules that replace route_task.
+Session: S7 feat/streaming-real-evals
+Built: The chat shows the agent's text as it arrives, then replaces it with the summary, the files, and the links. Evals are real runs. A version can be set active only when every eval on it passed. Settings > Models can run one agent's evals across models. Compiled prompts are counted with tiktoken. Older chat is summarised onto the project. The Docker sandbox refuses hosts outside the allow-list.
+Decisions: S6 was still unmerged, so this branch starts from feat/real-engine-chat. MODEL_DELTA rows are folded into one MODEL_OUTPUT when the model call finishes, and sequence numbers are packed so the event log stays contiguous. The chat batches those pieces about every 50ms. Eval runs use the same loop in a folder that is deleted afterwards. Pass is the string `pass`. Mocked studio tests still mark evals as pass without a run. The "best in your runs" badge still needs five completed runs; compare runs count toward that. DEV LOCAL MODE is unchanged when Docker does not answer.
+Failures / known gaps: The GitHub branch, push, and pull request test is in the suite and did not run, because GITHUB_TOKEN in api/.env is empty. The landing-page test that calls OpenAI still runs only when RUN_REAL_LLM_TESTS=1. A screenshot pass can be met by an empty image when Playwright cannot launch; the viewport is recorded and console errors are empty. The mock preview in the web unit tests still estimates tokens as characters divided by four. Saved versions use tiktoken. Backend Engineer, routing rules, and supervisors are not in this session. route_task still assigns the only member.
+New dependencies: tiktoken, so compiled prompt counts use OpenAI's tokenizer. Actual usage still comes from the API response.
+Follow-ups for the next session: Put a GitHub token in api/.env and run the throwaway-repo test with RUN_GITHUB_TESTS=1. A Backend Engineer agent. Routing rules that replace route_task.

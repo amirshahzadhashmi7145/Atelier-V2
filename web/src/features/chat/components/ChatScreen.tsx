@@ -1,14 +1,16 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { answerChat, closeProject, createProject, getChatRun, getProject, listChatAgents, listMessages, listProjects, postMessage, type ChatMessage } from "@/features/chat/api"
+import { apiBaseUrl } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
-import { isTerminal } from "@/lib/runs/events"
+import { isTerminal, type RunEvent } from "@/lib/runs/events"
+import { readEventStream } from "@/lib/sse/stream"
 
 const running = new Set(["queued", "running", "waiting_client"])
 
@@ -60,6 +62,7 @@ export function ChatScreen({
           </p>
         ) : null}
         {projectId && project.data ? (
+          <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-semibold">{project.data.name}</h1>
             <div className="flex gap-2">
@@ -85,17 +88,25 @@ export function ChatScreen({
               </Button>
             </div>
           </div>
+          {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
         )}
         <div className="flex flex-1 flex-col gap-3 overflow-auto">
-          {(messages.data ?? []).map((message) => (
+          {(messages.data ?? []).map((message) => {
+            const replied = (messages.data ?? []).some((item) => item.role === "agent" && item.runId === message.runId)
+            const prior = (messages.data ?? []).find((item) => item.role === "user" && item.runId === message.runId)?.text ?? ""
+            return (
             <article key={message.id} className="flex flex-col gap-2 rounded border p-3">
               <p className="text-xs uppercase text-muted-foreground">{message.role}</p>
               <p className="whitespace-pre-wrap text-sm">{message.text}</p>
-              {message.runId ? <RunFollow message={message} renderRun={renderRun} /> : null}
+              {message.runId ? (
+                <RunFollow message={message} renderRun={renderRun} streaming={message.role === "user" && !replied} prior={prior} />
+              ) : null}
             </article>
-          ))}
+            )
+          })}
         </div>
         {projectId ? <Composer projectId={projectId} /> : null}
       </section>
@@ -213,12 +224,130 @@ function Composer({ projectId }: { projectId: string }) {
   )
 }
 
+function toolLine(name: string, args: unknown) {
+  const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {}
+  if (name === "package_install") return `running npm install ${String(record.name ?? "")}`.trim()
+  if (name === "files") return `writing ${String(record.path ?? "a file")}`
+  if (name === "headless_browser") return "taking screenshots"
+  if (name === "shell") return `running ${String(record.command ?? "").slice(0, 80)}`
+  return `running ${name}`
+}
+
+function LiveText({ runId }: { runId: string }) {
+  const [text, setText] = useState("")
+  const [active, setActive] = useState(true)
+  const [tools, setTools] = useState<{ name: string; args: unknown; done: boolean }[]>([])
+  const buffer = useRef("")
+  const seen = useRef(new Set<string>())
+
+  useEffect(() => {
+    const controller = new AbortController()
+    let seq = 0
+    let pending = ""
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const flush = () => {
+      timer = null
+      buffer.current += pending
+      pending = ""
+      setText(buffer.current)
+    }
+    const take = (event: RunEvent) => {
+      if (seen.current.has(event.id)) return
+      seen.current.add(event.id)
+      seq = Math.max(seq, event.seq)
+      if (event.type === "MODEL_DELTA") {
+        pending += String(event.payload.text ?? "")
+        if (!timer) timer = setTimeout(flush, 50)
+      }
+      if (event.type === "MODEL_OUTPUT") {
+        if (timer) clearTimeout(timer)
+        timer = null
+        pending = ""
+        buffer.current = String(event.payload.text ?? "")
+        setText(buffer.current)
+      }
+      if (event.type === "TOOL_CALLED") {
+        setTools((current) => [...current, { name: String(event.payload.name ?? ""), args: event.payload.arguments, done: false }])
+      }
+      if (event.type === "TOOL_RESULT" || event.type === "TOOL_REFUSED") {
+        setTools((current) => {
+          const copy = current.slice()
+          for (let index = copy.length - 1; index >= 0; index -= 1) {
+            if (copy[index].name === event.payload.name && !copy[index].done) {
+              copy[index] = { ...copy[index], done: true }
+              break
+            }
+          }
+          return copy
+        })
+      }
+      if (event.type === "RUN_COMPLETED" || event.type === "RUN_FAILED" || (event.type === "STATE_CHANGED" && event.payload.status === "cancelled")) {
+        setActive(false)
+      }
+    }
+    const pump = async () => {
+      let delay = 500
+      while (!controller.signal.aborted) {
+        try {
+          await readEventStream(
+            `${apiBaseUrl()}/runs/${runId}/events`,
+            seq,
+            (frame) => take(JSON.parse(frame.data) as RunEvent),
+            controller.signal,
+          )
+          setActive(false)
+          return
+        } catch {
+          if (controller.signal.aborted) return
+          await new Promise((resolve) => setTimeout(resolve, delay))
+          delay = Math.min(delay * 2, 8000)
+        }
+      }
+    }
+    void pump()
+    return () => {
+      controller.abort()
+      if (timer) clearTimeout(timer)
+    }
+  }, [runId])
+
+  const finished = tools.filter((item) => item.done)
+  const runningTools = tools.filter((item) => !item.done)
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <p data-streaming={active ? "" : undefined}>
+        {text}
+        {active ? <span className="ml-0.5 inline-block animate-pulse">▍</span> : null}
+      </p>
+      {finished.length ? (
+        <details>
+          <summary>{finished.length} finished</summary>
+          {finished.map((item, index) => (
+            <p key={`${item.name}-${index}`} className="text-xs text-muted-foreground">
+              {toolLine(item.name, item.args)}
+            </p>
+          ))}
+        </details>
+      ) : null}
+      {runningTools.map((item, index) => (
+        <p key={`${item.name}-${index}`} className="text-xs text-muted-foreground">
+          {toolLine(item.name, item.args)}
+        </p>
+      ))}
+    </div>
+  )
+}
+
 function RunFollow({
   message,
   renderRun,
+  streaming,
+  prior,
 }: {
   message: ChatMessage
   renderRun?: (id: string) => ReactNode
+  streaming?: boolean
+  prior?: string
 }) {
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
@@ -239,15 +368,32 @@ function RunFollow({
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send the answer"),
   })
-  if (!run.data) return null
-  if (message.role === "user" && running.has(run.data.status)) {
+  const retry = useMutation({
+    mutationFn: () => postMessage(message.projectId, `${prior ?? ""}\n\nPrevious attempt failed: ${run.data?.terminalCause ?? "error"}: ${message.text}`),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(message.projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not try again"),
+  })
+  if (!run.data) return streaming ? <LiveText runId={runId} /> : null
+  if (streaming) {
     return (
       <div className="flex flex-col gap-2">
-        <Button type="button" variant="outline" onClick={() => setExpanded((value) => !value)}>
-          {expanded ? "Collapse" : "Working"}
-        </Button>
+        <LiveText runId={runId} />
+        {running.has(run.data.status) ? (
+          <Button type="button" variant="outline" onClick={() => setExpanded((value) => !value)}>
+            {expanded ? "Collapse" : "Working"}
+          </Button>
+        ) : null}
         {expanded && renderRun ? renderRun(runId) : null}
       </div>
+    )
+  }
+  if (message.role === "agent" && run.data.status === "failed") {
+    return (
+      <Button type="button" variant="outline" disabled={retry.isPending} onClick={() => retry.mutate()}>
+        {retry.isPending ? "Trying…" : "Try again"}
+      </Button>
     )
   }
   if (message.role === "agent" && run.data.status === "waiting_user") {
@@ -272,7 +418,7 @@ function RunFollow({
   if (message.role === "agent" && run.data.status === "completed" && run.data.summary) {
     return (
       <div className="flex flex-col gap-1 text-sm">
-        <p>{run.data.summary.filesChanged.join(", ") || "No files changed"}</p>
+        <p>Files changed: {run.data.summary.filesChanged.join(", ") || "none"}</p>
         {run.data.previewUrl ? (
           <a className="underline" href={run.data.previewUrl}>
             Preview

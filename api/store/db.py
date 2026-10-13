@@ -162,7 +162,7 @@ def library() -> dict:
 def append_event(run_id: str, event_type: str, payload: dict | None = None, cost: dict | None = None, actor: str = "agent") -> dict:
     with LOCK:
         existing = [item for item in listing("event") if item["runId"] == run_id]
-        seq = len(existing) + 1
+        seq = max((item["seq"] for item in existing), default=0) + 1
         event = {
             "id": nid("evt"),
             "runId": run_id,
@@ -175,6 +175,33 @@ def append_event(run_id: str, event_type: str, payload: dict | None = None, cost
         if cost:
             event["cost"] = cost
         put("event", event["id"], event)
+        return event
+
+
+def merge_deltas(run_id: str, call_id: str, text: str) -> dict:
+    """Fold one model call's deltas into a single MODEL_OUTPUT and keep seqs contiguous."""
+    with LOCK:
+        rows = sorted((item for item in listing("event") if item["runId"] == run_id), key=lambda item: item["seq"])
+        kept = []
+        for item in rows:
+            payload = item.get("payload") or {}
+            if item["type"] == "MODEL_DELTA" and payload.get("callId") == call_id:
+                delete("event", item["id"])
+                continue
+            kept.append(item)
+        event = {
+            "id": nid("evt"),
+            "runId": run_id,
+            "seq": 0,
+            "type": "MODEL_OUTPUT",
+            "actor": {"kind": "agent", "role": "agent"},
+            "payload": {"callId": call_id, "text": text},
+            "occurredAt": now(),
+        }
+        kept.append(event)
+        for index, item in enumerate(kept, start=1):
+            item["seq"] = index
+            put("event", item["id"], item)
         return event
 
 

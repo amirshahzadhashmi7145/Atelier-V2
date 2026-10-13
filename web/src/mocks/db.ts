@@ -158,15 +158,35 @@ export function remember() {
   })
 }
 
+function highestId(value: unknown) {
+  let max = 100
+  const visit = (node: unknown) => {
+    if (typeof node === "string") {
+      const match = /_(\d+)$/.exec(node)
+      if (match) max = Math.max(max, Number(match[1]))
+      return
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item)
+      return
+    }
+    if (node && typeof node === "object") {
+      for (const item of Object.values(node)) visit(item)
+    }
+  }
+  visit(value)
+  return max
+}
+
 export let db = createDb()
-let counter = 100
+let counter = highestId(db)
 let providerSecret: string | null = null
 
 export function resetDb() {
   rememberQueued = false
   if (typeof window !== "undefined") window.sessionStorage.removeItem(STORAGE_KEY)
   db = createDb()
-  counter = 100
+  counter = highestId(db)
   providerSecret = null
   for (const timer of liveTimers.values()) clearInterval(timer)
   liveTimers.clear()
