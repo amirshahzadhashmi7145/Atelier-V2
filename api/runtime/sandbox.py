@@ -1,8 +1,10 @@
 import os
+import signal
 import socket
 import socketserver
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 ALLOW_HOSTS = {
@@ -120,23 +122,31 @@ def _inside(folder: Path, target: str) -> bool:
         return False
 
 
-def run_command(folder: Path, command: str, should_stop) -> tuple[int, str]:
+def run_command(folder: Path, command: str, should_stop, timeout: float = 120) -> tuple[int, str]:
+    limit = min(600, max(0.1, float(timeout)))
     if not local_mode():
-        return _docker(folder, command, should_stop)
+        return _docker(folder, command, should_stop, limit)
     if not command_stays_inside(folder, command):
         raise PermissionError(command)
     process = subprocess.Popen(
         command,
         cwd=folder,
         shell=True,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        start_new_session=True,
+        env={**os.environ, "CI": "1", "DEBIAN_FRONTEND": "noninteractive"},
     )
+    started = time.time()
     while process.poll() is None:
         if should_stop():
-            process.kill()
+            _kill(process)
             return 1, "stopped"
+        if time.time() - started > limit:
+            _kill(process)
+            return 1, "timed out"
         try:
             process.wait(timeout=0.1)
         except subprocess.TimeoutExpired:
@@ -144,7 +154,14 @@ def run_command(folder: Path, command: str, should_stop) -> tuple[int, str]:
     return process.returncode or 0, (process.stdout.read() if process.stdout else "")
 
 
-def _docker(folder: Path, command: str, should_stop) -> tuple[int, str]:
+def _kill(process: subprocess.Popen) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        process.kill()
+
+
+def _docker(folder: Path, command: str, should_stop, timeout: float) -> tuple[int, str]:
     import docker
 
     client = docker.from_env()
@@ -163,13 +180,17 @@ def _docker(folder: Path, command: str, should_stop) -> tuple[int, str]:
             "http_proxy": f"http://{proxy_ip}:8080",
             "https_proxy": f"http://{proxy_ip}:8080",
             "PROXY_HOST": proxy_ip,
+            "CI": "1",
+            "DEBIAN_FRONTEND": "noninteractive",
         },
     )
+    started = time.time()
     while container.status != "exited":
         container.reload()
-        if should_stop():
+        if should_stop() or time.time() - started > timeout:
             container.kill()
-            break
+            container.remove()
+            return 1, "timed out" if time.time() - started > timeout else "stopped"
     logs = container.logs().decode()
     code = container.wait().get("StatusCode", 1)
     container.remove()

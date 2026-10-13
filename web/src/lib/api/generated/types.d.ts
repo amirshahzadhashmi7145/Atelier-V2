@@ -38,6 +38,42 @@ export interface paths {
         patch: operations["updateAgent"];
         trace?: never;
     };
+    "/agents/{id}/teach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["teachAgent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agents/{id}/teach/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["draftTeachRules"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/versions": {
         parameters: {
             query?: never;
@@ -1277,6 +1313,31 @@ export interface components {
             summary: string | null;
             diffRef: string | null;
             screenshotRefs: string[];
+            /**
+             * @description Classifier label recorded when the task was created from chat.
+             * @enum {string}
+             */
+            label?: "chat" | "task" | "out";
+        };
+        TeachRequest: {
+            name: string;
+            version: string;
+            rules: string;
+            docsUrl?: string;
+            packages?: string[];
+            scaffold?: string;
+        };
+        TeachResult: {
+            agent: components["schemas"]["AgentDefinition"];
+            skill: components["schemas"]["Skill"];
+            stack: components["schemas"]["TechStack"];
+            dataSource?: components["schemas"]["DataSource"];
+        };
+        TeachDraftRequest: {
+            repoUrl: string;
+        };
+        TeachDraft: {
+            rules: string;
         };
         /** @enum {string} */
         ChatRole: "user" | "agent";
@@ -1442,6 +1503,61 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             422: components["responses"]["Error"];
+        };
+    };
+    teachAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeachRequest"];
+            };
+        };
+        responses: {
+            /** @description Skill, stack, and optional docs source attached to the agent */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachResult"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    draftTeachRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeachDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft rules the user edits before saving */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeachDraft"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     listPromptVersions: {

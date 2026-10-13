@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import re
 import subprocess
 import time
@@ -488,18 +489,35 @@ def run_events(id: str, after: int = 0):
         return missing()
 
     def frames():
-        yielded: set[str] = set()
-        while True:
-            pending = [event for event in db.events_for(id, after) if event["id"] not in yielded]
-            for event in pending:
-                yielded.add(event["id"])
-                yield f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
-            run = db.get("run", id)
-            if run and run["status"] in ("completed", "failed", "cancelled") and not [event for event in db.events_for(id, after) if event["id"] not in yielded]:
-                break
-            time.sleep(0.2)
+        from store import live
 
-    return StreamingResponse(frames(), media_type="text/event-stream")
+        yielded: set[str] = set()
+        inbox = live.subscribe(id)
+        try:
+            while True:
+                pending = [event for event in db.events_for(id, after) if event["id"] not in yielded]
+                for event in pending:
+                    yielded.add(event["id"])
+                    yield _frame(event)
+                try:
+                    live_event = inbox.get(timeout=0.05)
+                except queue.Empty:
+                    live_event = None
+                if live_event and live_event["id"] not in yielded:
+                    yielded.add(live_event["id"])
+                    yield _frame(live_event)
+                run = db.get("run", id)
+                leftover = [event for event in db.events_for(id, after) if event["id"] not in yielded]
+                if run and run["status"] in ("completed", "failed", "cancelled") and not leftover and inbox.empty():
+                    break
+        finally:
+            live.unsubscribe(id, inbox)
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 @router.post("/runs/{id}/stop")
@@ -541,6 +559,8 @@ def answer_run(id: str, body: dict):
     if run["status"] != "waiting_user" or not body.get("text"):
         return error(409, "invalid", "The run is not waiting for an answer")
     db.put("answer", id, {"text": body["text"]})
+    if run.get("projectId"):
+        _chat(run["projectId"], "user", body["text"], run.get("taskId"), run["id"])
     db.append_event(id, "STATE_CHANGED", {"status": "running"})
     run["status"] = "running"
     db.put("run", id, run)
@@ -642,8 +662,26 @@ def post_message(id: str, body: dict):
         "screenshotRefs": [],
     }
     bridge.route_task(project, task)
+    agent = db.get("agent", task["assignedAgentId"]) or {}
+    kind = bridge.classify(agent, body["text"]) if agent else "task"
+    task["label"] = kind
     db.put("task", task["id"], task)
-    agent = db.get("agent", task["assignedAgentId"])
+    if kind == "chat":
+        user = _chat(id, "user", body["text"], task["id"], None, message_id)
+        reply = bridge.chat_reply(agent, body["text"])
+        _chat(id, "agent", reply, task["id"], None)
+        task["status"] = "completed"
+        task["summary"] = reply
+        db.put("task", task["id"], task)
+        return user
+    if kind == "out":
+        user = _chat(id, "user", body["text"], task["id"], None, message_id)
+        reply = bridge.refusal(agent)
+        _chat(id, "agent", reply, task["id"], None)
+        task["status"] = "completed"
+        task["summary"] = reply
+        db.put("task", task["id"], task)
+        return user
     run = _new_run(agent, {"task": body["text"], "workspace": _workspace(project), "criteria": []})
     run["taskId"] = task["id"]
     run["projectId"] = id
@@ -667,6 +705,49 @@ def close_project(id: str):
     bridge.stop_preview(id)
     project = db.get("project", id)
     return _project_view(project)
+
+
+def _frame(event: dict) -> str:
+    return f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
+
+
+def _chat(project_id: str, role: str, text: str, task_id: str | None, run_id: str | None, message_id: str | None = None) -> dict:
+    message = {
+        "id": message_id or db.nid("msg"),
+        "projectId": project_id,
+        "role": role,
+        "text": text,
+        "createdAt": db.now(),
+    }
+    if task_id:
+        message["taskId"] = task_id
+    if run_id:
+        message["runId"] = run_id
+    db.put("message", message["id"], message)
+    return message
+
+
+@router.post("/agents/{id}/teach", status_code=201)
+def teach_agent(id: str, body: dict):
+    if db.get("agent", id) is None:
+        return missing()
+    try:
+        result = bridge.teach_agent(id, body)
+    except ValueError as exc:
+        return error(422, "invalid", str(exc))
+    return result or missing()
+
+
+@router.post("/agents/{id}/teach/draft")
+def teach_draft(id: str, body: dict):
+    if db.get("agent", id) is None:
+        return missing()
+    if not body.get("repoUrl"):
+        return error(422, "invalid", "repoUrl is required")
+    try:
+        return {"rules": bridge.draft_rules(body["repoUrl"])}
+    except RuntimeError as exc:
+        return error(422, "invalid", str(exc))
 
 
 def _agent(body: dict) -> dict:

@@ -62,7 +62,11 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
     if name == "complete":
         return {"done": True, "summary": arguments.get("summary") or {}}
     if name == "raise_clarification":
-        return {"clarify": arguments.get("question") or "Need a decision"}
+        raw = arguments.get("questions")
+        if not isinstance(raw, list):
+            raw = [arguments.get("question") or "Need a decision"]
+        questions = [str(item).strip() for item in raw if str(item).strip()][:3] or ["Need a decision"]
+        return {"clarify": "\n".join(questions), "questions": questions}
     if name == "escalate":
         return {"done": True, "summary": {"description": arguments.get("reason") or "Escalated", "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
     if name == "create_task":
@@ -110,14 +114,23 @@ def _diff(run_id: str, path: str, before: str, after: str) -> None:
     db.put("diff", run_id, current)
 
 
-def _shell(folder: Path | None, command: str, should_stop) -> dict:
+def _shell(folder: Path | None, command: str, should_stop, timeout: float = 120) -> dict:
     if folder is None:
         return {"output": "no workspace"}
+    if _long_running(command):
+        return {"refused": True, "reason": "This command does not exit. Use the preview tool."}
     try:
-        code, output = sandbox.run_command(folder, command, should_stop)
+        code, output = sandbox.run_command(folder, command, should_stop, timeout=min(600, timeout))
     except PermissionError:
         return {"refused": True, "reason": "command leaves the project folder"}
+    if output == "timed out":
+        return {"output": "timed out", "exitCode": code, "error": True}
     return {"output": output, "exitCode": code}
+
+
+def _long_running(command: str) -> bool:
+    low = command.lower()
+    return any(token in low for token in ("npm run dev", "npm start", "next dev", "vite", "webpack serve", "nodemon", "--watch", "http.server"))
 
 
 def _allow_list(agent: dict) -> set[str]:
@@ -167,6 +180,7 @@ def _browser(run: dict, url: str) -> dict:
     viewports = [("mobile", 390, 844), ("tablet", 768, 1024), ("desktop", 1280, 800)]
     script = db.ROOT / "web" / "node_modules" / "playwright"
     errors = ""
+    launched = False
     if url and script.exists():
         node = f"""
         const {{ chromium }} = require({json.dumps(str(script))});
@@ -186,6 +200,7 @@ def _browser(run: dict, url: str) -> dict:
         """
         result = subprocess.run(["node", "-e", node], capture_output=True, text=True)
         errors = result.stdout
+        launched = result.returncode == 0
     console: list = []
     if errors.strip().startswith("["):
         try:
@@ -193,11 +208,13 @@ def _browser(run: dict, url: str) -> dict:
         except json.JSONDecodeError:
             console = [errors]
     artifacts = []
-    for name, _width, _height in viewports:
+    unavailable = False
+    for name, width, height in viewports:
         path = shots / f"{name}.png"
-        if not path.exists():
-            # ponytail: empty file when Playwright cannot launch; the viewport is still recorded
-            path.write_bytes(b"")
+        ok = launched and _png_matches(path, width, height)
+        if not ok:
+            unavailable = True
+            continue
         artifact_id = db.nid("art")
         record = {
             "id": artifact_id,
@@ -206,11 +223,25 @@ def _browser(run: dict, url: str) -> dict:
             "kind": "screenshot",
             "viewport": name,
             "path": str(path),
+            "ok": True,
             "consoleErrors": console,
         }
         db.put("artifact", artifact_id, record)
         artifacts.append(artifact_id)
+    if unavailable or not artifacts:
+        return {"output": "screenshot unavailable", "screenshots": artifacts, "screenshotFailed": True}
     return {"output": errors or "captured", "screenshots": artifacts}
+
+
+def _png_matches(path: Path, width: int, height: int) -> bool:
+    if not path.exists() or path.stat().st_size < 24:
+        return False
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or len(data) < 24:
+        return False
+    got_w = int.from_bytes(data[16:20], "big")
+    got_h = int.from_bytes(data[20:24], "big")
+    return got_w == width and got_h == height
 
 
 def _preview(run: dict, folder: Path | None) -> dict:

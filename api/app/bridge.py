@@ -1,8 +1,9 @@
 """The only module the HTTP routes use to reach the runtime and the model gateway."""
 
 from gateway import openai_gateway
+from runtime import classify as labeling
 from runtime import compile as compiler
-from runtime import evals, loop, route_task as routing, sandbox, tools
+from runtime import evals, loop, route_task as routing, sandbox, teach, tools
 from app.worker import start_run
 
 __all__ = ["compare_evals", "compile_prompt", "list_model_ids", "local_mode", "route_task", "run_evals", "start_run", "stop_preview", "wake"]
@@ -38,3 +39,23 @@ def stop_preview(project_id: str) -> None:
 
 def list_model_ids() -> list[str]:
     return openai_gateway.list_model_ids()
+
+
+def classify(agent: dict, text: str) -> str:
+    return labeling.label(agent, text)
+
+
+def chat_reply(agent: dict, text: str) -> str:
+    return labeling.chat_reply(agent, text)
+
+
+def refusal(agent: dict) -> str:
+    return labeling.refusal(agent)
+
+
+def teach_agent(agent_id: str, body: dict):
+    return teach.teach(agent_id, body)
+
+
+def draft_rules(repo_url: str) -> str:
+    return teach.draft_rules(repo_url)

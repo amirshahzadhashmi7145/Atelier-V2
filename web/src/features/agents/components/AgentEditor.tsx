@@ -34,6 +34,7 @@ import {
 import { asSchema, defaultsFromSchema, retainConfig, validateConfig } from "@/features/agents/config-schema"
 import { ModelPicker } from "@/features/agents/components/ModelPicker"
 import { StackSheet } from "@/features/agents/components/StackSheet"
+import { TeachSheet } from "@/features/agents/components/TeachSheet"
 import { MarkdownField } from "@/components/shared/MarkdownField"
 import { ModelCard } from "@/features/agents/components/ModelCard"
 import { SchemaForm } from "@/features/agents/components/SchemaForm"
@@ -228,7 +229,16 @@ export function AgentEditor({ id }: { id: string }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={current.name || "Agent"} description="Identity, model, prompt, access, and evals for this agent." />
+      <div className="flex items-start justify-between gap-3">
+        <PageHeader title={current.name || "Agent"} description="Identity, model, prompt, access, and evals for this agent." />
+        <TeachSheet
+          agentId={id}
+          onSaved={() => {
+            setDraft(null)
+            void queryClient.invalidateQueries({ queryKey: queryKeys.agent(id) })
+          }}
+        />
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Identity</CardTitle>

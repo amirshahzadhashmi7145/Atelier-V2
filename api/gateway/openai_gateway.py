@@ -55,6 +55,13 @@ def stream_turn(model: str, messages: list[dict], tools: list[dict], config: dic
         turn = _next_mock(messages)
         usage = turn.get("usage", {"input_tokens": 10, "output_tokens": 10})
         pace = int(os.environ.get("STREAM_PACE_MS") or "0") / 1000
+        if turn.get("deltas"):
+            for piece in turn["deltas"]:
+                yield {"kind": "delta", "text": piece["text"], "call": piece["call"], "index": piece["index"]}
+                if pace:
+                    time.sleep(pace)
+            yield {"kind": "done", "content": turn.get("content") or "", "tool_calls": turn.get("tool_calls") or [], "usage": usage, "usd": usd(usage)}
+            return
         text = turn.get("content") or ""
         words = text.split(" ")
         for index, word in enumerate(words):
@@ -142,6 +149,57 @@ def _plan(messages: list[dict]) -> list[dict]:
     blob = "\n".join(item.get("content") or "" for item in messages if isinstance(item.get("content"), str))
     if "force-fail" in blob:
         return [{"content": "This will fail.", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 600_000}}]
+    if "interleave-bubbles" in blob:
+        return [
+            {
+                "content": "First bubble.",
+                "deltas": [
+                    {"call": "a", "index": 2, "text": "bubble."},
+                    {"call": "b", "index": 1, "text": "Second "},
+                    {"call": "a", "index": 1, "text": "First "},
+                    {"call": "b", "index": 2, "text": "bubble."},
+                ],
+                "tool_calls": [
+                    {
+                        "id": "call_done",
+                        "name": "complete",
+                        "arguments": {
+                            "summary": {
+                                "description": "Two bubbles.",
+                                "filesChanged": [],
+                                "dependencies": [],
+                                "criteria": [],
+                                "assumptions": [],
+                                "followUps": [],
+                            }
+                        },
+                    }
+                ],
+            }
+        ]
+    if "slow-command" in blob:
+        return [
+            {"content": "On it.", "tool_calls": [{"id": "call_slow", "name": "shell", "arguments": {"command": "sleep 8"}}]},
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_done",
+                        "name": "complete",
+                        "arguments": {
+                            "summary": {
+                                "description": "Command finished.",
+                                "filesChanged": [],
+                                "dependencies": [],
+                                "criteria": [],
+                                "assumptions": [],
+                                "followUps": [],
+                            }
+                        },
+                    }
+                ],
+            },
+        ]
     rule = ""
     for line in blob.splitlines():
         if line.lower().startswith("pass rule:"):

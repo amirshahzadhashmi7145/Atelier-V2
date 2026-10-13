@@ -40,6 +40,7 @@ describe("run event cache", () => {
     expect(again).toBe(first)
     expect(second.map((item) => item.seq)).toEqual([1, 2])
     expect(lastSeq(second)).toBe(2)
+    expect(lastSeq([...second, event(1_000_001, "MODEL_DELTA")])).toBe(2)
   })
 
   it("moves the run through waiting and terminal states", () => {
