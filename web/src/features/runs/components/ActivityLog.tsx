@@ -72,19 +72,21 @@ export function ActivityLog({ events }: { events: RunEvent[] }) {
     overscan: 6,
   })
 
+  const scrollToEnd = useRef(virtualizer.scrollToIndex)
+  scrollToEnd.current = virtualizer.scrollToIndex
   useEffect(() => {
     if (!stick || rows.length === 0) return
-    virtualizer.scrollToIndex(rows.length - 1, { align: "end" })
-  }, [rows.length, stick, virtualizer])
+    scrollToEnd.current(rows.length - 1, { align: "end" })
+  }, [rows.length, stick])
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap gap-1 border-b p-2">
+      <div className="flex shrink-0 flex-wrap gap-1 border-b p-2">
         <Button size="xs" variant={active === "all" ? "secondary" : "ghost"} onClick={() => setActive("all")}>
           All
         </Button>
         {types.map((type) => (
-          <Button key={type} size="xs" variant={active === type ? "secondary" : "ghost"} onClick={() => setActive(type)}>
+          <Button key={type} size="xs" className="transition-none" variant={active === type ? "secondary" : "ghost"} onClick={() => setActive(type)}>
             {labels[type]}
           </Button>
         ))}
