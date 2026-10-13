@@ -98,9 +98,9 @@ def judge(run: dict, item: dict) -> tuple[str, str]:
         if not logs:
             return "fail", "build or tests failed"
     if _wants_shots(rule):
-        shots = [entry for entry in artifacts if entry.get("kind") == "screenshot"]
+        shots = [entry for entry in artifacts if entry.get("kind") == "screenshot" and entry.get("ok")]
         if {entry.get("viewport") for entry in shots} < {"mobile", "tablet", "desktop"}:
-            return "fail", "missing a screenshot"
+            return "fail", "screenshot unavailable"
         if any(entry.get("consoleErrors") for entry in shots):
             return "fail", "console errors"
     return "pass", summary.get("description") or "passed"

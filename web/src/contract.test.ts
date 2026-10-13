@@ -16,6 +16,8 @@ const required: [string, string][] = [
   ["/agents/{id}/versions/{v}/activate", "post"],
   ["/agents/{id}/versions/{v}/diff", "get"],
   ["/agents/{id}/compile-preview", "post"],
+  ["/agents/{id}/teach", "post"],
+  ["/agents/{id}/teach/draft", "post"],
   ["/tools", "get"],
   ["/tools/mcp/discover", "post"],
   ["/tools/api/import", "post"],

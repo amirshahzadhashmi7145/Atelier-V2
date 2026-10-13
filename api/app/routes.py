@@ -1,5 +1,6 @@
 import json
 import os
+import queue
 import re
 import subprocess
 import time
@@ -49,7 +50,7 @@ def patch_agent(id: str, body: dict):
     agent = db.get("agent", id)
     if agent is None:
         return missing()
-    for key in ("name", "roleKey", "description", "model", "toolIds", "skillIds", "stackIds", "zones", "reportsTo", "capabilities"):
+    for key in ("name", "roleKey", "description", "model", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities"):
         if key in body:
             agent[key] = body[key]
     agent["updatedAt"] = db.now()
@@ -111,7 +112,7 @@ def diff_versions(id: str, v: int, against: int):
 def compile_preview(id: str, body: dict):
     if db.get("agent", id) is None:
         return missing()
-    return bridge.compile_prompt(body.get("sections") or {}, body.get("toolIds") or [], body.get("skillIds") or [], body.get("stackIds") or [])
+    return bridge.compile_prompt(body.get("sections") or {}, body.get("toolIds") or [], body.get("skillIds") or [], body.get("stackIds") or [], scope=body.get("scope"))
 
 
 @router.post("/agents/{id}/evals", status_code=201)
@@ -251,7 +252,10 @@ def list_skills():
 
 @router.post("/skills", status_code=201)
 def create_skill(body: dict):
-    created = _skill(body)
+    try:
+        created = _skill(body)
+    except ValueError as exc:
+        return error(422, "invalid", str(exc))
     db.put("skill", created["id"], created)
     return created
 
@@ -267,6 +271,10 @@ def patch_skill(id: str, body: dict):
     if skill is None:
         return missing()
     skill.update({key: body[key] for key in ("name", "description", "body", "files") if key in body})
+    try:
+        _check_skill_size(skill.get("body") or "")
+    except ValueError as exc:
+        return error(422, "invalid", str(exc))
     skill["version"] += 1
     skill["versions"].append({"version": skill["version"], "createdAt": db.now()})
     db.put("skill", id, skill)
@@ -488,18 +496,35 @@ def run_events(id: str, after: int = 0):
         return missing()
 
     def frames():
-        yielded: set[str] = set()
-        while True:
-            pending = [event for event in db.events_for(id, after) if event["id"] not in yielded]
-            for event in pending:
-                yielded.add(event["id"])
-                yield f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
-            run = db.get("run", id)
-            if run and run["status"] in ("completed", "failed", "cancelled") and not [event for event in db.events_for(id, after) if event["id"] not in yielded]:
-                break
-            time.sleep(0.2)
+        from store import live
 
-    return StreamingResponse(frames(), media_type="text/event-stream")
+        yielded: set[str] = set()
+        inbox = live.subscribe(id)
+        try:
+            while True:
+                pending = [event for event in db.events_for(id, after) if event["id"] not in yielded]
+                for event in pending:
+                    yielded.add(event["id"])
+                    yield _frame(event)
+                try:
+                    live_event = inbox.get(timeout=0.05)
+                except queue.Empty:
+                    live_event = None
+                if live_event and live_event["id"] not in yielded:
+                    yielded.add(live_event["id"])
+                    yield _frame(live_event)
+                run = db.get("run", id)
+                leftover = [event for event in db.events_for(id, after) if event["id"] not in yielded]
+                if run and run["status"] in ("completed", "failed", "cancelled") and not leftover and inbox.empty():
+                    break
+        finally:
+            live.unsubscribe(id, inbox)
+
+    return StreamingResponse(
+        frames(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 @router.post("/runs/{id}/stop")
@@ -512,6 +537,10 @@ def stop_run(id: str):
     run["endedAt"] = db.now()
     db.put("run", id, run)
     bridge.wake(id)
+    if run.get("projectId"):
+        from runtime import project_runs
+
+        project_runs.drain(run["projectId"])
     return run
 
 
@@ -541,6 +570,8 @@ def answer_run(id: str, body: dict):
     if run["status"] != "waiting_user" or not body.get("text"):
         return error(409, "invalid", "The run is not waiting for an answer")
     db.put("answer", id, {"text": body["text"]})
+    if run.get("projectId"):
+        _chat(run["projectId"], "user", body["text"], run.get("taskId"), run["id"])
     db.append_event(id, "STATE_CHANGED", {"status": "running"})
     run["status"] = "running"
     db.put("run", id, run)
@@ -623,12 +654,20 @@ def list_messages(id: str):
 
 @router.post("/projects/{id}/messages", status_code=201)
 def post_message(id: str, body: dict):
+    from runtime import classify as labeling
+    from runtime import project_runs
+
     project = db.get("project", id)
     if project is None:
         return missing()
     if not body.get("text"):
         return error(422, "invalid", "text is required")
     message_id = db.nid("msg")
+    if bridge.is_control(body["text"]):
+        user = _chat(id, "user", body["text"], None, None, message_id)
+        project_runs.stop_all(id)
+        _chat(id, "agent", "stopped", None, None)
+        return user
     task = {
         "id": db.nid("task"),
         "projectId": id,
@@ -642,20 +681,65 @@ def post_message(id: str, body: dict):
         "screenshotRefs": [],
     }
     bridge.route_task(project, task)
+    agent = db.get("agent", task["assignedAgentId"]) or {}
+    kind = bridge.classify(agent, body["text"], id) if agent else "task"
+    task["label"] = kind
     db.put("task", task["id"], task)
-    agent = db.get("agent", task["assignedAgentId"])
-    run = _new_run(agent, {"task": body["text"], "workspace": _workspace(project), "criteria": []})
-    run["taskId"] = task["id"]
-    run["projectId"] = id
-    db.put("workspace", run["id"], {"folder": project["folderPath"]})
-    db.put("run", run["id"], run)
-    message = {"id": message_id, "projectId": id, "role": "user", "text": body["text"], "taskId": task["id"], "runId": run["id"], "createdAt": db.now()}
-    db.put("message", message_id, message)
-    task["status"] = "running"
-    db.put("task", task["id"], task)
-    from app.worker import start_run
+    if kind == "chat":
+        user = _chat(id, "user", body["text"], task["id"], None, message_id, "chat")
+        reply = bridge.chat_reply(agent, body["text"], id)
+        _chat(id, "agent", reply, task["id"], None)
+        task["status"] = "completed"
+        task["summary"] = reply
+        db.put("task", task["id"], task)
+        return user
+    if kind == "out":
+        user = _chat(id, "user", body["text"], task["id"], None, message_id, "out")
+        reply = bridge.refusal(agent, body["text"])
+        _chat(id, "agent", reply, task["id"], None)
+        task["status"] = "completed"
+        task["summary"] = reply
+        db.put("task", task["id"], task)
+        return user
+    settings = db.get("settings", "runs") or {}
+    cap = float(settings.get("maxSpendPerDayUsd") or 20)
+    if project_runs.spend_today(id) >= cap:
+        return error(429, "budget", "The daily spend cap for this project was reached.")
+    return _start_project_run(project, agent, task, body["text"], message_id, labeling.prior_context(id))
 
-    start_run(run["id"])
+
+def _start_project_run(project: dict, agent: dict, task: dict, text: str, message_id: str, prior: dict | None):
+    from runtime import project_runs
+
+    run = _new_run(agent, {"task": text, "workspace": _workspace(project), "criteria": []})
+    run["taskId"] = task["id"]
+    run["projectId"] = project["id"]
+    if prior:
+        run["priorContext"] = prior
+    db.put("workspace", run["id"], {"folder": project["folderPath"]})
+    queued = project_runs.working(project["id"]) is not None
+    run["status"] = "queued" if queued else "running"
+    db.put("run", run["id"], run)
+    message = {
+        "id": message_id,
+        "projectId": project["id"],
+        "role": "user",
+        "text": text,
+        "taskId": task["id"],
+        "runId": run["id"],
+        "label": "task",
+        "createdAt": db.now(),
+    }
+    if queued:
+        message["queueStatus"] = "waiting"
+        message["statusNote"] = "queued, will start after the current task"
+    db.put("message", message["id"], message)
+    task["status"] = "queued" if queued else "running"
+    db.put("task", task["id"], task)
+    if not queued:
+        from app.worker import start_run
+
+        start_run(run["id"])
     return message
 
 
@@ -667,6 +751,51 @@ def close_project(id: str):
     bridge.stop_preview(id)
     project = db.get("project", id)
     return _project_view(project)
+
+
+def _frame(event: dict) -> str:
+    return f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
+
+
+def _chat(project_id: str, role: str, text: str, task_id: str | None, run_id: str | None, message_id: str | None = None, label: str | None = None) -> dict:
+    message = {
+        "id": message_id or db.nid("msg"),
+        "projectId": project_id,
+        "role": role,
+        "text": text,
+        "createdAt": db.now(),
+    }
+    if label:
+        message["label"] = label
+    if task_id:
+        message["taskId"] = task_id
+    if run_id:
+        message["runId"] = run_id
+    db.put("message", message["id"], message)
+    return message
+
+
+@router.post("/agents/{id}/teach", status_code=201)
+def teach_agent(id: str, body: dict):
+    if db.get("agent", id) is None:
+        return missing()
+    try:
+        result = bridge.teach_agent(id, body)
+    except ValueError as exc:
+        return error(422, "invalid", str(exc))
+    return result or missing()
+
+
+@router.post("/agents/{id}/teach/draft")
+def teach_draft(id: str, body: dict):
+    if db.get("agent", id) is None:
+        return missing()
+    if not body.get("repoUrl"):
+        return error(422, "invalid", "repoUrl is required")
+    try:
+        return {"rules": bridge.draft_rules(body["repoUrl"])}
+    except RuntimeError as exc:
+        return error(422, "invalid", str(exc))
 
 
 def _agent(body: dict) -> dict:
@@ -684,6 +813,7 @@ def _agent(body: dict) -> dict:
         "skillIds": skills,
         "stackIds": stacks,
         "zones": body.get("zones") or [],
+        "scope": body.get("scope") or {"does": [], "neverDoes": [], "zones": body.get("zones") or []},
         "evals": body.get("evals") or [],
         "reportsTo": body.get("reportsTo"),
         "capabilities": body.get("capabilities") or {"stacks": stacks, "skills": skills, "tags": []},
@@ -694,7 +824,7 @@ def _agent(body: dict) -> dict:
 
 def _save_version(agent: dict, sections: dict) -> dict:
     existing = [item for item in db.listing("version") if item["agentId"] == agent["id"]]
-    compiled = bridge.compile_prompt(sections, agent["toolIds"], agent["skillIds"], agent["stackIds"], (agent.get("model") or {}).get("name") or "gpt-4o")
+    compiled = bridge.compile_prompt(sections, agent["toolIds"], agent["skillIds"], agent["stackIds"], (agent.get("model") or {}).get("name") or "gpt-4o", agent.get("scope"))
     version = {
         "id": db.nid("pv"),
         "agentId": agent["id"],
@@ -713,7 +843,15 @@ def _version(agent_id: str, number: int):
     return next((item for item in db.listing("version") if item["agentId"] == agent_id and item["version"] == number), None)
 
 
+def _check_skill_size(body: str) -> None:
+    from runtime.compile import token_count
+
+    if token_count(body) > 8000:
+        raise ValueError("put reference material in a data source; a skill is your rules (Tools > Data)")
+
+
 def _skill(body: dict) -> dict:
+    _check_skill_size(body.get("body") or "")
     timestamp = db.now()
     return {
         "id": body.get("id") or db.nid("skill"),
@@ -825,10 +963,14 @@ def _zip(run_id: str):
 
 
 def _project_view(project: dict) -> dict:
+    from runtime import project_runs
+
     project = {**project, "localMode": bridge.local_mode()}
     preview = db.get("preview", project["id"])
     if preview:
         project["previewUrl"] = preview["url"]
+    active = project_runs.working(project["id"])
+    project["activeRunId"] = active["id"] if active else None
     return project
 
 

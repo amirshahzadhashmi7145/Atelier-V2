@@ -79,6 +79,7 @@ type LibraryAgent = {
   skillIds: string[]
   stackIds: string[]
   zones: string[]
+  scope?: { does: string[]; neverDoes: string[]; zones: string[] }
   sections: PromptVersion["sections"]
   evals: Agent["evals"]
 }
@@ -111,7 +112,7 @@ const emptyDb = (): Db => ({
   models: [],
   providers: [{ id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null }],
   runs: [],
-  runSettings: { maxSpendPerRunUsd: 5, maxIterations: 60, maxMinutes: 45, loopDetection: true },
+  runSettings: { maxSpendPerRunUsd: 5, maxSpendPerDayUsd: 20, maxIterations: 60, maxMinutes: 45, loopDetection: true },
   events: [],
   diffs: {},
   artifacts: {},

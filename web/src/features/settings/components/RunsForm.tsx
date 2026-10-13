@@ -19,6 +19,7 @@ export function RunsForm() {
   const [iterations, setIterations] = useState<string | null>(null)
   const [minutes, setMinutes] = useState<string | null>(null)
   const [loop, setLoop] = useState<boolean | null>(null)
+  const [daily, setDaily] = useState<string | null>(null)
   const save = useMutation({
     mutationFn: saveRunSettings,
     onSuccess: async () => {
@@ -37,6 +38,7 @@ export function RunsForm() {
           const maxIterations = Number(iterations ?? current.maxIterations)
           const maxMinutes = Number(minutes ?? current.maxMinutes)
           const loopDetection = loop ?? current.loopDetection
+          const maxSpendPerDayUsd = Number(daily ?? current.maxSpendPerDayUsd ?? 20)
           return (
             <Card>
               <CardHeader>
@@ -44,6 +46,17 @@ export function RunsForm() {
                 <CardDescription>These apply to every run.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                <Field>
+                  <FieldLabel htmlFor="max-spend-day">Max spend per project per day</FieldLabel>
+                  <Input
+                    id="max-spend-day"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={daily ?? String(current.maxSpendPerDayUsd ?? 20)}
+                    onChange={(event) => setDaily(event.target.value)}
+                  />
+                </Field>
                 <Field>
                   <FieldLabel htmlFor="max-spend">Max spend per run</FieldLabel>
                   <Input
@@ -92,7 +105,7 @@ export function RunsForm() {
                 <Button
                   type="button"
                   disabled={save.isPending}
-                  onClick={() => save.mutate({ maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection })}
+                  onClick={() => save.mutate({ maxSpendPerRunUsd, maxSpendPerDayUsd, maxIterations, maxMinutes, loopDetection })}
                 >
                   {save.isPending ? "Saving…" : "Save"}
                 </Button>

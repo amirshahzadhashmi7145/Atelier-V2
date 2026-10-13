@@ -57,7 +57,7 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
   const setTheme = useUiStore((state) => state.setTheme)
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-dvh min-h-0 overflow-hidden">
       <ThemeClass />
       <Sidebar>
         <nav aria-label="Studio" className="flex h-full min-h-0 flex-col">
@@ -105,12 +105,14 @@ export function StudioShell({ children }: { children: React.ReactNode }) {
           </SidebarFooter>
         </nav>
       </Sidebar>
-      <SidebarInset>
-        <header className="flex items-center gap-2 border-b px-4 py-3">
+      <SidebarInset className="min-h-0 overflow-hidden">
+        <header className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
           <SidebarTrigger />
           <span className="text-sm text-muted-foreground">Studio</span>
         </header>
-        <div className="flex flex-1 flex-col gap-6 p-6">{children}</div>
+        <div className={pathname.startsWith("/chat") ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-6"}>
+          {children}
+        </div>
       </SidebarInset>
       <Toaster theme={theme} />
     </SidebarProvider>

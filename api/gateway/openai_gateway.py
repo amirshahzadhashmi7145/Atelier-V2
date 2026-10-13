@@ -7,10 +7,16 @@ import time
 
 # Tests push scripted turns here. Each turn is a dict with content, tool_calls, usage.
 SCRIPTS: list[dict] = []
+# Mock turns record the prompt they saw so tests can check a nudge landed.
+PROMPTS: list[list] = []
 
 # ponytail: the models list has no context window or price
 PRICE_IN = 2.5
 PRICE_OUT = 10.0
+
+
+class ModelTimeout(Exception):
+    pass
 
 _plans = threading.local()
 _defaults = 0
@@ -52,9 +58,21 @@ def complete(model: str, messages: list[dict], tools: list[dict], config: dict) 
 
 def stream_turn(model: str, messages: list[dict], tools: list[dict], config: dict):
     if os.environ.get("GATEWAY_MOCK") == "1":
+        if os.environ.get("MOCK_MODEL_HANG") == "1":
+            limit = float(os.environ.get("MODEL_FIRST_TOKEN_S") or "60")
+            time.sleep(limit + 0.05)
+            raise ModelTimeout("Model call timed out waiting for the first token.")
+        PROMPTS.append(messages)
         turn = _next_mock(messages)
         usage = turn.get("usage", {"input_tokens": 10, "output_tokens": 10})
         pace = int(os.environ.get("STREAM_PACE_MS") or "0") / 1000
+        if turn.get("deltas"):
+            for piece in turn["deltas"]:
+                yield {"kind": "delta", "text": piece["text"], "call": piece["call"], "index": piece["index"]}
+                if pace:
+                    time.sleep(pace)
+            yield {"kind": "done", "content": turn.get("content") or "", "tool_calls": turn.get("tool_calls") or [], "usage": usage, "usd": usd(usage)}
+            return
         text = turn.get("content") or ""
         words = text.split(" ")
         for index, word in enumerate(words):
@@ -142,6 +160,73 @@ def _plan(messages: list[dict]) -> list[dict]:
     blob = "\n".join(item.get("content") or "" for item in messages if isinstance(item.get("content"), str))
     if "force-fail" in blob:
         return [{"content": "This will fail.", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 600_000}}]
+    if "interleave-bubbles" in blob:
+        return [
+            {
+                "content": "First bubble.",
+                "deltas": [
+                    {"call": "a", "index": 2, "text": "bubble."},
+                    {"call": "b", "index": 1, "text": "Second "},
+                    {"call": "a", "index": 1, "text": "First "},
+                    {"call": "b", "index": 2, "text": "bubble."},
+                ],
+                "tool_calls": [
+                    {
+                        "id": "call_done",
+                        "name": "complete",
+                        "arguments": {
+                            "summary": {
+                                "description": "Two bubbles.",
+                                "filesChanged": [],
+                                "dependencies": [],
+                                "criteria": [],
+                                "assumptions": [],
+                                "followUps": [],
+                            }
+                        },
+                    }
+                ],
+            }
+        ]
+    if "slow-command" in blob:
+        return [
+            {"content": "On it.", "tool_calls": [{"id": "call_slow", "name": "shell", "arguments": {"command": "sleep 8"}}]},
+            {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_done",
+                        "name": "complete",
+                        "arguments": {
+                            "summary": {
+                                "description": "Command finished.",
+                                "filesChanged": [],
+                                "dependencies": [],
+                                "criteria": [],
+                                "assumptions": [],
+                                "followUps": [],
+                            }
+                        },
+                    }
+                ],
+            },
+        ]
+    if "tic tac toe" in blob.lower() and "ui" in blob.lower():
+        html = "<!doctype html><title>Tic Tac Toe</title><h1>Tic Tac Toe</h1><div id=\"board\"></div>"
+        package = json.dumps({"name": "tic-tac-toe", "private": True, "scripts": {"build": "node -e \"process.exit(0)\"", "test": "node -e \"process.exit(0)\""}})
+        summary = {"description": "Tic Tac Toe UI.", "filesChanged": ["index.html", "package.json"], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}
+        return [
+            {
+                "content": "Building the tic tac toe UI.",
+                "tool_calls": [
+                    {"id": "html", "name": "files", "arguments": {"op": "write", "path": "index.html", "content": html}},
+                    {"id": "pkg", "name": "files", "arguments": {"op": "write", "path": "package.json", "content": package}},
+                ],
+            },
+            {"content": "", "tool_calls": [{"id": "build", "name": "build_test", "arguments": {}}]},
+            {"content": "", "tool_calls": [{"id": "shot", "name": "headless_browser", "arguments": {"url": "index.html"}}]},
+            {"content": "", "tool_calls": [{"id": "done", "name": "complete", "arguments": {"summary": summary}}]},
+        ]
     rule = ""
     for line in blob.splitlines():
         if line.lower().startswith("pass rule:"):

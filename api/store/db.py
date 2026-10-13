@@ -100,7 +100,21 @@ def projects_dir() -> Path:
 
 BUILTIN_TOOLS = [
     ("shell", "builtin", "write", "Run a command in the workspace.", {"command": {"type": "string"}}, ["command"], "builtin"),
-    ("files", "builtin", "write", "Read and write files inside the agent zones.", {"op": {"type": "string"}, "path": {"type": "string"}, "content": {"type": "string"}}, ["path"], "builtin"),
+    (
+        "files",
+        "builtin",
+        "write",
+        "Read, list, edit, append, or write files. Prefer edit for existing files; write only for new files.",
+        {
+            "op": {"type": "string", "enum": ["read", "list", "write", "edit", "append"]},
+            "path": {"type": "string"},
+            "content": {"type": "string"},
+            "old_text": {"type": "string"},
+            "new_text": {"type": "string"},
+        },
+        ["path"],
+        "builtin",
+    ),
     ("package_install", "builtin", "write", "Install a package that is on an enabled allow-list.", {"name": {"type": "string"}}, ["name"], "builtin"),
     ("build_test", "builtin", "write", "Run the project build and tests.", {}, [], "builtin"),
     ("headless_browser", "builtin", "external", "Open a page and capture a screenshot.", {"url": {"type": "string"}}, [], "builtin"),
@@ -150,7 +164,7 @@ def seed() -> None:
     put(
         "settings",
         "runs",
-        {"maxSpendPerRunUsd": 5, "maxIterations": 60, "maxMinutes": 45, "loopDetection": True},
+        {"maxSpendPerRunUsd": 5, "maxSpendPerDayUsd": 20, "maxIterations": 60, "maxMinutes": 45, "loopDetection": True},
     )
     put("meta", "seeded", {"ok": True})
 
