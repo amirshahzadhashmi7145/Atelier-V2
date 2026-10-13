@@ -490,6 +490,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agents/{id}/versions/{v}/evals/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                v: components["parameters"]["Version"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["compareEvalModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/runs": {
         parameters: {
             query?: never;
@@ -816,6 +835,21 @@ export interface components {
             evalId: string;
             status: components["schemas"]["EvalStatus"];
             evidence?: string | null;
+            costUsd?: number;
+            durationMs?: number;
+            runId?: string;
+        };
+        EvalCompareRequest: {
+            models: string[];
+        };
+        EvalCompareRow: {
+            model: string;
+            passRate: number;
+            avgCostUsd: number;
+            avgDurationMs: number;
+        };
+        EvalCompare: {
+            rows: components["schemas"]["EvalCompareRow"][];
         };
         PromptVersion: {
             id: string;
@@ -1171,7 +1205,7 @@ export interface components {
             usd: number;
         };
         /** @enum {string} */
-        EventType: "RUN_STARTED" | "MODEL_CALLED" | "TOOL_CALLED" | "TOOL_RESULT" | "TOOL_REFUSED" | "SKILL_LOADED" | "CLIENT_TOOL_REQUESTED" | "CLARIFICATION_RAISED" | "STATE_CHANGED" | "RUN_COMPLETED" | "RUN_FAILED";
+        EventType: "RUN_STARTED" | "MODEL_CALLED" | "MODEL_DELTA" | "MODEL_OUTPUT" | "TOOL_CALLED" | "TOOL_RESULT" | "TOOL_REFUSED" | "SKILL_LOADED" | "CLIENT_TOOL_REQUESTED" | "CLARIFICATION_RAISED" | "STATE_CHANGED" | "RUN_COMPLETED" | "RUN_FAILED";
         Event: {
             id: string;
             runId: string;
@@ -1217,6 +1251,7 @@ export interface components {
             members: string[];
             localMode: boolean;
             previewUrl?: string | null;
+            summary?: string | null;
             /** Format: date-time */
             createdAt: string;
         };
@@ -2212,6 +2247,34 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             422: components["responses"]["Error"];
+        };
+    };
+    compareEvalModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                v: components["parameters"]["Version"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Runs this version's evals on each model */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalCompare"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     listRuns: {

@@ -186,7 +186,7 @@ export function AgentEditor({ id }: { id: string }) {
     mutationFn: () => runEvals(id, latest!.version),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.versions(id) })
-      toast.success("Evals passed")
+      toast.success("Evals finished")
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Eval run failed"),
   })
@@ -405,9 +405,16 @@ export function AgentEditor({ id }: { id: string }) {
               const result = latest?.evalResults.find((entry) => entry.evalId === item.id)
               return (
                 <li key={item.id} className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2" data-eval-status={result?.status ?? "not_run"}>
                     {item.name}
                     <Badge variant="secondary">{result?.status ?? "not_run"}</Badge>
+                    {result?.costUsd != null ? <span className="text-xs text-muted-foreground">${result.costUsd.toFixed(4)}</span> : null}
+                    {result?.durationMs != null ? <span className="text-xs text-muted-foreground">{(result.durationMs / 1000).toFixed(1)}s</span> : null}
+                    {result?.runId ? (
+                      <Link className="text-xs underline" href={`/runs/${result.runId}`}>
+                        run
+                      </Link>
+                    ) : null}
                   </span>
                   <Button
                     variant="ghost"

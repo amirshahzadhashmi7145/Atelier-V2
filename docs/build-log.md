@@ -55,3 +55,12 @@ Failures / known gaps: Evals still always pass. The Docker container does not en
 New dependencies: fastapi, uvicorn, sqlalchemy, alembic, pydantic, httpx, pyyaml, python-dotenv, and pytest for the API. openai is imported only in the gateway. docker is the sandbox client when Docker answers.
 Follow-ups for the next session: Real evals. A Backend Engineer agent. Routing rules that replace route_task.
 
+## S7 feat/streaming-real-evals
+
+Session: S7 feat/streaming-real-evals
+Built: The chat shows the agent's text as it arrives, then replaces it with the summary, the files, and the links. Evals are real runs. A version can be set active only when every eval on it passed. Settings > Models can run one agent's evals across models. Compiled prompts are counted with tiktoken. Older chat is summarised onto the project. The Docker sandbox refuses hosts outside the allow-list.
+Decisions: S6 was still unmerged, so this branch starts from feat/real-engine-chat. MODEL_DELTA rows are folded into one MODEL_OUTPUT when the model call finishes, and sequence numbers are packed so the event log stays contiguous. The chat batches those pieces about every 50ms. Eval runs use the same loop in a folder that is deleted afterwards. Pass is the string `pass`. Mocked studio tests still mark evals as pass without a run. The "best in your runs" badge still needs five completed runs; compare runs count toward that. DEV LOCAL MODE is unchanged when Docker does not answer.
+Failures / known gaps: The GitHub branch, push, and pull request test is in the suite and did not run, because GITHUB_TOKEN in api/.env is empty. The landing-page test that calls OpenAI still runs only when RUN_REAL_LLM_TESTS=1. A screenshot pass can be met by an empty image when Playwright cannot launch; the viewport is recorded and console errors are empty. The mock preview in the web unit tests still estimates tokens as characters divided by four. Saved versions use tiktoken. Backend Engineer, routing rules, and supervisors are not in this session. route_task still assigns the only member.
+New dependencies: tiktoken, so compiled prompt counts use OpenAI's tokenizer. Actual usage still comes from the API response.
+Follow-ups for the next session: Put a GitHub token in api/.env and run the throwaway-repo test with RUN_GITHUB_TESTS=1. A Backend Engineer agent. Routing rules that replace route_task.
+

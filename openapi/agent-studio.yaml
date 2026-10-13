@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.6.0
+  version: 0.7.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -684,6 +684,28 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+  /agents/{id}/versions/{v}/evals/compare:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - $ref: "#/components/parameters/Version"
+    post:
+      operationId: compareEvalModels
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvalCompareRequest"
+      responses:
+        "200":
+          description: Runs this version's evals on each model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalCompare"
+        "404":
+          $ref: "#/components/responses/Error"
   /runs:
     get:
       operationId: listRuns
@@ -1246,6 +1268,43 @@ components:
           $ref: "#/components/schemas/EvalStatus"
         evidence:
           type: [string, "null"]
+        costUsd:
+          type: number
+        durationMs:
+          type: integer
+        runId:
+          type: string
+    EvalCompareRequest:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            type: string
+    EvalCompareRow:
+      type: object
+      additionalProperties: false
+      required: [model, passRate, avgCostUsd, avgDurationMs]
+      properties:
+        model:
+          type: string
+        passRate:
+          type: number
+        avgCostUsd:
+          type: number
+        avgDurationMs:
+          type: number
+    EvalCompare:
+      type: object
+      additionalProperties: false
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvalCompareRow"
     PromptVersion:
       type: object
       additionalProperties: false
@@ -2075,6 +2134,8 @@ components:
       enum:
         - RUN_STARTED
         - MODEL_CALLED
+        - MODEL_DELTA
+        - MODEL_OUTPUT
         - TOOL_CALLED
         - TOOL_RESULT
         - TOOL_REFUSED
@@ -2177,6 +2238,8 @@ components:
         localMode:
           type: boolean
         previewUrl:
+          type: [string, "null"]
+        summary:
           type: [string, "null"]
         createdAt:
           type: string

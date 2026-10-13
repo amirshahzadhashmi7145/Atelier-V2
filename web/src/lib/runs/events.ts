@@ -16,8 +16,13 @@ export function lastSeq(events: { seq: number }[]) {
 }
 
 export function appendBySeq(events: RunEvent[], event: RunEvent): RunEvent[] {
-  if (events.some((item) => item.seq === event.seq)) return events
-  return [...events, event].sort((a, b) => a.seq - b.seq)
+  const index = events.findIndex((item) => item.id === event.id || item.seq === event.seq)
+  if (index === -1) return [...events, event].sort((a, b) => a.seq - b.seq)
+  const current = events[index]
+  if (current.id === event.id && current.seq === event.seq && current.type === event.type) return events
+  const copy = events.slice()
+  copy[index] = event
+  return copy.sort((a, b) => a.seq - b.seq)
 }
 
 export function applyStatus(run: Run, event: RunEvent): Run {
@@ -65,7 +70,11 @@ function isCause(value: unknown): value is NonNullable<Run["terminalCause"]> {
 export function writeRunEvent(queryClient: QueryClient, event: RunEvent) {
   const key = queryKeys.runs.events(event.runId)
   const current = queryClient.getQueryData<RunEvent[]>(key) ?? []
-  const next = appendBySeq(current, event)
+  let next = appendBySeq(current, event)
+  if (event.type === "MODEL_OUTPUT") {
+    const callId = event.payload.callId
+    next = next.filter((item) => item.type !== "MODEL_DELTA" || item.payload.callId !== callId)
+  }
   if (next !== current) queryClient.setQueryData(key, next)
   if (event.type === "STATE_CHANGED" || event.type === "RUN_COMPLETED" || event.type === "RUN_FAILED" || event.type === "CLIENT_TOOL_REQUESTED" || event.type === "CLARIFICATION_RAISED" || event.cost) {
     queryClient.setQueryData<Run>(queryKeys.runs.detail(event.runId), (run) => (run ? applyStatus(run, event) : run))

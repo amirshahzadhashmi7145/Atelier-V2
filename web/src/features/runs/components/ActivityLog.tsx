@@ -9,6 +9,8 @@ import type { RunEvent } from "@/lib/runs/events"
 const labels: Record<RunEvent["type"], string> = {
   RUN_STARTED: "Run started",
   MODEL_CALLED: "Model called",
+  MODEL_DELTA: "Model delta",
+  MODEL_OUTPUT: "Model output",
   TOOL_CALLED: "Tool called",
   TOOL_RESULT: "Tool result",
   TOOL_REFUSED: "Tool refused",
@@ -22,6 +24,7 @@ const labels: Record<RunEvent["type"], string> = {
 
 export function eventSummary(event: RunEvent) {
   const payload = event.payload
+  if (event.type === "MODEL_DELTA" || event.type === "MODEL_OUTPUT") return String(payload.text ?? labels[event.type])
   if (event.type === "TOOL_CALLED" || event.type === "TOOL_RESULT" || event.type === "TOOL_REFUSED") {
     return `${labels[event.type]}: ${String(payload.name ?? "")}`
   }

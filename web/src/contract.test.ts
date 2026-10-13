@@ -34,6 +34,7 @@ const required: [string, string][] = [
   ["/library/{id}/import", "post"],
   ["/agents/{id}/evals", "post"],
   ["/agents/{id}/versions/{v}/evals/run", "post"],
+  ["/agents/{id}/versions/{v}/evals/compare", "post"],
   ["/runs", "post"],
   ["/runs/{id}/events", "get"],
   ["/runs/{id}/stop", "post"],
