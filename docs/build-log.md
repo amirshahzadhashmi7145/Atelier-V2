@@ -64,3 +64,12 @@ Failures / known gaps: The GitHub branch, push, and pull request test is in the 
 New dependencies: tiktoken, so compiled prompt counts use OpenAI's tokenizer. Actual usage still comes from the API response.
 Follow-ups for the next session: Put a GitHub token in api/.env and run the throwaway-repo test with RUN_GITHUB_TESTS=1. A Backend Engineer agent. Routing rules that replace route_task.
 
+## S8 feat/run-fixes-teach-streaming
+
+Session: S8 feat/run-fixes-teach-streaming
+Built: A chat message is labelled before a run exists. Greetings get a short reply in the thread, work outside the role gets one refusal, and in-role work starts a run. Each model call is its own bubble. Deltas stay in memory and only the merged text is stored. The chat page is the viewport height, the thread is the only scroller, and Teach saves a skill, a stack, and an optional docs source onto the agent in one request.
+Decisions: The live classifier is one completion; under GATEWAY_MOCK the label is a word list so the suite stays offline. Live delta sequence numbers sit at 1_000_000 and up so they cannot replace a stored event, and the resume cursor ignores them. Clarification rounds live in a side record because the Run document drops unknown fields. A command that does not exit is refused before it starts and points at the preview tool. A screenshot counts only when Playwright launched and the PNG size matches the viewport. The secret scan skips gitignored files so api/.env can hold a token; .env.example is tracked and is scanned. Git config was not changed, so the hook file at .githooks/pre-commit is not installed by this commit. CI runs it, and runs gitleaks.
+Failures / known gaps: The GitHub branch, push, and pull request test did not run, because GITHUB_TOKEN in api/.env is empty. The landing-page test that calls OpenAI still runs only when RUN_REAL_LLM_TESTS=1. Chromium has no document.scrollHeight; the test checks documentElement.scrollHeight against the viewport. Draft rules from a repo clones only when the gateway is not mocked. The mock studio still marks evals as pass without a run. Backend Engineer, routing rules, and supervisors are not in this session. route_task still assigns the only member.
+New dependencies: none. CI calls gitleaks/gitleaks-action. The tree scan is a Python script in the repo.
+Follow-ups for the next session: Put a GitHub token in api/.env and run the throwaway-repo test with RUN_GITHUB_TESTS=1. Point git at .githooks if the local hook should run. A Backend Engineer agent. Routing rules that replace route_task.
+

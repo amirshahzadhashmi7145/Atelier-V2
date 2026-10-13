@@ -9,6 +9,7 @@ from gateway import openai_gateway
 from runtime import compile as compile_prompt
 from runtime import tools
 from store import db
+from store import live
 
 WAITS: dict[str, threading.Event] = {}
 
@@ -51,8 +52,9 @@ def drive(run_id: str) -> None:
             _fail(run, "timeout", "The run exceeded the time limit.")
             return
         call_id = db.nid("call")
-        parts: list[str] = []
         turn = {"content": "", "tool_calls": [], "usage": {"input_tokens": 0, "output_tokens": 0}, "usd": 0}
+        opened: list[str] = []
+        counts: dict[str, int] = {}
         for item in openai_gateway.stream_turn(
             run["model"]["name"],
             _messages(run, agent, answer),
@@ -60,11 +62,21 @@ def drive(run_id: str) -> None:
             run["model"].get("config") or {},
         ):
             if item["kind"] == "delta":
-                parts.append(item["text"])
-                db.append_event(run_id, "MODEL_DELTA", {"callId": call_id, "text": item["text"]})
+                cid = item.get("call") or call_id
+                if cid not in opened:
+                    opened.append(cid)
+                index = int(item["index"]) if item.get("index") else counts.get(cid, 0) + 1
+                counts[cid] = max(counts.get(cid, 0), index)
+                live.delta(run_id, cid, index, item["text"])
             else:
                 turn = item
-        db.merge_deltas(run_id, call_id, "".join(parts))
+        if not opened:
+            opened = [call_id]
+        for cid in opened:
+            text = live.finish(run_id, cid)
+            if not text:
+                text = turn.get("content") or ""
+            db.append_event(run_id, "MODEL_OUTPUT", {"modelCallId": cid, "callId": cid, "text": text})
         answer = None
         usage = turn["usage"]
         cost = {"inputTokens": usage["input_tokens"], "outputTokens": usage["output_tokens"], "usd": turn["usd"]}
@@ -102,7 +114,17 @@ def drive(run_id: str) -> None:
             else:
                 unchanged = 0
             if result.get("clarify"):
-                if not _pause(run, "waiting_user", "CLARIFICATION_RAISED", {"question": result["clarify"]}):
+                questions = list(result.get("questions") or [result["clarify"]])[:3]
+                record = db.get("clarify", run_id) or {"rounds": 0, "assumptions": []}
+                if record["rounds"] >= 1:
+                    assumption = "Proceeding with assumption: the earlier answer still stands."
+                    record["assumptions"].append(assumption)
+                    db.put("clarify", run_id, record)
+                    db.append_event(run_id, "TOOL_RESULT", {"name": call["name"], "output": assumption})
+                    continue
+                record["rounds"] = 1
+                db.put("clarify", run_id, record)
+                if not _pause(run, "waiting_user", "CLARIFICATION_RAISED", {"question": "\n".join(questions), "questions": questions}):
                     return
                 answer = (db.get("answer", run_id) or {}).get("text")
                 continue
@@ -215,7 +237,7 @@ def _complete(run: dict, summary: dict) -> None:
         "filesChanged": summary.get("filesChanged") or [item["path"] for item in (db.get("diff", run["id"]) or {"files": []})["files"]],
         "dependencies": summary.get("dependencies") or [],
         "criteria": summary.get("criteria") or [],
-        "assumptions": summary.get("assumptions") or [],
+        "assumptions": [*(summary.get("assumptions") or []), *((db.get("clarify", run["id"]) or {}).get("assumptions") or [])],
         "followUps": summary.get("followUps") or [],
     }
     project = db.get("project", run.get("projectId")) if run.get("projectId") else None
