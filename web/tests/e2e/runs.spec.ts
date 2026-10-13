@@ -68,6 +68,8 @@ test("start a run, answer it, and open the summary", async ({ page }) => {
   await page.reload()
   const started = page.getByRole("button", { name: "Run started", exact: true })
   await expect(started).toBeVisible()
+  await page.waitForTimeout(2_000)
+  await expect(started).toBeVisible()
   await started.click()
   await expect(page.locator("[data-seq]")).toHaveCount(1)
 
