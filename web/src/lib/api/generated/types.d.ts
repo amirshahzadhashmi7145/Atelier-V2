@@ -635,6 +635,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProjects"];
+        put?: never;
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["listProjectMessages"];
+        put?: never;
+        post: operations["postProjectMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["closeProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/model-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listModelTags"];
+        put: operations["saveModelTag"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -645,6 +731,11 @@ export interface components {
             details?: {
                 [key: string]: unknown;
             } | null;
+        };
+        Capabilities: {
+            stacks: string[];
+            skills: string[];
+            tags: string[];
         };
         ModelSelection: {
             provider: string;
@@ -677,6 +768,8 @@ export interface components {
             stackIds: string[];
             zones: string[];
             evals: components["schemas"]["Eval"][];
+            reportsTo: string | null;
+            capabilities: components["schemas"]["Capabilities"];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -691,6 +784,8 @@ export interface components {
             skillIds?: string[];
             stackIds?: string[];
             zones?: string[];
+            reportsTo?: string | null;
+            capabilities?: components["schemas"]["Capabilities"];
         };
         AgentPatch: {
             name?: string;
@@ -1044,6 +1139,7 @@ export interface components {
             branch?: string;
             prUrl?: string;
             previewUrl?: string;
+            taskId?: string;
             /** Format: date-time */
             startedAt: string;
             /** Format: date-time */
@@ -1110,6 +1206,67 @@ export interface components {
             kind: components["schemas"]["ArtifactKind"];
             viewport?: string;
             url?: string;
+        };
+        Project: {
+            id: string;
+            name: string;
+            folderPath: string;
+            repoUrl: string | null;
+            /** @description Reference to the GitHub token. Never the token itself. */
+            tokenRef: string | null;
+            members: string[];
+            localMode: boolean;
+            previewUrl?: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ProjectCreate: {
+            name: string;
+            agentId: string;
+            repoUrl?: string | null;
+            /** @description Write-only. Stored by reference, never returned. */
+            githubToken?: string;
+        };
+        /** @enum {string} */
+        TaskStatus: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+        /** @enum {string} */
+        RoutedBy: "user" | "rule" | "agent";
+        Task: {
+            id: string;
+            projectId: string;
+            parentTaskId: string | null;
+            text: string;
+            assignedAgentId: string;
+            routedBy: components["schemas"]["RoutedBy"];
+            status: components["schemas"]["TaskStatus"];
+            summary: string | null;
+            diffRef: string | null;
+            screenshotRefs: string[];
+        };
+        /** @enum {string} */
+        ChatRole: "user" | "agent";
+        ChatMessage: {
+            id: string;
+            projectId: string;
+            role: components["schemas"]["ChatRole"];
+            text: string;
+            taskId?: string;
+            runId?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        MessageCreate: {
+            text: string;
+        };
+        ModelTagRecord: {
+            tags: string[];
+            note: string;
+            heuristic: boolean;
+        };
+        ModelTagWrite: {
+            name: string;
+            tags: string[];
+            note: string;
         };
     };
     responses: {
@@ -2280,6 +2437,193 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Projects */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"][];
+                };
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description Created, folder ready */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listProjectMessages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Chat thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessage"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    postProjectMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description User message, task, and run */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatMessage"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    closeProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preview stopped */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listModelTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved tags keyed by model name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["ModelTagRecord"];
+                    };
+                };
+            };
+        };
+    };
+    saveModelTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelTagWrite"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelTagRecord"];
+                };
+            };
         };
     };
 }

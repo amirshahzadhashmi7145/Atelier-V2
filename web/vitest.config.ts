@@ -10,6 +10,7 @@ export default defineConfig({
       jsdom: { url: "http://localhost/" },
     },
     setupFiles: ["./src/test/setup.ts"],
+    env: { NEXT_PUBLIC_USE_MOCKS: "true" },
     exclude: ["tests/e2e/**", "node_modules/**"],
   },
   resolve: {

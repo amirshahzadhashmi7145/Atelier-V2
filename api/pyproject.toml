@@ -1,0 +1,29 @@
+[project]
+name = "agent-studio-api"
+version = "0.6.0"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.32",
+  "sqlalchemy>=2",
+  "alembic>=1.14",
+  "pydantic>=2",
+  "httpx>=0.27",
+  "openai>=1.50",
+  "pyyaml>=6",
+  "python-dotenv>=1.0",
+  "docker>=7",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*", "store*", "runtime*", "gateway*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

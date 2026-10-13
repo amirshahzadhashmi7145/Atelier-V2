@@ -69,6 +69,8 @@ export const agentHandlers = [
       stackIds: body.stackIds ?? [],
       zones: body.zones ?? [],
       evals: [],
+      reportsTo: null,
+      capabilities: { stacks: body.stackIds ?? [], skills: body.skillIds ?? [], tags: [] },
       createdAt: timestamp,
       updatedAt: timestamp,
     }

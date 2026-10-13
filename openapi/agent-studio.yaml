@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.5.0
+  version: 0.6.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -863,6 +863,131 @@ paths:
                   $ref: "#/components/schemas/Artifact"
         "404":
           $ref: "#/components/responses/Error"
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreate"
+      responses:
+        "201":
+          description: Created, folder ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getProject
+      tags: [projects]
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listProjectMessages
+      tags: [projects]
+      responses:
+        "200":
+          description: Chat thread
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: postProjectMessage
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageCreate"
+      responses:
+        "201":
+          description: User message, task, and run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/close:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: closeProject
+      tags: [projects]
+      responses:
+        "200":
+          description: Preview stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+  /model-tags:
+    get:
+      operationId: listModelTags
+      tags: [models]
+      responses:
+        "200":
+          description: Saved tags keyed by model name
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/ModelTagRecord"
+    put:
+      operationId: saveModelTag
+      tags: [models]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelTagWrite"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelTagRecord"
 components:
   parameters:
     Id:
@@ -898,6 +1023,23 @@ components:
         details:
           type: [object, "null"]
           additionalProperties: true
+    Capabilities:
+      type: object
+      additionalProperties: false
+      required: [stacks, skills, tags]
+      properties:
+        stacks:
+          type: array
+          items:
+            type: string
+        skills:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
     ModelSelection:
       type: object
       additionalProperties: false
@@ -950,6 +1092,8 @@ components:
         - stackIds
         - zones
         - evals
+        - reportsTo
+        - capabilities
         - createdAt
         - updatedAt
       properties:
@@ -985,6 +1129,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Eval"
+        reportsTo:
+          type: [string, "null"]
+        capabilities:
+          $ref: "#/components/schemas/Capabilities"
         createdAt:
           type: string
           format: date-time
@@ -1020,6 +1168,10 @@ components:
           type: array
           items:
             type: string
+        reportsTo:
+          type: [string, "null"]
+        capabilities:
+          $ref: "#/components/schemas/Capabilities"
     AgentPatch:
       type: object
       additionalProperties: false
@@ -1847,6 +1999,8 @@ components:
           type: string
         previewUrl:
           type: string
+        taskId:
+          type: string
         startedAt:
           type: string
           format: date-time
@@ -1999,4 +2153,134 @@ components:
         viewport:
           type: string
         url:
+          type: string
+    Project:
+      type: object
+      additionalProperties: false
+      required: [id, name, folderPath, repoUrl, tokenRef, members, localMode, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        folderPath:
+          type: string
+        repoUrl:
+          type: [string, "null"]
+        tokenRef:
+          type: [string, "null"]
+          description: Reference to the GitHub token. Never the token itself.
+        members:
+          type: array
+          items:
+            type: string
+        localMode:
+          type: boolean
+        previewUrl:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+    ProjectCreate:
+      type: object
+      additionalProperties: false
+      required: [name, agentId]
+      properties:
+        name:
+          type: string
+        agentId:
+          type: string
+        repoUrl:
+          type: [string, "null"]
+        githubToken:
+          type: string
+          description: Write-only. Stored by reference, never returned.
+    TaskStatus:
+      type: string
+      enum: [queued, running, waiting, completed, failed, cancelled]
+    RoutedBy:
+      type: string
+      enum: [user, rule, agent]
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, parentTaskId, text, assignedAgentId, routedBy, status, summary, diffRef, screenshotRefs]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        parentTaskId:
+          type: [string, "null"]
+        text:
+          type: string
+        assignedAgentId:
+          type: string
+        routedBy:
+          $ref: "#/components/schemas/RoutedBy"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        summary:
+          type: [string, "null"]
+        diffRef:
+          type: [string, "null"]
+        screenshotRefs:
+          type: array
+          items:
+            type: string
+    ChatRole:
+      type: string
+      enum: [user, agent]
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, role, text, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        role:
+          $ref: "#/components/schemas/ChatRole"
+        text:
+          type: string
+        taskId:
+          type: string
+        runId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    MessageCreate:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+    ModelTagRecord:
+      type: object
+      additionalProperties: false
+      required: [tags, note, heuristic]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+        note:
+          type: string
+        heuristic:
+          type: boolean
+    ModelTagWrite:
+      type: object
+      additionalProperties: false
+      required: [name, tags, note]
+      properties:
+        name:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        note:
           type: string

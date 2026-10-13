@@ -18,7 +18,7 @@ function ensureMocks() {
 }
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
-  const mocks = process.env.NEXT_PUBLIC_USE_MOCKS !== "false"
+  const mocks = process.env.NEXT_PUBLIC_USE_MOCKS === "true"
   const [ready, setReady] = useState(!mocks)
 
   useEffect(() => {

@@ -1,5 +1,4 @@
 import { api, unwrap } from "@/lib/api/client"
-import { fetchProviderModels } from "@/lib/api/provider-route"
 import type { components } from "@/lib/api/generated/types"
 
 export async function listProviders() {
@@ -11,13 +10,11 @@ export async function listModels() {
 }
 
 export async function testProviderConnection() {
-  const ids = await fetchProviderModels(false)
-  return ids
+  return unwrap(await api.POST("/providers/{id}/test", { params: { path: { id: "openai" } } }))
 }
 
 export async function refreshProviderModels() {
-  await fetchProviderModels(true)
-  return listModels()
+  return unwrap(await api.POST("/providers/{id}/refresh", { params: { path: { id: "openai" } } }))
 }
 
 export async function getRunSettings() {

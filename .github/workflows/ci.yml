@@ -28,4 +28,17 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm exec playwright install --with-deps chromium
+      - uses: astral-sh/setup-uv@v5
+      - name: install the api for the chat browser test
+        working-directory: ${{ github.workspace }}
+        run: uv sync --directory api --python 3.12
       - run: pnpm test:e2e
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --directory api --python 3.12
+      - run: uv run --directory api alembic upgrade head
+      - run: uv run --directory api pytest

@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { listModels, listProviders, refreshProviderModels, testProviderConnection } from "@/features/settings/api"
 import { queryKeys } from "@/lib/api/query-keys"
 
-export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
+export function ProvidersForm() {
   const queryClient = useQueryClient()
   const providers = useQuery({ queryKey: queryKeys.providers, queryFn: listProviders })
   const models = useQuery({ queryKey: queryKeys.models, queryFn: listModels })
@@ -23,10 +23,10 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
   }
   const test = useMutation({
     mutationFn: testProviderConnection,
-    onSuccess: async (ids) => {
+    onSuccess: async () => {
       setConnection("Connected")
       setConnectionError(null)
-      toast.success(`Connected. ${ids.length} models.`)
+      toast.success("Connection succeeded")
       await invalidate()
     },
     onError: (error) => {
@@ -47,7 +47,7 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Providers" description="The key stays in .env.local. The browser never sees it." />
+      <PageHeader title="Providers" description="The key stays in api/.env. The browser never sees it." />
       <QueryBody query={providers} emptyTitle="No providers" emptyDescription="No provider is configured.">
         {(items) => (
           <div className="flex flex-col gap-4">
@@ -61,8 +61,10 @@ export function ProvidersForm({ keyFound }: { keyFound: boolean }) {
                       <Badge variant="secondary">{connected ? "Connected" : "Not connected"}</Badge>
                     </CardTitle>
                     <CardDescription>
-                      {keyFound ? "key found" : "key missing"}
-                      {provider.modelsCachedAt ? ` · models cached ${provider.modelsCachedAt}` : ""}
+                      {provider.keyRef ? "key found" : "key missing"}
+                      {(models.data ?? []).length > 0 && provider.modelsCachedAt
+                        ? ` · models cached ${provider.modelsCachedAt}`
+                        : ""}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
