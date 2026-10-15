@@ -11,8 +11,8 @@ export function isTerminal(status: string) {
   return terminal.has(status)
 }
 
-export function lastSeq(events: { seq: number }[]) {
-  return events.reduce((max, item) => Math.max(max, item.seq), 0)
+export function lastSeq(events: { seq: number; type?: string }[]) {
+  return events.reduce((max, item) => (item.type === "MODEL_DELTA" ? max : Math.max(max, item.seq)), 0)
 }
 
 export function appendBySeq(events: RunEvent[], event: RunEvent): RunEvent[] {
@@ -72,8 +72,8 @@ export function writeRunEvent(queryClient: QueryClient, event: RunEvent) {
   const current = queryClient.getQueryData<RunEvent[]>(key) ?? []
   let next = appendBySeq(current, event)
   if (event.type === "MODEL_OUTPUT") {
-    const callId = event.payload.callId
-    next = next.filter((item) => item.type !== "MODEL_DELTA" || item.payload.callId !== callId)
+    const callId = event.payload.modelCallId ?? event.payload.callId
+    next = next.filter((item) => item.type !== "MODEL_DELTA" || (item.payload.modelCallId ?? item.payload.callId) !== callId)
   }
   if (next !== current) queryClient.setQueryData(key, next)
   if (event.type === "STATE_CHANGED" || event.type === "RUN_COMPLETED" || event.type === "RUN_FAILED" || event.type === "CLIENT_TOOL_REQUESTED" || event.type === "CLARIFICATION_RAISED" || event.cost) {

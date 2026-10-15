@@ -20,6 +20,7 @@ export function RunsForm() {
   const [minutes, setMinutes] = useState<string | null>(null)
   const [loop, setLoop] = useState<boolean | null>(null)
   const [recordRequests, setRecordRequests] = useState<boolean | null>(null)
+  const [daily, setDaily] = useState<string | null>(null)
   const save = useMutation({
     mutationFn: saveRunSettings,
     onSuccess: async () => {
@@ -39,6 +40,7 @@ export function RunsForm() {
           const maxMinutes = Number(minutes ?? current.maxMinutes)
           const loopDetection = loop ?? current.loopDetection
           const recordModelRequests = recordRequests ?? current.recordModelRequests ?? false
+          const maxSpendPerDayUsd = Number(daily ?? current.maxSpendPerDayUsd ?? 20)
           return (
             <Card>
               <CardHeader>
@@ -46,6 +48,17 @@ export function RunsForm() {
                 <CardDescription>These apply to every run.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                <Field>
+                  <FieldLabel htmlFor="max-spend-day">Max spend per project per day</FieldLabel>
+                  <Input
+                    id="max-spend-day"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={daily ?? String(current.maxSpendPerDayUsd ?? 20)}
+                    onChange={(event) => setDaily(event.target.value)}
+                  />
+                </Field>
                 <Field>
                   <FieldLabel htmlFor="max-spend">Max spend per run</FieldLabel>
                   <Input
@@ -104,7 +117,14 @@ export function RunsForm() {
                   type="button"
                   disabled={save.isPending}
                   onClick={() =>
-                    save.mutate({ maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection, recordModelRequests })
+                    save.mutate({
+                      maxSpendPerRunUsd,
+                      maxSpendPerDayUsd,
+                      maxIterations,
+                      maxMinutes,
+                      loopDetection,
+                      recordModelRequests,
+                    })
                   }
                 >
                   {save.isPending ? "Saving…" : "Save"}

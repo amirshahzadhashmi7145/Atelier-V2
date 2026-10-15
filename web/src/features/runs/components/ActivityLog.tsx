@@ -11,6 +11,7 @@ const labels: Record<RunEvent["type"], string> = {
   MODEL_CALLED: "Model called",
   MODEL_DELTA: "Model delta",
   MODEL_OUTPUT: "Model output",
+  MODEL_RETRY: "Model retry",
   TOOL_CALLED: "Tool called",
   TOOL_RESULT: "Tool result",
   TOOL_REFUSED: "Tool refused",

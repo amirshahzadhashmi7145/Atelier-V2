@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.7.0
+  version: 0.10.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -93,6 +93,50 @@ paths:
       responses:
         "204":
           description: Deleted
+        "404":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/teach:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: teachAgent
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeachRequest"
+      responses:
+        "201":
+          description: Skill, stack, and optional docs source attached to the agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeachResult"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /agents/{id}/teach/draft:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: draftTeachRules
+      tags: [agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeachDraftRequest"
+      responses:
+        "200":
+          description: Draft rules the user edits before saving
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeachDraft"
         "404":
           $ref: "#/components/responses/Error"
   /agents/{id}/versions:
@@ -1113,6 +1157,7 @@ components:
         - skillIds
         - stackIds
         - zones
+        - scope
         - evals
         - reportsTo
         - capabilities
@@ -1147,6 +1192,8 @@ components:
           type: array
           items:
             type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
         evals:
           type: array
           items:
@@ -1190,6 +1237,8 @@ components:
           type: array
           items:
             type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
         reportsTo:
           type: [string, "null"]
         capabilities:
@@ -1215,6 +1264,25 @@ components:
           items:
             type: string
         stackIds:
+          type: array
+          items:
+            type: string
+        zones:
+          type: array
+          items:
+            type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
+    Scope:
+      type: object
+      additionalProperties: false
+      required: [does, neverDoes, zones]
+      properties:
+        does:
+          type: array
+          items:
+            type: string
+        neverDoes:
           type: array
           items:
             type: string
@@ -1387,6 +1455,8 @@ components:
           type: array
           items:
             type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
     CompilePreview:
       type: object
       additionalProperties: false
@@ -1878,11 +1948,15 @@ components:
     RunSettings:
       type: object
       additionalProperties: false
-      required: [maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection]
+      required: [maxSpendPerRunUsd, maxSpendPerDayUsd, maxIterations, maxMinutes, loopDetection]
       properties:
         maxSpendPerRunUsd:
           type: number
           minimum: 0
+        maxSpendPerDayUsd:
+          type: number
+          minimum: 0
+          default: 20
         maxIterations:
           type: integer
           minimum: 1
@@ -2140,6 +2214,7 @@ components:
         - MODEL_CALLED
         - MODEL_DELTA
         - MODEL_OUTPUT
+        - MODEL_RETRY
         - TOOL_CALLED
         - TOOL_RESULT
         - TOOL_REFUSED
@@ -2243,6 +2318,9 @@ components:
           type: boolean
         previewUrl:
           type: [string, "null"]
+        activeRunId:
+          type: [string, "null"]
+          description: Run currently working in this project, if any.
         summary:
           type: [string, "null"]
         createdAt:
@@ -2295,6 +2373,56 @@ components:
           type: array
           items:
             type: string
+        label:
+          type: string
+          enum: [chat, task, out]
+          description: Classifier label recorded when the task was created from chat.
+    TeachRequest:
+      type: object
+      additionalProperties: false
+      required: [name, version, rules]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        rules:
+          type: string
+        docsUrl:
+          type: string
+        packages:
+          type: array
+          items:
+            type: string
+        scaffold:
+          type: string
+    TeachResult:
+      type: object
+      additionalProperties: false
+      required: [agent, skill, stack]
+      properties:
+        agent:
+          $ref: "#/components/schemas/AgentDefinition"
+        skill:
+          $ref: "#/components/schemas/Skill"
+        stack:
+          $ref: "#/components/schemas/TechStack"
+        dataSource:
+          $ref: "#/components/schemas/DataSource"
+    TeachDraftRequest:
+      type: object
+      additionalProperties: false
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          type: string
+    TeachDraft:
+      type: object
+      additionalProperties: false
+      required: [rules]
+      properties:
+        rules:
+          type: string
     ChatRole:
       type: string
       enum: [user, agent]
@@ -2314,6 +2442,14 @@ components:
         taskId:
           type: string
         runId:
+          type: string
+        label:
+          type: string
+          enum: [chat, task, out]
+        queueStatus:
+          type: string
+          enum: [waiting]
+        statusNote:
           type: string
         createdAt:
           type: string

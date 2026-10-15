@@ -57,7 +57,8 @@ export const libraryHandlers = [
         toolIds: [...template.toolIds],
         skillIds: [...template.skillIds],
         stackIds: [...template.stackIds],
-        zones: [...template.zones],
+        zones: [...(template.scope?.zones ?? template.zones)],
+        scope: template.scope ?? { does: [], neverDoes: [], zones: [...template.zones] },
         evals: structuredClone(template.evals),
         reportsTo: null,
         capabilities: { stacks: [...template.stackIds], skills: [...template.skillIds], tags: [] },
@@ -71,6 +72,7 @@ export const libraryHandlers = [
         stacks: orderedById(db.stacks, agent.stackIds).map((stack) => ({ name: stack.name, version: stack.version })),
         tools: orderedById(db.tools, toolIds).map((tool) => ({ name: tool.name, description: tool.description })),
         skills: orderedById(db.skills, agent.skillIds).map((skill) => ({ name: skill.name, description: skill.description })),
+        scope: agent.scope,
       })
       db.agents.push(agent)
       db.versions.push({

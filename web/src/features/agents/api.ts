@@ -39,6 +39,14 @@ export async function diffVersions(id: string, version: number, against: number)
   )
 }
 
+export async function teachAgent(id: string, body: components["schemas"]["TeachRequest"]) {
+  return unwrap(await api.POST("/agents/{id}/teach", { params: { path: { id } }, body }))
+}
+
+export async function draftTeachRules(id: string, repoUrl: string) {
+  return unwrap(await api.POST("/agents/{id}/teach/draft", { params: { path: { id } }, body: { repoUrl } }))
+}
+
 export async function compilePreview(id: string, body: components["schemas"]["CompilePreviewRequest"]) {
   return unwrap(await api.POST("/agents/{id}/compile-preview", { params: { path: { id } }, body }))
 }

@@ -67,9 +67,18 @@ Follow-ups for the next session: Put a GitHub token in api/.env and run the thro
 ## S10 fix/tool-result-pairing
 
 Session: S10 fix/tool-result-pairing
-Built: Each run keeps a transcript of assistant tool calls and tool results appended to the model message list, with gateway pairing checks and optional redacted request capture under api/debug/runs/. Tool results return non-empty text; context trimming removes oldest whole call/result blocks. A vite-react-ts starter scaffolds a buildable React app in empty workspaces.
+Built: Each run keeps a transcript of assistant tool calls and tool results appended to the model message list, with gateway pairing checks and optional redacted request capture under api/debug/runs/. Tool results return non-empty text; context trimming removes oldest whole call/result blocks. A vite-react-ts starter scaffolds a buildable React app in empty workspaces. Merged with S9 serialisation and loop guards on one branch.
 Decisions: Chat Completions message shape only; Responses API deferred with a skipped fixture test. Capture files stay gitignored. Read-only repeat loop detection suggests pairing bug when capture is on.
 Failures / known gaps: Real-model Connect 4 end-to-end with screenshots not re-run in CI (mock capture used for PR evidence). `pnpm gen:api` was updated manually for recordModelRequests when codegen was slow.
 New dependencies: none
 Follow-ups for the next session: Wire Responses/reasoning API with the same pairing helper when that gateway path exists.
+
+## S9 feat/run-serialisation-loop-fixes
+
+Session: S9 feat/run-serialisation-loop-fixes
+Built: One run works at a time per project; further in-scope messages queue with a visible note. Stop words halt the active run and clear the queue. Follow-ups carry prior summary, diff, and failure into the next run. The files tool prefers edit and append, auto-builds after three writes, and blocks complete until build_test passed when a package.json exists. Zones block writes only. Chat shows agent is working with Stop, and the Access card warns when build, shell, or preview tools are off.
+Decisions: `project_runs.drain` starts the next queued run when the active one finishes or is cancelled. Complete-time build, screenshots, and preview run only for project chat runs, not eval throwaway folders. Out-of-scope and chat-mode behaviour from the prior scope work stays on this branch. OpenAPI 0.10.0 adds queue fields, activeRunId, maxSpendPerDayUsd, and MODEL_RETRY.
+Failures / known gaps: No git remote is configured; push uses the explicit GitHub URL. The GitHub throwaway-repo test still needs GITHUB_TOKEN. Live OpenAI streaming uses full timeout wiring only in mock (`MOCK_MODEL_HANG`); the production stream path still relies on provider behaviour. Playwright e2e was not re-run after the final composer changes in this session.
+New dependencies: none.
+Follow-ups for the next session: GitHub token and RUN_GITHUB_TESTS=1. Live model first-token timeout on the OpenAI stream. Backend Engineer and routing rules.
 

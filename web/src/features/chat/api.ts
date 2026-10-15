@@ -25,6 +25,10 @@ export async function postMessage(id: string, text: string) {
   return unwrap(await api.POST("/projects/{id}/messages", { params: { path: { id } }, body: { text } }))
 }
 
+export async function stopChatRun(runId: string) {
+  return unwrap(await api.POST("/runs/{id}/stop", { params: { path: { id: runId } } }))
+}
+
 export async function closeProject(id: string) {
   return unwrap(await api.POST("/projects/{id}/close", { params: { path: { id } } }))
 }

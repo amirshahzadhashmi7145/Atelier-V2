@@ -1,6 +1,7 @@
 import hashlib
 import json
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 
 from runtime import route_task, sandbox
@@ -47,8 +48,11 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
         return {"refused": True, "reason": f"{name} is outside the allow-list"}
     folder = Path(run["folder"]) if run.get("folder") else None
     if name == "files":
-        return _files(run, folder, arguments)
+        return _files(run, folder, arguments, (agent.get("scope") or {}).get("zones") or [])
     if name == "shell":
+        blocked = _blocked_command(agent, arguments.get("command", ""))
+        if blocked:
+            return {"refused": True, "reason": blocked}
         return _shell(folder, arguments.get("command", ""), should_stop)
     if name == "package_install":
         return _install(run, folder, arguments.get("name", ""), should_stop)
@@ -63,9 +67,21 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
     if name == "load_skill":
         return _skill(run, folder, arguments.get("name", ""))
     if name == "complete":
+        track = db.get("run-track", run["id"]) or {}
+        folder = Path(run["folder"]) if run.get("folder") else None
+        has_pkg = folder is not None and (folder / "package.json").exists()
+        if has_pkg and track.get("lastBuildOk") is not True:
+            reason = track.get("lastBuildReason") or "Run build_test and fix failures before complete."
+            return {"refused": True, "reason": reason}
         return {"done": True, "summary": arguments.get("summary") or {}}
     if name == "raise_clarification":
-        return {"clarify": arguments.get("question") or "Need a decision"}
+        raw = arguments.get("questions")
+        if not isinstance(raw, list):
+            raw = [arguments.get("question") or "Need a decision"]
+        questions = [str(item).strip() for item in raw if str(item).strip()][:3] or ["Need a decision"]
+        if _asks_to_change_scope("\n".join(questions)):
+            return {"scopeEnd": True, "reason": "You cannot enable stacks or change your own scope. Only the user can."}
+        return {"clarify": "\n".join(questions), "questions": questions}
     if name == "escalate":
         return {"done": True, "summary": {"description": arguments.get("reason") or "Escalated", "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
     if name == "create_task":
@@ -75,15 +91,18 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
     return {"refused": True, "reason": f"unknown tool {name}"}
 
 
-def _files(run: dict, folder: Path | None, arguments: dict) -> dict:
+def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | None = None) -> dict:
     if folder is None:
         return {"output": "no workspace"}
     path = arguments.get("path") or ""
+    op = arguments.get("op") or "read"
+    write_ops = {"write", "edit", "append"}
+    if op in write_ops and zones and not _in_zones(path, zones):
+        return {"refused": True, "reason": f"path outside your zones: {path}"}
     try:
         target = sandbox.guard_path(folder, path)
     except PermissionError:
         return {"refused": True, "reason": f"path outside the project: {path}"}
-    op = arguments.get("op") or "read"
     before = target.read_text() if target.exists() and target.is_file() else ""
     if op == "list":
         if not target.exists():
@@ -103,23 +122,53 @@ def _files(run: dict, folder: Path | None, arguments: dict) -> dict:
         if len(before) > READ_CAP:
             return {"output": before[:READ_CAP] + "\n(note: file truncated at 20 kB)"}
         return {"output": before}
+    if op == "list":
+        if not target.exists():
+            return {"output": ""}
+        if target.is_file():
+            return {"output": path}
+        lines = []
+        for child in sorted(target.rglob("*")):
+            if ".git" in child.parts or "node_modules" in child.parts:
+                continue
+            if child.is_file():
+                lines.append(str(child.relative_to(folder)))
+        return {"output": "\n".join(lines[:200])}
     if op == "write":
         target.parent.mkdir(parents=True, exist_ok=True)
         content = arguments.get("content") or ""
+        existed = target.exists() and target.is_file()
         target.write_text(content)
-        _diff(run["id"], path, before, content)
-        return {"output": "wrote", "changed": before != content}
+        _diff(run["id"], folder, path, before, content)
+        digest = hashlib.sha256(content.encode()).hexdigest()[:8]
+        return {
+            "output": f"wrote {len(content)} bytes hash {digest}",
+            "changed": before != content,
+            "fullWrite": existed,
+            "path": path,
+            "size": len(content),
+            "hash": digest,
+        }
     if op == "edit":
-        old = arguments.get("old") or ""
-        new = arguments.get("new") or ""
+        old = arguments.get("old_text") or arguments.get("old") or ""
+        new = arguments.get("new_text") or arguments.get("new") or ""
+        if not target.exists():
+            return {"refused": True, "reason": "file missing; use write for new files"}
         content = before.replace(old, new, 1) if old and old in before else before
         target.write_text(content)
-        _diff(run["id"], path, before, content)
+        _diff(run["id"], folder, path, before, content)
         return {"output": "edited", "changed": before != content}
+    if op == "append":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        chunk = arguments.get("content") or ""
+        content = before + chunk
+        target.write_text(content)
+        _diff(run["id"], folder, path, before, content)
+        return {"output": "appended", "changed": bool(chunk)}
     return {"refused": True, "reason": "unknown file op"}
 
 
-def _diff(run_id: str, path: str, before: str, after: str) -> None:
+def _diff(run_id: str, folder: Path, path: str, before: str, after: str) -> None:
     current = db.get("diff", run_id) or {"files": []}
     found = next((item for item in current["files"] if item["path"] == path), None)
     if found:
@@ -127,16 +176,54 @@ def _diff(run_id: str, path: str, before: str, after: str) -> None:
     else:
         current["files"].append({"path": path, "before": before, "after": after})
     db.put("diff", run_id, current)
+    target = folder / path
+    if target.exists() and folder.joinpath(".git").exists():
+        subprocess.run(["git", "add", "-N", path], cwd=folder, capture_output=True)
 
 
-def _shell(folder: Path | None, command: str, should_stop) -> dict:
+def _shell(folder: Path | None, command: str, should_stop, timeout: float = 120) -> dict:
     if folder is None:
         return {"output": "no workspace"}
+    if _long_running(command):
+        return {"refused": True, "reason": "This command does not exit. Use the preview tool."}
     try:
-        code, output = sandbox.run_command(folder, command, should_stop)
+        code, output = sandbox.run_command(folder, command, should_stop, timeout=min(600, timeout))
     except PermissionError:
         return {"refused": True, "reason": "command leaves the project folder"}
+    if output == "timed out":
+        return {"output": "timed out", "exitCode": code, "error": True}
     return {"output": output, "exitCode": code}
+
+
+def _in_zones(path: str, zones: list[str]) -> bool:
+    pure = path.replace("\\", "/").lstrip("/")
+    while pure.startswith("./"):
+        pure = pure[2:]
+    for zone in zones:
+        pattern = zone.replace("\\", "/").lstrip("/")
+        if fnmatch(pure, pattern):
+            return True
+    return False
+
+
+def _blocked_command(agent: dict, command: str) -> str | None:
+    never = [item.lower() for item in ((agent.get("scope") or {}).get("neverDoes") or [])]
+    low = command.lower()
+    if any("server" in item for item in never) and any(token in low for token in ("node server.js", "uvicorn", "docker compose up")):
+        return "That is outside your role. You do not create servers."
+    if any("database" in item for item in never) and "migration" in low:
+        return "That is outside your role. You do not create databases."
+    return None
+
+
+def _asks_to_change_scope(text: str) -> bool:
+    low = text.lower()
+    return ("enable" in low and "stack" in low) or "change scope" in low or "change your scope" in low or "change my scope" in low
+
+
+def _long_running(command: str) -> bool:
+    low = command.lower()
+    return any(token in low for token in ("npm run dev", "npm start", "next dev", "vite", "webpack serve", "nodemon", "--watch", "http.server"))
 
 
 def _allow_list(agent: dict) -> set[str]:
@@ -187,9 +274,13 @@ def _browser(run: dict, url: str) -> dict:
     shots = folder / ".artifacts"
     shots.mkdir(parents=True, exist_ok=True)
     viewports = [("mobile", 390, 844), ("tablet", 768, 1024), ("desktop", 1280, 800)]
-    script = db.ROOT / "web" / "node_modules" / "playwright"
+    script = _playwright_package()
     errors = ""
-    if url and script.exists():
+    launched = False
+    target = url or ""
+    if target and not target.startswith(("http://", "https://", "file://")):
+        target = (folder / target).resolve().as_uri()
+    if target and script is not None and script.exists():
         node = f"""
         const {{ chromium }} = require({json.dumps(str(script))});
         (async () => {{
@@ -199,7 +290,7 @@ def _browser(run: dict, url: str) -> dict:
           page.on('pageerror', (error) => errors.push(String(error)));
           for (const [name, width, height] of {json.dumps(viewports)}) {{
             await page.setViewportSize({{ width, height }});
-            await page.goto({json.dumps(url)});
+            await page.goto({json.dumps(target)});
             await page.screenshot({{ path: {json.dumps(str(shots))} + '/' + name + '.png' }});
           }}
           console.log(JSON.stringify(errors));
@@ -208,6 +299,7 @@ def _browser(run: dict, url: str) -> dict:
         """
         result = subprocess.run(["node", "-e", node], capture_output=True, text=True)
         errors = result.stdout
+        launched = result.returncode == 0
     console: list = []
     if errors.strip().startswith("["):
         try:
@@ -215,11 +307,13 @@ def _browser(run: dict, url: str) -> dict:
         except json.JSONDecodeError:
             console = [errors]
     artifacts = []
-    for name, _width, _height in viewports:
+    unavailable = False
+    for name, width, height in viewports:
         path = shots / f"{name}.png"
-        if not path.exists():
-            # ponytail: empty file when Playwright cannot launch; the viewport is still recorded
-            path.write_bytes(b"")
+        ok = launched and _png_matches(path, width, height)
+        if not ok:
+            unavailable = True
+            continue
         artifact_id = db.nid("art")
         record = {
             "id": artifact_id,
@@ -228,11 +322,36 @@ def _browser(run: dict, url: str) -> dict:
             "kind": "screenshot",
             "viewport": name,
             "path": str(path),
+            "ok": True,
             "consoleErrors": console,
         }
         db.put("artifact", artifact_id, record)
         artifacts.append(artifact_id)
+    if unavailable or not artifacts:
+        return {"output": "screenshot unavailable", "screenshots": artifacts, "screenshotFailed": True}
     return {"output": errors or "captured", "screenshots": artifacts}
+
+
+def _playwright_package() -> Path | None:
+    direct = db.ROOT / "web" / "node_modules" / "playwright"
+    if (direct / "package.json").exists():
+        return direct
+    nested = db.ROOT / "web" / "node_modules" / ".pnpm"
+    if not nested.is_dir():
+        return None
+    matches = sorted(nested.glob("playwright@*/node_modules/playwright/package.json"))
+    return matches[-1].parent if matches else None
+
+
+def _png_matches(path: Path, width: int, height: int) -> bool:
+    if not path.exists() or path.stat().st_size < 24:
+        return False
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n" or len(data) < 24:
+        return False
+    got_w = int.from_bytes(data[16:20], "big")
+    got_h = int.from_bytes(data[20:24], "big")
+    return got_w == width and got_h == height
 
 
 def _preview(run: dict, folder: Path | None) -> dict:
@@ -273,6 +392,10 @@ def _skill(run: dict, folder: Path | None, name: str) -> dict:
     skill = next((item for item in skills if item["name"] == name or item["id"] == name), None)
     if skill is None:
         return {"refused": True, "reason": f"unknown skill {name}"}
+    track = db.get("run-track", run["id"]) or {"loadedSkills": []}
+    loaded = list(track.get("loadedSkills") or [])
+    if skill["name"] in loaded:
+        return {"output": "already loaded", "skill": skill["name"], "alreadyLoaded": True}
     if folder is not None:
         target = folder / ".skills" / skill["name"]
         target.mkdir(parents=True, exist_ok=True)
@@ -281,10 +404,6 @@ def _skill(run: dict, folder: Path | None, name: str) -> dict:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(skill_file.get("content") or "")
         (target / "SKILL.md").write_text(skill.get("body") or "")
-    track = db.get("run-track", run["id"]) or {}
-    loaded = track.get("loadedSkills") or []
-    if skill["name"] in loaded:
-        return {"output": f"already loaded: {skill['name']}", "skill": skill["name"], "alreadyLoaded": True}
     loaded.append(skill["name"])
     track["loadedSkills"] = loaded
     db.put("run-track", run["id"], track)

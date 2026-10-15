@@ -1,0 +1,4 @@
+title = "atelier"
+
+[allowlist]
+paths = ['''scripts/scan_secrets\.py''']
