@@ -118,6 +118,7 @@ test("hello gets a direct reply and no run", async ({ page, request }) => {
   await page.getByLabel("Message").fill("hello")
   await page.getByRole("button", { name: "Send" }).click()
   await expect(page.getByText("without starting a run")).toBeVisible()
+  await expect(page.locator("[data-label='chat']")).toBeVisible()
   await expect(page.getByRole("button", { name: "Working" })).toHaveCount(0)
 })
 
@@ -144,6 +145,48 @@ test("teach creates a skill and the preview updates", async ({ page, request }) 
   const preview = page.locator("pre").filter({ hasText: "Load when writing Hono." })
   await preview.scrollIntoViewIfNeeded()
   await expect(preview).toBeVisible({ timeout: 15_000 })
+})
+
+test("agent without build tools shows a warning", async ({ page, request }) => {
+  const id = await activateAgent(request, "Bare Agent", ["files"])
+  await page.goto(`/agents/${id}`)
+  await expect(page.getByText("this agent cannot build or run anything")).toBeVisible()
+})
+
+test("a queued message is shown while another run is active", async ({ page, request }) => {
+  test.setTimeout(60_000)
+  await activateAgent(request, "Queue Agent", ["shell"])
+  await openChat(page, "Queue", "Queue Agent")
+  await page.getByLabel("Message").fill("slow-command please")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByText("agent is working")).toBeVisible({ timeout: 15_000 })
+  await page.getByLabel("Message").fill("second task while busy")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByText("queued, will start after the current task")).toBeVisible()
+})
+
+test("the composer stop button stops the active run", async ({ page, request }) => {
+  test.setTimeout(60_000)
+  await activateAgent(request, "Stop Agent", ["shell"])
+  await openChat(page, "StopRun", "Stop Agent")
+  await page.getByLabel("Message").fill("slow-command please")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByRole("button", { name: "Stop" })).toBeVisible({ timeout: 15_000 })
+  await page.getByRole("button", { name: "Stop" }).click()
+  await expect(page.getByText("stopped")).toBeVisible({ timeout: 15_000 })
+})
+
+test("complete it after a failed run starts a task run", async ({ page, request }) => {
+  test.setTimeout(60_000)
+  await activateAgent(request, "Follow Agent", ["files"])
+  await openChat(page, "Follow", "Follow Agent")
+  await page.getByLabel("Message").fill("force-fail please")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible({ timeout: 30_000 })
+  await page.getByLabel("Message").fill("complete it")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.locator("[data-label='task']")).toBeVisible()
+  await expect(page.getByText("without starting a run")).toHaveCount(0)
 })
 
 test("the chat page is exactly the viewport", async ({ page, request }) => {

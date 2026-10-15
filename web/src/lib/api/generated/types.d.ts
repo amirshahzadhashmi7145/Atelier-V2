@@ -822,6 +822,7 @@ export interface components {
             skillIds: string[];
             stackIds: string[];
             zones: string[];
+            scope: components["schemas"]["Scope"];
             evals: components["schemas"]["Eval"][];
             reportsTo: string | null;
             capabilities: components["schemas"]["Capabilities"];
@@ -839,6 +840,7 @@ export interface components {
             skillIds?: string[];
             stackIds?: string[];
             zones?: string[];
+            scope?: components["schemas"]["Scope"];
             reportsTo?: string | null;
             capabilities?: components["schemas"]["Capabilities"];
         };
@@ -851,6 +853,12 @@ export interface components {
             skillIds?: string[];
             stackIds?: string[];
             zones?: string[];
+            scope?: components["schemas"]["Scope"];
+        };
+        Scope: {
+            does: string[];
+            neverDoes: string[];
+            zones: string[];
         };
         /** @enum {string} */
         EvalStatus: "not_run" | "pass" | "fail";
@@ -915,6 +923,7 @@ export interface components {
             toolIds: string[];
             skillIds: string[];
             stackIds: string[];
+            scope?: components["schemas"]["Scope"];
         };
         CompilePreview: {
             compiled: string;
@@ -1137,9 +1146,13 @@ export interface components {
         };
         RunSettings: {
             maxSpendPerRunUsd: number;
+            /** @default 20 */
+            maxSpendPerDayUsd: number;
             maxIterations: number;
             maxMinutes: number;
             loopDetection: boolean;
+            /** @description When true, write redacted model request/response JSON under api/debug/runs/{runId}/. */
+            recordModelRequests?: boolean;
         };
         ProviderKey: {
             apiKey: string;
@@ -1241,7 +1254,7 @@ export interface components {
             usd: number;
         };
         /** @enum {string} */
-        EventType: "RUN_STARTED" | "MODEL_CALLED" | "MODEL_DELTA" | "MODEL_OUTPUT" | "TOOL_CALLED" | "TOOL_RESULT" | "TOOL_REFUSED" | "SKILL_LOADED" | "CLIENT_TOOL_REQUESTED" | "CLARIFICATION_RAISED" | "STATE_CHANGED" | "RUN_COMPLETED" | "RUN_FAILED";
+        EventType: "RUN_STARTED" | "MODEL_CALLED" | "MODEL_DELTA" | "MODEL_OUTPUT" | "MODEL_RETRY" | "TOOL_CALLED" | "TOOL_RESULT" | "TOOL_REFUSED" | "SKILL_LOADED" | "CLIENT_TOOL_REQUESTED" | "CLARIFICATION_RAISED" | "STATE_CHANGED" | "RUN_COMPLETED" | "RUN_FAILED";
         Event: {
             id: string;
             runId: string;
@@ -1287,6 +1300,8 @@ export interface components {
             members: string[];
             localMode: boolean;
             previewUrl?: string | null;
+            /** @description Run currently working in this project, if any. */
+            activeRunId?: string | null;
             summary?: string | null;
             /** Format: date-time */
             createdAt: string;
@@ -1348,6 +1363,11 @@ export interface components {
             text: string;
             taskId?: string;
             runId?: string;
+            /** @enum {string} */
+            label?: "chat" | "task" | "out";
+            /** @enum {string} */
+            queueStatus?: "waiting";
+            statusNote?: string;
             /** Format: date-time */
             createdAt: string;
         };

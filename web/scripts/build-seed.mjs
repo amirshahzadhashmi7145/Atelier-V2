@@ -70,6 +70,7 @@ const seed = {
         skillIds: role.skillIds,
         stackIds: role.stackIds,
         zones: role.zones,
+        scope: role.scope,
         sections: role.sections,
         evals: role.evals ?? [],
       },

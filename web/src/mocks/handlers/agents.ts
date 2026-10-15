@@ -22,6 +22,7 @@ function compileFor(
   toolIds: string[],
   skillIds: string[],
   stackIds: string[],
+  scope?: { does: string[]; neverDoes: string[]; zones: string[] },
 ) {
   const controlIds = db.tools.filter((tool) => tool.kind === "control").map((tool) => tool.id)
   const ids = [...toolIds, ...controlIds.filter((id) => !toolIds.includes(id))]
@@ -30,6 +31,7 @@ function compileFor(
     stacks: orderedById(db.stacks, stackIds).map((stack) => ({ name: stack.name, version: stack.version })),
     tools: orderedById(db.tools, ids).map((item) => ({ name: item.name, description: item.description })),
     skills: orderedById(db.skills, skillIds).map((skill) => ({ name: skill.name, description: skill.description })),
+    scope,
   })
 }
 
@@ -68,6 +70,7 @@ export const agentHandlers = [
       skillIds: body.skillIds ?? [],
       stackIds: body.stackIds ?? [],
       zones: body.zones ?? [],
+      scope: { does: [], neverDoes: [], zones: body.zones ?? [] },
       evals: [],
       reportsTo: null,
       capabilities: { stacks: body.stackIds ?? [], skills: body.skillIds ?? [], tags: [] },
@@ -124,7 +127,7 @@ export const agentHandlers = [
     if (!agent) return error(404, "not_found", "Agent not found")
     const body = (await request.json()) as { sections?: (typeof db.versions)[number]["sections"] }
     if (!body.sections) return error(422, "invalid", "sections are required")
-    const compiled = compileFor(body.sections, agent.toolIds, agent.skillIds, agent.stackIds)
+    const compiled = compileFor(body.sections, agent.toolIds, agent.skillIds, agent.stackIds, agent.scope)
     const previous = db.versions.filter((item) => item.agentId === agent.id)
     const version = {
       id: nid("pv"),
@@ -148,11 +151,12 @@ export const agentHandlers = [
       toolIds?: string[]
       skillIds?: string[]
       stackIds?: string[]
+      scope?: { does: string[]; neverDoes: string[]; zones: string[] }
     }
     if (!body.sections || !body.toolIds || !body.skillIds || !body.stackIds) {
       return error(422, "invalid", "sections, toolIds, skillIds, and stackIds are required")
     }
-    return HttpResponse.json(compileFor(body.sections, body.toolIds, body.skillIds, body.stackIds))
+    return HttpResponse.json(compileFor(body.sections, body.toolIds, body.skillIds, body.stackIds, body.scope ?? agent.scope))
   }),
   http.get("/agents/:id", ({ params }) => {
     const agent = agentOr404(String(params.id))

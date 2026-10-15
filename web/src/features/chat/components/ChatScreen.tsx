@@ -6,7 +6,19 @@ import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { answerChat, closeProject, createProject, getChatRun, getProject, listChatAgents, listMessages, listProjects, postMessage, type ChatMessage } from "@/features/chat/api"
+import {
+  answerChat,
+  closeProject,
+  createProject,
+  getChatRun,
+  getProject,
+  listChatAgents,
+  listMessages,
+  listProjects,
+  postMessage,
+  stopChatRun,
+  type ChatMessage,
+} from "@/features/chat/api"
 import { apiBaseUrl } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
 import { bubbleText, placeDelta, type Bubble } from "@/lib/runs/bubbles"
@@ -129,8 +141,16 @@ export function ChatScreen({
                 const prior = (messages.data ?? []).find((item) => item.role === "user" && item.runId === message.runId)?.text ?? ""
                 return (
                   <article key={message.id} className="flex flex-col gap-2 rounded border p-3">
-                    <p className="text-xs uppercase text-muted-foreground">{message.role}</p>
+                    <p className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
+                      {message.role}
+                      {message.label ? (
+                        <span data-label={message.label} className="rounded-full border px-2 py-0.5 normal-case">
+                          {message.label === "out" ? "out of scope" : message.label === "task" ? "in scope" : "chat"}
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="whitespace-pre-wrap text-sm">{message.text}</p>
+                    {message.statusNote ? <p className="text-xs text-muted-foreground">{message.statusNote}</p> : null}
                     {message.runId ? (
                       <RunFollow
                         message={message}
@@ -240,35 +260,56 @@ function NewProject() {
 
 function Composer({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
+  const project = useQuery({ queryKey: queryKeys.project(projectId), queryFn: () => getProject(projectId), refetchInterval: 1000 })
   const [text, setText] = useState("")
   const send = useMutation({
     mutationFn: () => postMessage(projectId, text),
     onSuccess: async () => {
       setText("")
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send"),
   })
+  const stop = useMutation({
+    mutationFn: () => stopChatRun(project.data?.activeRunId ?? ""),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not stop"),
+  })
+  const working = Boolean(project.data?.activeRunId)
   return (
     <form
-      className="flex gap-2"
+      className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault()
         if (text.trim()) send.mutate()
       }}
     >
-      <label className="sr-only" htmlFor="chat-message">
-        Message
-      </label>
-      <input
-        id="chat-message"
-        className="flex-1 rounded border px-2 py-1"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-      />
-      <Button type="submit" disabled={send.isPending || !text.trim()}>
-        {send.isPending ? "Sending…" : "Send"}
-      </Button>
+      {working ? (
+        <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+          <span>agent is working</span>
+          <Button type="button" variant="outline" disabled={stop.isPending} onClick={() => stop.mutate()}>
+            {stop.isPending ? "Stopping…" : "Stop"}
+          </Button>
+        </div>
+      ) : null}
+      <div className="flex gap-2">
+        <label className="sr-only" htmlFor="chat-message">
+          Message
+        </label>
+        <input
+          id="chat-message"
+          className="flex-1 rounded border px-2 py-1"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <Button type="submit" disabled={send.isPending || !text.trim()}>
+          {send.isPending ? "Sending…" : "Send"}
+        </Button>
+      </div>
     </form>
   )
 }
@@ -301,6 +342,7 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
   const [active, setActive] = useState(true)
   const [tools, setTools] = useState<{ name: string; args: unknown; done: boolean; started: number }[]>([])
   const [started] = useState(() => Date.now())
+  const [retrying, setRetrying] = useState(false)
   const seen = useRef(new Set<string>())
   const notify = useRef(onActivity)
   useEffect(() => {
@@ -348,6 +390,13 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
           return copy
         })
       }
+      if (event.type === "MODEL_RETRY") {
+        setRetrying(true)
+        notify.current?.()
+      }
+      if (event.type === "MODEL_OUTPUT" || event.type === "MODEL_CALLED") {
+        setRetrying(false)
+      }
       if (event.type === "RUN_COMPLETED" || event.type === "RUN_FAILED" || (event.type === "STATE_CHANGED" && event.payload.status === "cancelled")) {
         setActive(false)
       }
@@ -382,7 +431,7 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
     <div className="flex flex-col gap-1 text-sm" data-streaming={active ? "" : undefined}>
       {active && !spoken ? (
         <p data-thinking="">
-          thinking <Elapsed since={started} />
+          {retrying ? "retrying" : "thinking"} <Elapsed since={started} />
         </p>
       ) : null}
       {bubbles.map((bubble) => (

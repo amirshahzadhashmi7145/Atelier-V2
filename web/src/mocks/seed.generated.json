@@ -32,9 +32,38 @@
           "src/**",
           "app/**",
           "public/**",
+          "index.html",
+          "vite.config.*",
           "package.json",
-          "tsconfig.json"
+          "tsconfig*.json",
+          "tailwind.config.*",
+          "postcss.config.*"
         ],
+        "scope": {
+          "does": [
+            "user interfaces",
+            "client-side state",
+            "calling an existing API"
+          ],
+          "neverDoes": [
+            "servers",
+            "databases",
+            "API implementation",
+            "auth backends",
+            "infrastructure"
+          ],
+          "zones": [
+            "src/**",
+            "app/**",
+            "public/**",
+            "index.html",
+            "vite.config.*",
+            "package.json",
+            "tsconfig*.json",
+            "tailwind.config.*",
+            "postcss.config.*"
+          ]
+        },
         "sections": {
           "role": "You are the Frontend Engineer. You implement the requested UI in the enabled stacks and leave the repo buildable.",
           "goal": "The task is done when every criterion is met and the build and tests pass.",

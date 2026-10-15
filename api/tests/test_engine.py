@@ -30,6 +30,7 @@ def fresh(tmp_path):
     os.environ["FORCE_LOCAL"] = "1"
     db.reset_engine()
     openai_gateway.SCRIPTS.clear()
+    openai_gateway.PROMPTS.clear()
     openai_gateway._defaults = 0
     openai_gateway.begin()
     os.environ.pop("STREAM_PACE_MS", None)
@@ -48,7 +49,17 @@ def client():
 def ready(client: TestClient) -> str:
     agent = client.post(
         "/agents",
-        json={"name": "Frontend", "roleKey": "frontend", "toolIds": ["files", "shell", "package_install"], "zones": ["."]},
+        json={
+            "name": "Frontend",
+            "roleKey": "frontend",
+            "toolIds": ["files", "shell", "package_install"],
+            "zones": ["."],
+            "scope": {
+                "does": ["user interfaces", "client-side state", "calling an existing API"],
+                "neverDoes": ["servers", "databases", "API implementation", "auth backends", "infrastructure"],
+                "zones": [],
+            },
+        },
     ).json()
     version = client.post(
         f"/agents/{agent['id']}/versions",
@@ -164,14 +175,151 @@ def test_spend_cap_stops_the_run(client: TestClient):
     assert finished["terminalCause"] == "budget"
 
 
+def _done() -> dict:
+    return {
+        "tool_calls": [
+            {
+                "id": "done",
+                "name": "complete",
+                "arguments": {"summary": {"description": "Done.", "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}},
+            }
+        ],
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    }
+
+
 def test_loop_detection(client: TestClient):
     call = {"id": "1", "name": "files", "arguments": {"op": "write", "path": "a.txt", "content": "same"}}
     for _ in range(3):
         openai_gateway.SCRIPTS.append({"tool_calls": [call], "usage": {"input_tokens": 1, "output_tokens": 1}})
-    run = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Loop"}).json()
-    finished = wait_status(client, run["id"], {"failed"})
+    agent_id = ready(client)
+    project = client.post("/projects", json={"name": "Loop", "agentId": agent_id}).json()
+    message = client.post(f"/projects/{project['id']}/messages", json={"text": "write a.txt again"}).json()
+    finished = wait_status(client, message["runId"], {"failed"})
     assert finished["status"] == "failed"
     assert finished["terminalCause"] == "loop"
+    reply = client.get(f"/projects/{project['id']}/messages").json()[-1]
+    assert reply["role"] == "agent" and reply["runId"] == message["runId"]
+    assert reply["text"] != "The same tool call repeated."
+    assert "writing a.txt" in reply["text"]
+    assert "Cause: the same tool call repeated" in reply["text"]
+    nudged = "\n".join(item.get("content") or "" for batch in openai_gateway.PROMPTS for item in batch)
+    assert "you already ran this; change approach" in nudged
+    first = "\n".join(item.get("content") or "" for item in openai_gateway.PROMPTS[0])
+    assert "you already ran this; change approach" not in first
+
+
+def test_reads_do_not_loop_and_the_first_repeat_only_nudges(client: TestClient):
+    read = {"id": "r", "name": "files", "arguments": {"op": "read", "path": "a.txt"}}
+    for _ in range(4):
+        openai_gateway.SCRIPTS.append({"tool_calls": [read], "usage": {"input_tokens": 1, "output_tokens": 1}})
+    openai_gateway.SCRIPTS.append(_done())
+    run = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Read"}).json()
+    assert wait_status(client, run["id"], {"completed", "failed"})["status"] == "completed"
+    write = {"id": "w", "name": "files", "arguments": {"op": "write", "path": "b.txt", "content": "same"}}
+    for _ in range(2):
+        openai_gateway.SCRIPTS.append({"tool_calls": [write], "usage": {"input_tokens": 1, "output_tokens": 1}})
+    openai_gateway.SCRIPTS.append(_done())
+    again = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Nudge"}).json()
+    assert wait_status(client, again["id"], {"completed", "failed"})["status"] == "completed"
+    last = "\n".join(item.get("content") or "" for item in openai_gateway.PROMPTS[-1])
+    assert "you already ran this; change approach" in last
+
+
+def test_shell_repeats_only_when_the_result_matches(client: TestClient):
+    for command in ("echo one", "echo two", "echo one"):
+        openai_gateway.SCRIPTS.append({"tool_calls": [{"id": "s", "name": "shell", "arguments": {"command": command}}], "usage": {"input_tokens": 1, "output_tokens": 1}})
+    openai_gateway.SCRIPTS.append(_done())
+    mixed = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Echo"}).json()
+    assert wait_status(client, mixed["id"], {"completed", "failed"})["status"] == "completed"
+    for _ in range(3):
+        openai_gateway.SCRIPTS.append({"tool_calls": [{"id": "s", "name": "shell", "arguments": {"command": "echo hi"}}], "usage": {"input_tokens": 1, "output_tokens": 1}})
+    repeated = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Echo hi"}).json()
+    finished = wait_status(client, repeated["id"], {"failed"})
+    assert finished["terminalCause"] == "loop"
+    text = next(item["payload"]["text"] for item in db.events_for(repeated["id"]) if item["type"] == "RUN_FAILED")
+    assert text != "The same tool call repeated."
+    assert "running echo hi" in text
+    assert "Cause: the same tool call repeated" in text
+
+
+def test_chat_names_enabled_stacks_and_refuses_node(client: TestClient):
+    from runtime.classify import chat_system
+
+    agent_id = ready(client)
+    react = client.post("/stacks", json={"name": "React", "version": "19", "scaffoldTemplate": "vite-react-ts"}).json()
+    client.post("/stacks", json={"name": "Next", "version": "15", "scaffoldTemplate": "next"})
+    client.patch(f"/agents/{agent_id}", json={"stackIds": [react["id"]]})
+    system = chat_system(db.get("agent", agent_id))
+    assert "# Tools" not in system
+    assert "# Enabled stacks" in system and "React" in system and "# Skills" in system and "# Scope" in system
+    project = client.post("/projects", json={"name": "Ask", "agentId": agent_id}).json()
+    tech = client.post(f"/projects/{project['id']}/messages", json={"text": "what tech can you work with"}).json()
+    assert "runId" not in tech
+    reply = client.get(f"/projects/{project['id']}/messages").json()[-1]["text"]
+    assert "React" in reply and "Next" not in reply
+    node = client.post(f"/projects/{project['id']}/messages", json={"text": "can you do Node"}).json()
+    assert "runId" not in node
+    answer = client.get(f"/projects/{project['id']}/messages").json()[-1]["text"]
+    assert answer.lower().startswith("no")
+    assert "Backend Engineer" in answer
+    assert client.get("/runs").json()["total"] == 0
+
+
+def test_refusal_falls_back_when_the_model_fails(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    from runtime import classify
+
+    monkeypatch.setenv("GATEWAY_MOCK", "0")
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("down")
+
+    monkeypatch.setattr(openai_gateway, "complete", boom)
+    agent = db.get("agent", ready(client))
+    text = classify.refusal(agent, "build the backend")
+    assert text == "That is outside my role. I can do user interfaces, client-side state, calling an existing API. Add an agent for that role."
+
+
+def test_empty_project_runs_the_scaffold_command(client: TestClient):
+    agent_id = ready(client)
+    stack = client.post(
+        "/stacks",
+        json={"name": "Hono", "version": "4", "scaffoldTemplate": "python3 -c \"open('from-scaffold.txt','w').write('yes')\""},
+    ).json()
+    client.patch(f"/agents/{agent_id}", json={"stackIds": [stack["id"]]})
+    openai_gateway.SCRIPTS.append(_done())
+    project = client.post("/projects", json={"name": "Fresh", "agentId": agent_id}).json()
+    message = client.post(f"/projects/{project['id']}/messages", json={"text": "add a page"}).json()
+    assert wait_status(client, message["runId"], {"completed", "failed"})["status"] == "completed"
+    assert (Path(project["folderPath"]) / "from-scaffold.txt").read_text() == "yes"
+    first = "\n".join(item.get("content") or "" for item in openai_gateway.PROMPTS[0])
+    assert "The scaffold already exists" in first
+    assert "Do not run a create command." in first
+
+
+def test_tic_tac_toe_ui_reaches_a_built_app_with_screenshots(client: TestClient):
+    from runtime.tools import _png_matches
+
+    agent_id = ready(client)
+    stack = client.post("/stacks", json={"name": "React", "version": "19", "scaffoldTemplate": "vite-react-ts"}).json()
+    client.patch(
+        f"/agents/{agent_id}",
+        json={"stackIds": [stack["id"]], "toolIds": ["files", "shell", "package_install", "build_test", "headless_browser"]},
+    )
+    project = client.post("/projects", json={"name": "Game", "agentId": agent_id}).json()
+    message = client.post(f"/projects/{project['id']}/messages", json={"text": "make me a tic tac toe UI"}).json()
+    assert message["runId"]
+    assert db.get("task", message["taskId"])["label"] == "task"
+    finished = wait_status(client, message["runId"], {"completed", "failed"}, timeout=90)
+    assert finished["status"] == "completed", finished.get("terminalCause")
+    folder = Path(project["folderPath"])
+    assert "Tic Tac Toe" in (folder / "index.html").read_text()
+    logs = [item for item in db.listing("artifact") if item.get("runId") == message["runId"] and item["kind"] == "log"]
+    assert logs and logs[-1]["ok"]
+    for name, width, height in (("mobile", 390, 844), ("tablet", 768, 1024), ("desktop", 1280, 800)):
+        assert _png_matches(folder / ".artifacts" / f"{name}.png", width, height)
+    first = "\n".join(item.get("content") or "" for item in openai_gateway.PROMPTS[0])
+    assert "The scaffold already exists (vite-react-ts)." in first
 
 
 def test_route_task_assigns_the_only_member():
@@ -249,8 +397,59 @@ def test_classifier_routes_chat_task_and_out(client: TestClient):
     assert "runId" not in outside
     stored = db.get("task", outside["taskId"])
     assert stored["label"] == "out"
-    assert "frontend" in stored["summary"]
+    assert "outside my role" in stored["summary"]
     assert wait_status(client, task["runId"], {"completed", "failed"}, timeout=20)["status"] == "completed"
+
+
+def test_scope_refuses_backend_work_and_a_server_file(client: TestClient):
+    agent_id = ready(client)
+    client.patch(
+        f"/agents/{agent_id}",
+        json={"scope": {"does": ["user interfaces"], "neverDoes": ["servers", "databases"], "zones": ["web/**", "src/**", "public/**"]}},
+    )
+    preview = client.post(
+        f"/agents/{agent_id}/compile-preview",
+        json={
+            "sections": {"role": "Role", "goal": "Goal", "instructions": "Work", "constraints": "Stay", "output": "Done"},
+            "toolIds": ["files"],
+            "skillIds": [],
+            "stackIds": [],
+            "scope": {"does": ["user interfaces"], "neverDoes": ["servers"], "zones": ["src/**"]},
+        },
+    ).json()
+    assert "# Scope" in preview["compiled"]
+    assert "You cannot enable stacks or change your own scope; only the user can." in preview["compiled"]
+    project = client.post("/projects", json={"name": "Scope", "agentId": agent_id}).json()
+    for text in ("build the backend", "work on nodejs", "add a database"):
+        message = client.post(f"/projects/{project['id']}/messages", json={"text": text}).json()
+        assert "runId" not in message
+        assert db.get("task", message["taskId"])["label"] == "out"
+        reply = client.get(f"/projects/{project['id']}/messages").json()[-1]
+        assert reply["text"].startswith("That is outside my role.")
+        assert "Add an agent for that role" in reply["text"]
+    game = client.post(f"/projects/{project['id']}/messages", json={"text": "build a tic tac toe game"}).json()
+    assert game["runId"]
+    assert db.get("task", game["taskId"])["label"] == "task"
+    assert wait_status(client, game["runId"], {"completed", "failed"}, timeout=20)["status"] == "completed"
+    openai_gateway.SCRIPTS.append(
+        {"tool_calls": [{"id": "w", "name": "files", "arguments": {"op": "write", "path": "server/index.js", "content": "listen"}}], "usage": {"input_tokens": 1, "output_tokens": 1}}
+    )
+    openai_gateway.SCRIPTS.append(
+        {
+            "tool_calls": [
+                {
+                    "id": "done",
+                    "name": "complete",
+                    "arguments": {"summary": {"description": "Tried.", "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}},
+                }
+            ],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+    )
+    run = client.post("/runs", json={"agentId": agent_id, "workspace": {"kind": "scaffold", "template": "local"}, "task": "Write the server"}).json()
+    assert wait_status(client, run["id"], {"completed", "failed"})["status"] == "completed"
+    refused = [item for item in db.events_for(run["id"]) if item["type"] == "TOOL_REFUSED"]
+    assert refused and "server/index.js" in refused[0]["payload"]["reason"]
 
 
 def test_shell_timeout_is_reported_and_daemons_are_refused(client: TestClient):

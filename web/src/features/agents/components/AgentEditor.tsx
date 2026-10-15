@@ -55,7 +55,9 @@ type Draft = {
   toolIds: string[]
   skillIds: string[]
   stackIds: string[]
-  zones: string
+  does: string[]
+  neverDoes: string[]
+  zones: string[]
   sections: Sections
 }
 
@@ -68,6 +70,41 @@ const prompts = [
 ] as const
 
 const emptySections: Sections = { role: "", goal: "", instructions: "", constraints: "", output: "" }
+
+function ChipList({ id, label, values, onChange }: { id: string; label: string; values: string[]; onChange: (next: string[]) => void }) {
+  const [text, setText] = useState("")
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <div className="flex flex-wrap gap-1">
+        {values.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className="rounded-full border px-2 py-0.5 text-xs"
+            onClick={() => onChange(values.filter((value) => value !== item))}
+          >
+            {item} ×
+          </button>
+        ))}
+      </div>
+      <Input
+        id={id}
+        value={text}
+        placeholder="Add and press Enter"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return
+          event.preventDefault()
+          const next = text.trim()
+          if (!next || values.includes(next)) return
+          onChange([...values, next])
+          setText("")
+        }}
+      />
+    </Field>
+  )
+}
 
 const evalSchema = z.object({
   name: z.string().min(1, "Name the eval"),
@@ -85,7 +122,9 @@ function draftFrom(agent: Agent, sections: Sections | undefined): Draft {
     toolIds: agent.toolIds,
     skillIds: agent.skillIds,
     stackIds: agent.stackIds,
-    zones: agent.zones.join("\n"),
+    does: agent.scope?.does ?? [],
+    neverDoes: agent.scope?.neverDoes ?? [],
+    zones: agent.scope?.zones ?? agent.zones,
     sections: sections ?? emptySections,
   }
 }
@@ -119,6 +158,7 @@ export function AgentEditor({ id }: { id: string }) {
         toolIds: current.toolIds,
         skillIds: current.skillIds,
         stackIds: current.stackIds,
+        scope: { does: current.does, neverDoes: current.neverDoes, zones: current.zones },
       })
     : ""
 
@@ -162,7 +202,8 @@ export function AgentEditor({ id }: { id: string }) {
         toolIds: current.toolIds,
         skillIds: current.skillIds,
         stackIds: current.stackIds,
-        zones: current.zones.split("\n").map((line) => line.trim()).filter(Boolean),
+        zones: current.zones,
+        scope: { does: current.does, neverDoes: current.neverDoes, zones: current.zones },
       })
       return createVersion(id, current.sections)
     },
@@ -335,6 +376,13 @@ export function AgentEditor({ id }: { id: string }) {
           <CardDescription>Control tools stay on and are hidden from the Tools page.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
+          {!current.toolIds.includes("build_test") ||
+          !current.toolIds.includes("shell") ||
+          !current.toolIds.includes("preview_deploy") ? (
+            <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
+              this agent cannot build or run anything
+            </p>
+          ) : null}
           {(
             [
               ["builtin", "Built-in"],
@@ -393,15 +441,9 @@ export function AgentEditor({ id }: { id: string }) {
               patch({ stackIds: on ? [...current.stackIds, stackId] : current.stackIds.filter((item) => item !== stackId) })
             }
           />
-          <Field>
-            <FieldLabel htmlFor="zones">Zones</FieldLabel>
-            <textarea
-              id="zones"
-              className="min-h-24 rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm"
-              value={current.zones}
-              onChange={(event) => patch({ zones: event.target.value })}
-            />
-          </Field>
+          <ChipList id="does" label="Does" values={current.does} onChange={(does) => patch({ does })} />
+          <ChipList id="never-does" label="Never does" values={current.neverDoes} onChange={(neverDoes) => patch({ neverDoes })} />
+          <ChipList id="zones" label="Zones" values={current.zones} onChange={(zones) => patch({ zones })} />
         </CardContent>
       </Card>
       <Card>

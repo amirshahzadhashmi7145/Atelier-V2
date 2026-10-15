@@ -1,13 +1,18 @@
 import json
 import os
+import subprocess
 import re
 import threading
 import time
 from pathlib import Path
 
 from gateway import openai_gateway
+from gateway.tool_pairing import ToolPairingError
+from runtime import messages as msglib
+from runtime.scaffold import write_vite_react_ts
+from runtime.tool_results import format_tool_result
 from runtime import compile as compile_prompt
-from runtime import tools
+from runtime import sandbox, tools
 from store import db
 from store import live
 
@@ -42,34 +47,64 @@ def drive(run_id: str) -> None:
         if not _pause(run, "waiting_user", "CLARIFICATION_RAISED", {"question": question}):
             return
     started = time.time()
-    hashes: list[str] = []
     unchanged = 0
     answer = None
+    recent: list[str] = []
+    last_key = None
+    streak = 0
+    note = _prepare_scaffold(run, agent)
+    if note:
+        answer = note
+    track = db.get("run-track", run_id) or _fresh_track()
+    db.put("run-track", run_id, track)
+    timeout_seen = False
+    model_call_index = 0
     for _ in range(max_iterations):
         if _cancelled(run_id):
             return
         if time.time() - started > max_minutes * 60:
-            _fail(run, "timeout", "The run exceeded the time limit.")
+            _fail(run, "timeout", "The run exceeded the time limit.", recent)
             return
         call_id = db.nid("call")
         turn = {"content": "", "tool_calls": [], "usage": {"input_tokens": 0, "output_tokens": 0}, "usd": 0}
         opened: list[str] = []
         counts: dict[str, int] = {}
-        for item in openai_gateway.stream_turn(
-            run["model"]["name"],
-            _messages(run, agent, answer),
-            tools.openai_tools(agent),
-            run["model"].get("config") or {},
-        ):
-            if item["kind"] == "delta":
-                cid = item.get("call") or call_id
-                if cid not in opened:
-                    opened.append(cid)
-                index = int(item["index"]) if item.get("index") else counts.get(cid, 0) + 1
-                counts[cid] = max(counts.get(cid, 0), index)
-                live.delta(run_id, cid, index, item["text"])
-            else:
-                turn = item
+        for attempt in range(3):
+            try:
+                stream = openai_gateway.stream_turn(
+                    run["model"]["name"],
+                    _messages(run, agent, answer, track),
+                    tools.openai_tools(agent),
+                    run["model"].get("config") or {},
+                    run_id=run_id,
+                    call_index=model_call_index,
+                )
+                for item in stream:
+                    if item["kind"] == "delta":
+                        cid = item.get("call") or call_id
+                        if cid not in opened:
+                            opened.append(cid)
+                        index = int(item["index"]) if item.get("index") else counts.get(cid, 0) + 1
+                        counts[cid] = max(counts.get(cid, 0), index)
+                        live.delta(run_id, cid, index, item["text"])
+                    else:
+                        turn = item
+                break
+            except ToolPairingError:
+                _fail(run, "error", "internal: tool result missing", recent)
+                return
+            except openai_gateway.ModelTimeout as exc:
+                db.append_event(run_id, "MODEL_RETRY", {"attempt": attempt + 1, "reason": str(exc)})
+                if timeout_seen:
+                    _fail(run, "timeout", str(exc), recent)
+                    return
+                timeout_seen = True
+                answer = str(exc)
+                time.sleep(min(8, 2**attempt))
+        else:
+            _fail(run, "timeout", "Model call timed out.", recent)
+            return
+        model_call_index += 1
         if not opened:
             opened = [call_id]
         for cid in opened:
@@ -87,21 +122,49 @@ def drive(run_id: str) -> None:
         run["iterations"] += 1
         db.put("run", run_id, _public(run))
         if run["costUsd"] > cap:
-            _fail(run, "budget", "The run exceeded the spend cap.")
+            _fail(run, "budget", "The run exceeded the spend cap.", recent)
             return
         calls = _calls(turn.get("tool_calls") or [])
         if not calls:
             continue
+        transcript = track.get("transcript") or []
+        transcript.append(msglib.assistant_message(turn.get("content") or "", calls))
         for call in calls:
             if _cancelled(run_id):
                 return
-            digest = tools.call_hash(call["name"], call["arguments"])
-            hashes.append(digest)
-            if detect_loops and len(hashes) >= 3 and hashes[-3:] == [digest, digest, digest]:
-                _fail(run, "loop", "The same tool call repeated.")
-                return
             db.append_event(run_id, "TOOL_CALLED", {"name": call["name"], "arguments": call["arguments"]})
             result = tools.dispatch(run, call["name"], call["arguments"], lambda: _cancelled(run_id))
+            result_text = format_tool_result(call["name"], call["arguments"], result)
+            transcript.append(msglib.tool_message(call["id"], result_text))
+            recent.append(_plain(call))
+            _note_tool(run_id, track, call, result)
+            track["transcript"] = transcript
+            db.put("run-track", run_id, track)
+            if track.get("fail"):
+                _fail(run, track.get("failCause") or "loop", track["fail"], recent)
+                return
+            if track.get("autoBuildNote"):
+                answer = track.pop("autoBuildNote")
+            if detect_loops:
+                _read_only_repeat(track, call, result_text)
+                nudge = track.pop("readOnlyNudge", None)
+                if nudge:
+                    answer = nudge
+            if detect_loops and _repeatable(call):
+                key = (tools.call_hash(call["name"], call["arguments"]), _short(result.get("reason") if result.get("refused") else result.get("output")))
+                if key == last_key:
+                    streak += 1
+                else:
+                    last_key = key
+                    streak = 1
+                if streak == 2:
+                    answer = "you already ran this; change approach"
+                if streak >= 3:
+                    _fail(run, "loop", "the same tool call repeated", recent)
+                    return
+            if result.get("scopeEnd"):
+                _fail(run, "error", result["reason"], recent)
+                return
             if result.get("refused"):
                 db.append_event(run_id, "TOOL_REFUSED", {"name": call["name"], "reason": result["reason"]})
                 _say(run, f"{call['name']} was refused: {result['reason']}")
@@ -109,7 +172,7 @@ def drive(run_id: str) -> None:
             if result.get("changed") is False:
                 unchanged += 1
                 if detect_loops and unchanged >= 2:
-                    _fail(run, "loop", "Two edits changed nothing.")
+                    _fail(run, "loop", "Two edits changed nothing.", recent)
                     return
             else:
                 unchanged = 0
@@ -133,10 +196,14 @@ def drive(run_id: str) -> None:
                     return
                 continue
             if result.get("done"):
+                track["transcript"] = transcript
+                db.put("run-track", run_id, track)
                 _complete(run, result.get("summary") or {})
                 return
-            db.append_event(run_id, "TOOL_RESULT", {"name": call["name"], "output": _short(result.get("output"))})
-    _fail(run, "timeout", "The run exceeded the iteration limit.")
+            db.append_event(run_id, "TOOL_RESULT", {"name": call["name"], "output": _short(result_text)})
+        track["transcript"] = transcript
+        db.put("run-track", run_id, track)
+    _fail(run, "timeout", "The run exceeded the iteration limit.", recent)
 
 
 def _blocked_framework(run: dict, agent: dict) -> str | None:
@@ -161,30 +228,114 @@ def _calls(raw: list) -> list[dict]:
     return parsed
 
 
-def _messages(run: dict, agent: dict, answer: str | None) -> list[dict]:
+def _fresh_track() -> dict:
+    return {
+        "transcript": [],
+        "writesSinceBuild": 0,
+        "fullWrites": {},
+        "lastBuildOk": None,
+        "loadedSkills": [],
+        "staleTools": 0,
+    }
+
+
+def _read_only_repeat(track: dict, call: dict, result_text: str) -> None:
+    args = call.get("arguments") or {}
+    op = args.get("op") or "read"
+    if call["name"] != "files" or op not in ("read", "list"):
+        track["readOnlyStreak"] = 0
+        return
+    key = (tools.call_hash(call["name"], args), result_text[:500])
+    if key == track.get("lastReadOnlyKey"):
+        track["readOnlyStreak"] = int(track.get("readOnlyStreak") or 0) + 1
+    else:
+        track["readOnlyStreak"] = 1
+        track["lastReadOnlyKey"] = key
+    if track["readOnlyStreak"] == 2:
+        track["readOnlyNudge"] = "you already ran this; change approach"
+
+
+
+def _note_tool(run_id: str, track: dict, call: dict, result: dict) -> None:
+    name = call["name"]
+    args = call.get("arguments") or {}
+    if name == "build_test":
+        track["writesSinceBuild"] = 0
+        track["lastBuildOk"] = result.get("buildOk")
+        track["lastBuildReason"] = result.get("output")
+        if result.get("buildOk"):
+            track["staleTools"] = 0
+        return
+    if name == "load_skill" and not result.get("alreadyLoaded"):
+        track["staleTools"] = 0
+        return
+    changed = result.get("changed")
+    if name == "files":
+        op = str(args.get("op") or "")
+        if op in ("write", "edit", "append") and changed:
+            track["staleTools"] = 0
+            track["writesSinceBuild"] = int(track.get("writesSinceBuild") or 0) + 1
+            if op == "write" and result.get("fullWrite"):
+                path = result.get("path") or args.get("path") or "file"
+                counts = track.setdefault("fullWrites", {})
+                counts[path] = int(counts.get(path) or 0) + 1
+                if counts[path] == 2:
+                    track["autoBuildNote"] = f"you rewrote {path}; use files.edit and run the build"
+                if counts[path] >= 3:
+                    track["fail"] = f"you rewrote {path} three times without editing"
+                    track["failCause"] = "loop"
+            if track["writesSinceBuild"] >= 3:
+                run = db.get("run", run_id) or {}
+                folder = Path(run["folder"]) if run.get("folder") else None
+                built = tools._build(run, folder, lambda: False)
+                track["writesSinceBuild"] = 0
+                track["lastBuildOk"] = built.get("buildOk")
+                track["lastBuildReason"] = built.get("output")
+                track["autoBuildNote"] = f"Auto build_test: {built.get('output')}"
+            return
+    if changed is False and name == "files":
+        return
+    track["staleTools"] = int(track.get("staleTools") or 0) + 1
+    if track["staleTools"] >= 15:
+        track["fail"] = "no progress"
+        track["failCause"] = "loop"
+
+
+def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = None) -> list[dict]:
     version = db.get("version", run.get("promptVersionId") or "") or _active_version(agent)
-    compiled = version["compiled"] if version else compile_prompt.compile_prompt(agent.get("sections") or {}, agent.get("toolIds") or [], agent.get("skillIds") or [], agent.get("stackIds") or [])["compiled"]
+    compiled = version["compiled"] if version else compile_prompt.compile_prompt(agent.get("sections") or {}, agent.get("toolIds") or [], agent.get("skillIds") or [], agent.get("stackIds") or [], scope=agent.get("scope"))["compiled"]
     folder = Path(run["folder"]) if run.get("folder") else None
     tree = _tree(folder) if folder else ""
     skills = "\n".join(f"{item['name']}: {item['description']}" for item in db.listing("skill"))
-    system = f"{compiled}\n\n# File tree\n{tree}\n\n# Skills index\n{skills}\n\n# Tools\n" + "\n".join(sorted(tools.allowed(agent)))
+    loaded = ", ".join((track or {}).get("loadedSkills") or []) or "none"
+    system = f"{compiled}\n\n# File tree\n{tree}\n\n# Skills index\n{skills}\n\n# Loaded skills\n{loaded}\n\n# Tools\n" + "\n".join(sorted(tools.allowed(agent)))
+    prior = run.get("priorContext")
+    if prior:
+        system += "\n\n# Prior task context\n"
+        system += f"Task: {prior.get('taskText') or ''}\nSummary: {prior.get('summary') or ''}\n"
+        if prior.get("failure"):
+            system += f"Failure: {prior['failure']}\n"
+        diff = prior.get("diff") or {}
+        for item in (diff.get("files") or [])[:12]:
+            system += f"Changed {item.get('path')}: { (item.get('after') or '')[:200]}\n"
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
     tags = (agent.get("capabilities") or {}).get("tags") or []
     if task and "supervisor" in tags:
         system += f"\n\n# Work to review\n{task.get('summary') or ''}\n{task.get('diffRef') or ''}\n{', '.join(task.get('screenshotRefs') or [])}"
-    messages = [{"role": "system", "content": system}]
+    prefix: list[dict] = []
     history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
     history.sort(key=lambda item: item["createdAt"])
     project = db.get("project", run.get("projectId")) if run.get("projectId") else None
     if project and project.get("summary"):
-        messages.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
+        prefix.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
     for item in history[-20:]:
-        messages.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
-    messages.append({"role": "user", "content": run["task"]})
+        prefix.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
+    prefix.append({"role": "user", "content": run["task"]})
+    suffix: list[dict] = []
     if answer:
-        messages.append({"role": "user", "content": answer})
-    return messages
-
+        suffix.append({"role": "user", "content": answer})
+    transcript = (track or {}).get("transcript") or []
+    return msglib.merge_system_and_transcript(system, transcript, prefix, suffix)
 
 def _tree(folder: Path) -> str:
     lines = []
@@ -231,7 +382,28 @@ def _pause(run: dict, status: str, event_type: str, payload: dict) -> bool:
     return not _cancelled(run["id"])
 
 
+def _finish_run(run: dict) -> None:
+    from runtime import project_runs
+
+    if not run.get("projectId"):
+        return
+    if run.get("spendRecorded"):
+        project_runs.drain(run["projectId"])
+        return
+    project_runs.add_spend(run["projectId"], float(run.get("costUsd") or 0))
+    run["spendRecorded"] = True
+    db.put("run", run["id"], _public(run))
+    project_runs.drain(run["projectId"])
+
+
 def _complete(run: dict, summary: dict) -> None:
+    folder = Path(run["folder"]) if run.get("folder") else None
+    if run.get("projectId") and folder is not None and (folder / "package.json").exists():
+        tools._build(run, folder, lambda: False)
+        index = folder / "index.html"
+        if index.exists():
+            tools._browser(run, index.as_uri())
+        tools._preview(run, folder)
     summary = {
         "description": summary.get("description") or "Done.",
         "filesChanged": summary.get("filesChanged") or [item["path"] for item in (db.get("diff", run["id"]) or {"files": []})["files"]],
@@ -267,6 +439,7 @@ def _complete(run: dict, summary: dict) -> None:
             reply = reply + "\n" + git["prUrl"]
         _say(run, reply)
         refresh_summary(project["id"], run["model"]["name"])
+    _finish_run(run)
 
 
 def _publish(project: dict, run: dict) -> dict:
@@ -334,10 +507,71 @@ def _git(folder: Path, args: list[str]) -> str:
     return result.stdout + result.stderr
 
 
-def _fail(run: dict, cause: str, text: str) -> None:
+def _prepare_scaffold(run: dict, agent: dict) -> str | None:
+    folder = Path(run["folder"]) if run.get("folder") else None
+    if folder is None or not folder.is_dir() or _tree(folder).strip():
+        return None
+    stacks = {item["id"]: item for item in db.listing("stack")}
+    for stack_id in agent.get("stackIds") or []:
+        command = ((stacks.get(stack_id) or {}).get("scaffoldTemplate") or "").strip()
+        if not command:
+            continue
+        if " " in command or command.startswith(("npm", "npx", "pnpm", "yarn")):
+            try:
+                code, _output = sandbox.run_command(folder, command, lambda: False)
+            except PermissionError:
+                continue
+            if code != 0 and not _tree(folder).strip():
+                continue
+        else:
+            # ponytail: template ids such as vite-react-ts are not shell commands; write a starter instead of an interactive CLI
+            if command == "vite-react-ts":
+                write_vite_react_ts(folder)
+            else:
+                _write_starter(folder)
+        return f"The scaffold already exists ({command}). Do not run a create command."
+    return None
+
+
+def _write_starter(folder: Path) -> None:
+    package = {"name": "app", "private": True, "scripts": {"build": "node -e \"process.exit(0)\"", "test": "node -e \"process.exit(0)\"", "dev": "vite"}}
+    (folder / "package.json").write_text(json.dumps(package, indent=2))
+    src = folder / "src"
+    src.mkdir(exist_ok=True)
+    (src / "main.tsx").write_text('export {}\n')
+    (folder / "index.html").write_text("<!doctype html><html><body><div id=\"root\"></div></body></html>\n")
+    (folder / "vite.config.ts").write_text("export default {}\n")
+
+
+def _repeatable(call: dict) -> bool:
+    name = call["name"]
+    op = str((call.get("arguments") or {}).get("op") or "")
+    if name in ("search_data", "load_skill"):
+        return False
+    if name == "files" and op in ("read", "list"):
+        return False
+    return name in ("files", "shell")
+
+
+def _plain(call: dict) -> str:
+    args = call.get("arguments") or {}
+    if call["name"] == "files":
+        op = str(args.get("op") or "read")
+        path = args.get("path") or "a file"
+        verb = {"read": "reading", "write": "writing", "edit": "editing", "list": "listing"}.get(op, op)
+        return f"{verb} {path}"
+    if call["name"] == "shell":
+        return f"running {args.get('command') or 'a command'}"
+    return f"using {call['name'].replace('_', ' ')}"
+
+
+def _fail(run: dict, cause: str, text: str, recent: list[str] | None = None) -> None:
+    doing = ", ".join((recent or [])[-3:]) or "starting the task"
+    text = f"I was {doing}. Cause: {text}"
     run["terminalCause"] = cause
     run["endedAt"] = db.now()
     db.append_event(run["id"], "RUN_FAILED", {"cause": cause, "text": text})
+    _say(run, text)
     run["status"] = "failed"
     db.put("run", run["id"], _public(run))
     if run.get("taskId"):
@@ -345,9 +579,9 @@ def _fail(run: dict, cause: str, text: str) -> None:
         if task:
             task["status"] = "failed"
             db.put("task", task["id"], task)
-    _say(run, text)
     if run.get("projectId"):
         refresh_summary(run["projectId"], (run.get("model") or {}).get("name") or "gpt-4o")
+    _finish_run(run)
 
 
 def refresh_summary(project_id: str | None, model: str) -> None:

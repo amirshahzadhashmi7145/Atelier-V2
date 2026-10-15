@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.8.0
+  version: 0.10.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -1157,6 +1157,7 @@ components:
         - skillIds
         - stackIds
         - zones
+        - scope
         - evals
         - reportsTo
         - capabilities
@@ -1191,6 +1192,8 @@ components:
           type: array
           items:
             type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
         evals:
           type: array
           items:
@@ -1234,6 +1237,8 @@ components:
           type: array
           items:
             type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
         reportsTo:
           type: [string, "null"]
         capabilities:
@@ -1259,6 +1264,25 @@ components:
           items:
             type: string
         stackIds:
+          type: array
+          items:
+            type: string
+        zones:
+          type: array
+          items:
+            type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
+    Scope:
+      type: object
+      additionalProperties: false
+      required: [does, neverDoes, zones]
+      properties:
+        does:
+          type: array
+          items:
+            type: string
+        neverDoes:
           type: array
           items:
             type: string
@@ -1431,6 +1455,8 @@ components:
           type: array
           items:
             type: string
+        scope:
+          $ref: "#/components/schemas/Scope"
     CompilePreview:
       type: object
       additionalProperties: false
@@ -1922,11 +1948,15 @@ components:
     RunSettings:
       type: object
       additionalProperties: false
-      required: [maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection]
+      required: [maxSpendPerRunUsd, maxSpendPerDayUsd, maxIterations, maxMinutes, loopDetection]
       properties:
         maxSpendPerRunUsd:
           type: number
           minimum: 0
+        maxSpendPerDayUsd:
+          type: number
+          minimum: 0
+          default: 20
         maxIterations:
           type: integer
           minimum: 1
@@ -1935,6 +1965,10 @@ components:
           minimum: 1
         loopDetection:
           type: boolean
+        recordModelRequests:
+          type: boolean
+          default: false
+          description: When true, write redacted model request/response JSON under api/debug/runs/{runId}/.
     ProviderKey:
       type: object
       additionalProperties: false
@@ -2180,6 +2214,7 @@ components:
         - MODEL_CALLED
         - MODEL_DELTA
         - MODEL_OUTPUT
+        - MODEL_RETRY
         - TOOL_CALLED
         - TOOL_RESULT
         - TOOL_REFUSED
@@ -2283,6 +2318,9 @@ components:
           type: boolean
         previewUrl:
           type: [string, "null"]
+        activeRunId:
+          type: [string, "null"]
+          description: Run currently working in this project, if any.
         summary:
           type: [string, "null"]
         createdAt:
@@ -2404,6 +2442,14 @@ components:
         taskId:
           type: string
         runId:
+          type: string
+        label:
+          type: string
+          enum: [chat, task, out]
+        queueStatus:
+          type: string
+          enum: [waiting]
+        statusNote:
           type: string
         createdAt:
           type: string

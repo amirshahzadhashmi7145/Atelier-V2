@@ -9,8 +9,8 @@ from app.worker import start_run
 __all__ = ["compare_evals", "compile_prompt", "list_model_ids", "local_mode", "route_task", "run_evals", "start_run", "stop_preview", "wake"]
 
 
-def compile_prompt(sections, tool_ids, skill_ids, stack_ids, model: str = "gpt-4o"):
-    return compiler.compile_prompt(sections, tool_ids, skill_ids, stack_ids, model)
+def compile_prompt(sections, tool_ids, skill_ids, stack_ids, model: str = "gpt-4o", scope: dict | None = None):
+    return compiler.compile_prompt(sections, tool_ids, skill_ids, stack_ids, model, scope)
 
 
 def run_evals(agent: dict, version: dict) -> dict:
@@ -41,16 +41,20 @@ def list_model_ids() -> list[str]:
     return openai_gateway.list_model_ids()
 
 
-def classify(agent: dict, text: str) -> str:
-    return labeling.label(agent, text)
+def classify(agent: dict, text: str, project_id: str | None = None) -> str:
+    return labeling.label(agent, text, project_id)
 
 
-def chat_reply(agent: dict, text: str) -> str:
-    return labeling.chat_reply(agent, text)
+def chat_reply(agent: dict, text: str, project_id: str | None = None) -> str:
+    return labeling.chat_reply(agent, text, project_id)
 
 
-def refusal(agent: dict) -> str:
-    return labeling.refusal(agent)
+def is_control(text: str) -> bool:
+    return labeling.is_control(text)
+
+
+def refusal(agent: dict, text: str = "") -> str:
+    return labeling.refusal(agent, text)
 
 
 def teach_agent(agent_id: str, body: dict):

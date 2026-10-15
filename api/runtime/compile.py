@@ -11,7 +11,19 @@ def token_count(text: str, model: str = "gpt-4o") -> int:
     return len(encoding.encode(text))
 
 
-def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], stack_ids: list[str], model: str = "gpt-4o") -> dict:
+SCOPE_LINE = "If a task falls under 'never does', do not ask for approval and do not offer to do it. Reply that it is outside your role and name what you can do instead. You cannot enable stacks or change your own scope; only the user can."
+FILES_LINE = "Prefer files.edit or files.append on existing files. Use files.write only for new files. After writes, run build_test before complete."
+
+
+def scope_block(scope: dict | None) -> str:
+    scope = scope or {}
+    does = ", ".join(scope.get("does") or []) or "none"
+    never = ", ".join(scope.get("neverDoes") or []) or "none"
+    zones = ", ".join(scope.get("zones") or []) or "none"
+    return "\n".join(["# Scope", f"Does: {does}", f"Never does: {never}", f"Zones: {zones}", SCOPE_LINE])
+
+
+def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], stack_ids: list[str], model: str = "gpt-4o", scope: dict | None = None, include_tools: bool = True) -> dict:
     tools = {item["id"]: item for item in db.listing("tool")}
     skills = {item["id"]: item for item in db.listing("skill")}
     stacks = {item["id"]: item for item in db.listing("stack")}
@@ -31,22 +43,23 @@ def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], st
         stack = stacks.get(stack_id)
         if stack:
             stack_lines.append(f"{stack['name']} {stack['version']}")
-    compiled = "\n\n".join(
-        [
-            f"# Role\n{sections.get('role', '')}",
-            f"# Goal and definition of done\n{sections.get('goal', '')}",
-            f"# How to work\n{sections.get('instructions', '')}",
-            f"# Constraints\n{sections.get('constraints', '')}",
-            f"# Output\n{sections.get('output', '')}",
-            "\n".join(
-                [
-                    "# Enabled stacks",
-                    *stack_lines,
-                    "Do not use or propose any other framework. If the task requires one, call raise_clarification.",
-                ]
-            ),
-            "\n".join(["# Tools", *tool_lines]),
-            "\n".join(["# Skills", *skill_lines, "Call load_skill(name) before using a skill."]),
-        ]
-    )
+    parts = [
+        f"# Role\n{sections.get('role', '')}",
+        f"# Goal and definition of done\n{sections.get('goal', '')}",
+        f"# How to work\n{sections.get('instructions', '')}\n{FILES_LINE}",
+        f"# Constraints\n{sections.get('constraints', '')}",
+        f"# Output\n{sections.get('output', '')}",
+        "\n".join(
+            [
+                "# Enabled stacks",
+                *stack_lines,
+                "Do not use or propose any other framework. If the task requires one, call raise_clarification.",
+            ]
+        ),
+    ]
+    if include_tools:
+        parts.append("\n".join(["# Tools", *tool_lines]))
+    parts.append("\n".join(["# Skills", *skill_lines, "Call load_skill(name) before using a skill."]))
+    parts.append(scope_block(scope))
+    compiled = "\n\n".join(parts)
     return {"compiled": compiled, "tokenCount": token_count(compiled, model)}
