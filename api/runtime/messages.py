@@ -9,7 +9,7 @@ from gateway.tool_pairing import ToolPairingError, assert_chat_tool_pairing
 MAX_TRANSCRIPT_MESSAGES = 80
 
 
-def assistant_message(content: str | None, tool_calls: list[dict]) -> dict:
+def assistant_message(content: str | None, tool_calls: list[dict], *, gemini_model_content: dict | None = None) -> dict:
     openai_calls = []
     for call in tool_calls:
         arguments = call.get("arguments") or {}
@@ -27,6 +27,8 @@ def assistant_message(content: str | None, tool_calls: list[dict]) -> dict:
         message["content"] = content
     else:
         message["content"] = None
+    if gemini_model_content is not None:
+        message["gemini_model_content"] = gemini_model_content
     return message
 
 

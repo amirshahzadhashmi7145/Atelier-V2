@@ -100,3 +100,12 @@ Failures / known gaps: Anthropic and Ollama adapters are not implemented. Some e
 New dependencies: google-genai — official Gemini SDK isolated to the gateway provider module.
 Follow-ups for the next session: Anthropic and Ollama providers on the same interface; Backend Engineer role; fix eval loop flake if still present on main.
 
+## S11 follow-up (thought_signature)
+
+Session: S11 feat/gemini-provider (follow-up)
+Built: Gemini model turns store verbatim `gemini_model_content` on the run transcript (including `thought_signature` on function-call parts); history replay uses stored parts, not reconstructed TOOL_CALLED events. Provider 4xx surfaces immediately on the run; Connect 4 on live Gemini completes with request capture under `api/debug/runs/<run_id>/`.
+Decisions: Function-call parts are accumulated from the stream (last chunk alone dropped signatures); assistant rows with tool_calls must carry `gemini_model_content` or the gateway raises `internal: thought_signature lost`.
+Failures / known gaps: unchanged out-of-scope items (Anthropic/Ollama adapters, Backend Engineer).
+New dependencies: none
+Follow-ups: none for this bug
+

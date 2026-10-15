@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from gateway import mock_turns
-from gateway.exceptions import ModelTimeout
+from gateway.exceptions import ModelTimeout, ProviderError
 from gateway.providers import gemini as gemini_mod
 from gateway.providers import registry
 
@@ -40,6 +40,8 @@ def default_model_spec() -> dict:
 
 
 def model_call_error_message(exc: Exception, provider: str | None = None) -> str | None:
+    if isinstance(exc, ProviderError):
+        return exc.message
     text = str(exc)
     low = text.lower()
     name = type(exc).__name__
