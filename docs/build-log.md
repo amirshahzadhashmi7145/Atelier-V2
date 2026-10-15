@@ -64,3 +64,12 @@ Failures / known gaps: The GitHub branch, push, and pull request test is in the 
 New dependencies: tiktoken, so compiled prompt counts use OpenAI's tokenizer. Actual usage still comes from the API response.
 Follow-ups for the next session: Put a GitHub token in api/.env and run the throwaway-repo test with RUN_GITHUB_TESTS=1. A Backend Engineer agent. Routing rules that replace route_task.
 
+## S10 fix/tool-result-pairing
+
+Session: S10 fix/tool-result-pairing
+Built: Each run keeps a transcript of assistant tool calls and tool results appended to the model message list, with gateway pairing checks and optional redacted request capture under api/debug/runs/. Tool results return non-empty text; context trimming removes oldest whole call/result blocks. A vite-react-ts starter scaffolds a buildable React app in empty workspaces.
+Decisions: Chat Completions message shape only; Responses API deferred with a skipped fixture test. Capture files stay gitignored. Read-only repeat loop detection suggests pairing bug when capture is on.
+Failures / known gaps: Real-model Connect 4 end-to-end with screenshots not re-run in CI (mock capture used for PR evidence). `pnpm gen:api` was updated manually for recordModelRequests when codegen was slow.
+New dependencies: none
+Follow-ups for the next session: Wire Responses/reasoning API with the same pairing helper when that gateway path exists.
+

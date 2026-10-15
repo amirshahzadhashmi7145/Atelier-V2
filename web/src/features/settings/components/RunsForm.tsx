@@ -19,6 +19,7 @@ export function RunsForm() {
   const [iterations, setIterations] = useState<string | null>(null)
   const [minutes, setMinutes] = useState<string | null>(null)
   const [loop, setLoop] = useState<boolean | null>(null)
+  const [recordRequests, setRecordRequests] = useState<boolean | null>(null)
   const save = useMutation({
     mutationFn: saveRunSettings,
     onSuccess: async () => {
@@ -37,6 +38,7 @@ export function RunsForm() {
           const maxIterations = Number(iterations ?? current.maxIterations)
           const maxMinutes = Number(minutes ?? current.maxMinutes)
           const loopDetection = loop ?? current.loopDetection
+          const recordModelRequests = recordRequests ?? current.recordModelRequests ?? false
           return (
             <Card>
               <CardHeader>
@@ -87,12 +89,23 @@ export function RunsForm() {
                       />
                       <FieldLabel htmlFor="loop-detection">Loop detection</FieldLabel>
                     </Field>
+                    <Field orientation="horizontal">
+                      <input
+                        id="record-model-requests"
+                        type="checkbox"
+                        checked={recordModelRequests}
+                        onChange={(event) => setRecordRequests(event.target.checked)}
+                      />
+                      <FieldLabel htmlFor="record-model-requests">Record model requests</FieldLabel>
+                    </Field>
                   </div>
                 </details>
                 <Button
                   type="button"
                   disabled={save.isPending}
-                  onClick={() => save.mutate({ maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection })}
+                  onClick={() =>
+                    save.mutate({ maxSpendPerRunUsd, maxIterations, maxMinutes, loopDetection, recordModelRequests })
+                  }
                 >
                   {save.isPending ? "Saving…" : "Save"}
                 </Button>

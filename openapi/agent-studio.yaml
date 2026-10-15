@@ -1891,6 +1891,10 @@ components:
           minimum: 1
         loopDetection:
           type: boolean
+        recordModelRequests:
+          type: boolean
+          default: false
+          description: When true, write redacted model request/response JSON under api/debug/runs/{runId}/.
     ProviderKey:
       type: object
       additionalProperties: false

@@ -150,7 +150,7 @@ def seed() -> None:
     put(
         "settings",
         "runs",
-        {"maxSpendPerRunUsd": 5, "maxIterations": 60, "maxMinutes": 45, "loopDetection": True},
+        {"maxSpendPerRunUsd": 5, "maxIterations": 60, "maxMinutes": 45, "loopDetection": True, "recordModelRequests": False},
     )
     put("meta", "seeded", {"ok": True})
 

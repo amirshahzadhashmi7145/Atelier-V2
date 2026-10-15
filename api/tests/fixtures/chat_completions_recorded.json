@@ -1,0 +1,76 @@
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "s"
+    },
+    {
+      "role": "user",
+      "content": "task"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "t1",
+          "type": "function",
+          "function": {
+            "name": "files",
+            "arguments": "{}"
+          }
+        }
+      ],
+      "content": null
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "t1",
+      "content": "done"
+    }
+  ],
+  "recorded": {
+    "request": {
+      "model": "gpt-4.1-mini",
+      "messages": [
+        {
+          "role": "system",
+          "content": "s"
+        },
+        {
+          "role": "user",
+          "content": "task"
+        },
+        {
+          "role": "assistant",
+          "tool_calls": [
+            {
+              "id": "t1",
+              "type": "function",
+              "function": {
+                "name": "files",
+                "arguments": "{}"
+              }
+            }
+          ],
+          "content": null
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "t1",
+          "content": "done"
+        }
+      ],
+      "tools": [],
+      "config": {}
+    },
+    "response": {
+      "content": "ok",
+      "tool_calls": [],
+      "usage": {
+        "input_tokens": 1,
+        "output_tokens": 1
+      },
+      "usd": 1.3e-05
+    }
+  }
+}

@@ -24,11 +24,26 @@ def begin() -> None:
     _plans.queue = None
 
 
-def complete(model: str, messages: list[dict], tools: list[dict], config: dict) -> dict:
+def complete(
+    model: str,
+    messages: list[dict],
+    tools: list[dict],
+    config: dict,
+    *,
+    run_id: str | None = None,
+    call_index: int = 0,
+) -> dict:
+    from gateway.request_capture import record
+    from gateway.tool_pairing import assert_chat_tool_pairing
+
+    assert_chat_tool_pairing(messages)
+    request_payload = {"model": model, "messages": messages, "tools": tools, "config": config}
     if os.environ.get("GATEWAY_MOCK") == "1":
         turn = SCRIPTS.pop(0) if SCRIPTS else _default_turn()
         usage = turn.get("usage", {"input_tokens": 10, "output_tokens": 10})
-        return {**turn, "usage": usage, "usd": usd(usage)}
+        response = {**turn, "usage": usage, "usd": usd(usage)}
+        record(run_id, call_index, {"request": request_payload, "response": response})
+        return response
     from openai import OpenAI
 
     kwargs: dict = {"model": model, "messages": messages}
@@ -47,10 +62,25 @@ def complete(model: str, messages: list[dict], tools: list[dict], config: dict) 
     calls = []
     for call in choice.tool_calls or []:
         calls.append({"id": call.id, "name": call.function.name, "arguments": call.function.arguments})
-    return {"content": choice.content or "", "tool_calls": calls, "usage": usage, "usd": usd(usage)}
+    response = {"content": choice.content or "", "tool_calls": calls, "usage": usage, "usd": usd(usage)}
+    record(run_id, call_index, {"request": request_payload, "response": response})
+    return response
 
 
-def stream_turn(model: str, messages: list[dict], tools: list[dict], config: dict):
+def stream_turn(
+    model: str,
+    messages: list[dict],
+    tools: list[dict],
+    config: dict,
+    *,
+    run_id: str | None = None,
+    call_index: int = 0,
+):
+    from gateway.request_capture import record
+    from gateway.tool_pairing import assert_chat_tool_pairing
+
+    assert_chat_tool_pairing(messages)
+    request_payload = {"model": model, "messages": messages, "tools": tools, "config": config}
     if os.environ.get("GATEWAY_MOCK") == "1":
         turn = _next_mock(messages)
         usage = turn.get("usage", {"input_tokens": 10, "output_tokens": 10})
@@ -64,7 +94,9 @@ def stream_turn(model: str, messages: list[dict], tools: list[dict], config: dic
             yield {"kind": "delta", "text": piece}
             if pace:
                 time.sleep(pace)
-        yield {"kind": "done", "content": text, "tool_calls": turn.get("tool_calls") or [], "usage": usage, "usd": usd(usage)}
+        done = {"kind": "done", "content": text, "tool_calls": turn.get("tool_calls") or [], "usage": usage, "usd": usd(usage)}
+        record(run_id, call_index, {"request": request_payload, "response": {k: v for k, v in done.items() if k != "kind"}})
+        yield done
         return
     from openai import OpenAI
 
@@ -95,13 +127,15 @@ def stream_turn(model: str, messages: list[dict], tools: list[dict], config: dic
                 slot["name"] = tool.function.name
             if tool.function and tool.function.arguments:
                 slot["arguments"] += tool.function.arguments
-    yield {
+    done = {
         "kind": "done",
         "content": "".join(pieces),
         "tool_calls": [calls[index] for index in sorted(calls)],
         "usage": usage,
         "usd": usd(usage),
     }
+    record(run_id, call_index, {"request": request_payload, "response": {k: v for k, v in done.items() if k != "kind"}})
+    yield done
 
 
 def summarize(model: str, previous: str, older: str) -> str:

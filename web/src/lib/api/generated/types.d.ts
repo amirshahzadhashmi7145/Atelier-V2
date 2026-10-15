@@ -1104,6 +1104,8 @@ export interface components {
             maxIterations: number;
             maxMinutes: number;
             loopDetection: boolean;
+            /** @description When true, write redacted model request/response JSON under api/debug/runs/{runId}/. */
+            recordModelRequests?: boolean;
         };
         ProviderKey: {
             apiKey: string;

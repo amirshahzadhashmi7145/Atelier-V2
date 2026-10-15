@@ -4,7 +4,10 @@ import subprocess
 from pathlib import Path
 
 from runtime import route_task, sandbox
+from runtime.tool_results import READ_CAP, format_tool_result
 from store import db
+
+__all__ = ["allowed", "call_hash", "dispatch", "format_tool_result", "openai_tools", "stop_preview"]
 
 CONTROL = ["load_skill", "complete", "raise_clarification", "escalate"]
 SUPERVISOR = ["create_task", "record_review"]
@@ -82,7 +85,23 @@ def _files(run: dict, folder: Path | None, arguments: dict) -> dict:
         return {"refused": True, "reason": f"path outside the project: {path}"}
     op = arguments.get("op") or "read"
     before = target.read_text() if target.exists() and target.is_file() else ""
+    if op == "list":
+        if not target.exists():
+            return {"output": "(empty directory listing)"}
+        if target.is_file():
+            return {"output": path}
+        lines = []
+        for child in sorted(target.rglob("*")):
+            if ".git" in child.parts or "node_modules" in child.parts:
+                continue
+            if child.is_file():
+                lines.append(str(child.relative_to(folder)))
+        return {"output": "\n".join(lines[:200]) or "(empty directory listing)"}
     if op == "read":
+        if not before.strip():
+            return {"output": "(file is empty)"}
+        if len(before) > READ_CAP:
+            return {"output": before[:READ_CAP] + "\n(note: file truncated at 20 kB)"}
         return {"output": before}
     if op == "write":
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +176,10 @@ def _build(run: dict, folder: Path | None, should_stop) -> dict:
         log = "no package.json"
     artifact_id = db.nid("art")
     db.put("artifact", artifact_id, {"id": artifact_id, "runId": run["id"], "name": "build.log", "kind": "log", "text": log, "ok": ok})
-    return {"output": log or "no build or test script"}
+    tail = log[-8000:] if len(log) > 8000 else log
+    if len(log) > 8000:
+        tail = "… truncated …\n" + tail
+    return {"output": tail or "no build or test script", "buildOk": ok, "buildLog": tail}
 
 
 def _browser(run: dict, url: str) -> dict:
@@ -259,8 +281,16 @@ def _skill(run: dict, folder: Path | None, name: str) -> dict:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(skill_file.get("content") or "")
         (target / "SKILL.md").write_text(skill.get("body") or "")
+    track = db.get("run-track", run["id"]) or {}
+    loaded = track.get("loadedSkills") or []
+    if skill["name"] in loaded:
+        return {"output": f"already loaded: {skill['name']}", "skill": skill["name"], "alreadyLoaded": True}
+    loaded.append(skill["name"])
+    track["loadedSkills"] = loaded
+    db.put("run-track", run["id"], track)
     db.append_event(run["id"], "SKILL_LOADED", {"name": skill["name"]})
-    return {"output": skill.get("body") or "", "skill": skill["name"]}
+    body = (skill.get("body") or "").strip()
+    return {"output": body or f"loaded skill: {skill['name']}", "skill": skill["name"]}
 
 
 def _create_task(run: dict, arguments: dict) -> dict:

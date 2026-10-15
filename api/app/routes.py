@@ -751,12 +751,21 @@ def _import_stack(library: dict, stack_id: str) -> None:
             db.put("datasource", source_id, source)
 
 
+def _latest_prompt_version_id(agent_id: str) -> str | None:
+    rows = [item for item in db.listing("version") if item["agentId"] == agent_id]
+    if not rows:
+        return None
+    rows.sort(key=lambda item: item["version"])
+    return rows[-1]["id"]
+
+
 def _new_run(agent: dict, body: dict) -> dict:
     model = body.get("model") or agent["model"]
+    prompt_version_id = body.get("promptVersionId") or agent.get("activePromptVersionId") or _latest_prompt_version_id(agent["id"]) or ""
     return {
         "id": db.nid("run"),
         "agentId": agent["id"],
-        "promptVersionId": body.get("promptVersionId") or agent.get("activePromptVersionId") or "",
+        "promptVersionId": prompt_version_id,
         "model": model,
         "workspace": body.get("workspace") or {"kind": "scaffold", "template": "local"},
         "task": body.get("task") or "",

@@ -1,13 +1,18 @@
 import json
 import os
 import re
+import subprocess
 import threading
 import time
 from pathlib import Path
 
 from gateway import openai_gateway
+from gateway.tool_pairing import ToolPairingError
 from runtime import compile as compile_prompt
-from runtime import tools
+from runtime import sandbox, tools
+from runtime import messages as msglib
+from runtime.scaffold import write_vite_react_ts
+from runtime.tool_results import format_tool_result
 from store import db
 
 WAITS: dict[str, threading.Event] = {}
@@ -41,9 +46,12 @@ def drive(run_id: str) -> None:
         if not _pause(run, "waiting_user", "CLARIFICATION_RAISED", {"question": question}):
             return
     started = time.time()
-    hashes: list[str] = []
     unchanged = 0
     answer = None
+    track = db.get("run-track", run_id) or _fresh_track()
+    db.put("run-track", run_id, track)
+    _maybe_scaffold(run, agent)
+    model_call_index = 0
     for _ in range(max_iterations):
         if _cancelled(run_id):
             return
@@ -53,17 +61,25 @@ def drive(run_id: str) -> None:
         call_id = db.nid("call")
         parts: list[str] = []
         turn = {"content": "", "tool_calls": [], "usage": {"input_tokens": 0, "output_tokens": 0}, "usd": 0}
-        for item in openai_gateway.stream_turn(
-            run["model"]["name"],
-            _messages(run, agent, answer),
-            tools.openai_tools(agent),
-            run["model"].get("config") or {},
-        ):
-            if item["kind"] == "delta":
-                parts.append(item["text"])
-                db.append_event(run_id, "MODEL_DELTA", {"callId": call_id, "text": item["text"]})
-            else:
-                turn = item
+        try:
+            message_list = _messages(run, agent, answer, track)
+            for item in openai_gateway.stream_turn(
+                run["model"]["name"],
+                message_list,
+                tools.openai_tools(agent),
+                run["model"].get("config") or {},
+                run_id=run_id,
+                call_index=model_call_index,
+            ):
+                if item["kind"] == "delta":
+                    parts.append(item["text"])
+                    db.append_event(run_id, "MODEL_DELTA", {"callId": call_id, "text": item["text"]})
+                else:
+                    turn = item
+        except ToolPairingError:
+            _fail(run, "error", "internal: tool result missing")
+            return
+        model_call_index += 1
         db.merge_deltas(run_id, call_id, "".join(parts))
         answer = None
         usage = turn["usage"]
@@ -80,16 +96,21 @@ def drive(run_id: str) -> None:
         calls = _calls(turn.get("tool_calls") or [])
         if not calls:
             continue
+        transcript = track.get("transcript") or []
+        transcript.append(msglib.assistant_message(turn.get("content") or "", calls))
         for call in calls:
             if _cancelled(run_id):
                 return
-            digest = tools.call_hash(call["name"], call["arguments"])
-            hashes.append(digest)
-            if detect_loops and len(hashes) >= 3 and hashes[-3:] == [digest, digest, digest]:
-                _fail(run, "loop", "The same tool call repeated.")
-                return
             db.append_event(run_id, "TOOL_CALLED", {"name": call["name"], "arguments": call["arguments"]})
             result = tools.dispatch(run, call["name"], call["arguments"], lambda: _cancelled(run_id))
+            result_text = format_tool_result(call["name"], call["arguments"], result)
+            transcript.append(msglib.tool_message(call["id"], result_text))
+            repeat = _read_only_repeat(track, run_id, call, result_text) if detect_loops else None
+            if repeat:
+                _fail(run, "loop", repeat)
+                track["transcript"] = transcript
+                db.put("run-track", run_id, track)
+                return
             if result.get("refused"):
                 db.append_event(run_id, "TOOL_REFUSED", {"name": call["name"], "reason": result["reason"]})
                 _say(run, f"{call['name']} was refused: {result['reason']}")
@@ -98,23 +119,71 @@ def drive(run_id: str) -> None:
                 unchanged += 1
                 if detect_loops and unchanged >= 2:
                     _fail(run, "loop", "Two edits changed nothing.")
+                    track["transcript"] = transcript
+                    db.put("run-track", run_id, track)
                     return
             else:
                 unchanged = 0
             if result.get("clarify"):
                 if not _pause(run, "waiting_user", "CLARIFICATION_RAISED", {"question": result["clarify"]}):
+                    track["transcript"] = transcript
+                    db.put("run-track", run_id, track)
                     return
                 answer = (db.get("answer", run_id) or {}).get("text")
                 continue
             if result.get("client"):
                 if not _pause(run, "waiting_client", "CLIENT_TOOL_REQUESTED", {"requestId": result["requestId"], "prompt": result.get("prompt")}):
+                    track["transcript"] = transcript
+                    db.put("run-track", run_id, track)
                     return
                 continue
             if result.get("done"):
+                track["transcript"] = transcript
+                db.put("run-track", run_id, track)
                 _complete(run, result.get("summary") or {})
                 return
-            db.append_event(run_id, "TOOL_RESULT", {"name": call["name"], "output": _short(result.get("output"))})
+            db.append_event(run_id, "TOOL_RESULT", {"name": call["name"], "output": _short(result_text)})
+        track["transcript"] = transcript
+        db.put("run-track", run_id, track)
     _fail(run, "timeout", "The run exceeded the iteration limit.")
+
+
+def _fresh_track() -> dict:
+    return {"transcript": [], "loadedSkills": []}
+
+
+def _read_only_repeat(track: dict, run_id: str, call: dict, result_text: str) -> str | None:
+    args = call.get("arguments") or {}
+    op = args.get("op") or "read"
+    if call["name"] != "files" or op not in ("read", "list"):
+        track["readOnlyStreak"] = 0
+        return None
+    key = (tools.call_hash(call["name"], args), result_text[:500])
+    if key == track.get("lastReadOnlyKey"):
+        track["readOnlyStreak"] = int(track.get("readOnlyStreak") or 0) + 1
+    else:
+        track["readOnlyStreak"] = 1
+        track["lastReadOnlyKey"] = key
+    if track["readOnlyStreak"] < 3:
+        return None
+    message = "the model is repeating a call whose result it already has; possible pairing bug"
+    from gateway.request_capture import capture_dir
+
+    if capture_dir(run_id):
+        message += f" (see api/debug/runs/{run_id}/)"
+    return message
+
+
+def _maybe_scaffold(run: dict, agent: dict) -> None:
+    folder = Path(run["folder"]) if run.get("folder") else None
+    if folder is None or not folder.is_dir() or _tree(folder).strip():
+        return
+    stacks = {item["id"]: item for item in db.listing("stack")}
+    for stack_id in agent.get("stackIds") or []:
+        template = ((stacks.get(stack_id) or {}).get("scaffoldTemplate") or "").strip()
+        if template == "vite-react-ts":
+            write_vite_react_ts(folder)
+            return
 
 
 def _blocked_framework(run: dict, agent: dict) -> str | None:
@@ -139,29 +208,35 @@ def _calls(raw: list) -> list[dict]:
     return parsed
 
 
-def _messages(run: dict, agent: dict, answer: str | None) -> list[dict]:
+def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = None) -> list[dict]:
     version = db.get("version", run.get("promptVersionId") or "") or _active_version(agent)
     compiled = version["compiled"] if version else compile_prompt.compile_prompt(agent.get("sections") or {}, agent.get("toolIds") or [], agent.get("skillIds") or [], agent.get("stackIds") or [])["compiled"]
     folder = Path(run["folder"]) if run.get("folder") else None
     tree = _tree(folder) if folder else ""
     skills = "\n".join(f"{item['name']}: {item['description']}" for item in db.listing("skill"))
-    system = f"{compiled}\n\n# File tree\n{tree}\n\n# Skills index\n{skills}\n\n# Tools\n" + "\n".join(sorted(tools.allowed(agent)))
+    loaded = ", ".join((track or {}).get("loadedSkills") or []) or "none"
+    system = (
+        f"{compiled}\n\n# File tree\n{tree}\n\n# Skills index\n{skills}\n\n# Loaded skills\n{loaded}\n\n# Tools\n"
+        + "\n".join(sorted(tools.allowed(agent)))
+    )
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
     tags = (agent.get("capabilities") or {}).get("tags") or []
     if task and "supervisor" in tags:
         system += f"\n\n# Work to review\n{task.get('summary') or ''}\n{task.get('diffRef') or ''}\n{', '.join(task.get('screenshotRefs') or [])}"
-    messages = [{"role": "system", "content": system}]
+    prefix: list[dict] = []
     history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
     history.sort(key=lambda item: item["createdAt"])
     project = db.get("project", run.get("projectId")) if run.get("projectId") else None
     if project and project.get("summary"):
-        messages.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
+        prefix.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
     for item in history[-20:]:
-        messages.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
-    messages.append({"role": "user", "content": run["task"]})
+        prefix.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
+    prefix.append({"role": "user", "content": run["task"]})
+    suffix: list[dict] = []
     if answer:
-        messages.append({"role": "user", "content": answer})
-    return messages
+        suffix.append({"role": "user", "content": answer})
+    transcript = (track or {}).get("transcript") or []
+    return msglib.merge_system_and_transcript(system, transcript, prefix, suffix)
 
 
 def _tree(folder: Path) -> str:
@@ -226,7 +301,6 @@ def _complete(run: dict, summary: dict) -> None:
             git["previewUrl"] = preview["previewUrl"]
     run["summary"] = summary
     run["endedAt"] = db.now()
-    run.update({key: value for key, value in git.items() if value})
     db.append_event(run["id"], "RUN_COMPLETED", {"summary": summary, **{key: value for key, value in git.items() if value}})
     run["status"] = "completed"
     db.put("run", run["id"], _public(run))
@@ -364,7 +438,6 @@ def _cancelled(run_id: str) -> bool:
     try:
         fresh = db.get("run", run_id)
     except Exception:
-        # ponytail: the database was reset under a live command, so stop
         return True
     return bool(fresh and fresh["status"] == "cancelled")
 

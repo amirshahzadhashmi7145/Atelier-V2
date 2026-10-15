@@ -111,7 +111,7 @@ const emptyDb = (): Db => ({
   models: [],
   providers: [{ id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null }],
   runs: [],
-  runSettings: { maxSpendPerRunUsd: 5, maxIterations: 60, maxMinutes: 45, loopDetection: true },
+  runSettings: { maxSpendPerRunUsd: 5, maxIterations: 60, maxMinutes: 45, loopDetection: true, recordModelRequests: false },
   events: [],
   diffs: {},
   artifacts: {},
