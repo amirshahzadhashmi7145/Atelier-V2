@@ -6,6 +6,16 @@ def start_run(run_id: str) -> None:
 
 
 def _drive(run_id: str) -> None:
-    from runtime.loop import drive
+    from runtime.loop import _fail, drive
+    from store import db
 
-    drive(run_id)
+    try:
+        drive(run_id)
+    except Exception as exc:
+        run = db.get("run", run_id)
+        if run and run.get("status") == "running":
+            from gateway.openai_gateway import model_call_error_message
+
+            provider = (run.get("model") or {}).get("provider") if run else None
+            message = model_call_error_message(exc, provider) or f"The run stopped because of an unexpected error ({type(exc).__name__}: {exc})"
+            _fail(run, "error", message, [])

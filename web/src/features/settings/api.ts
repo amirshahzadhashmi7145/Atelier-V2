@@ -9,12 +9,12 @@ export async function listModels() {
   return unwrap(await api.GET("/models"))
 }
 
-export async function testProviderConnection() {
-  return unwrap(await api.POST("/providers/{id}/test", { params: { path: { id: "openai" } } }))
+export async function testProviderConnection(id: string) {
+  return unwrap(await api.POST("/providers/{id}/test", { params: { path: { id } } }))
 }
 
-export async function refreshProviderModels() {
-  return unwrap(await api.POST("/providers/{id}/refresh", { params: { path: { id: "openai" } } }))
+export async function refreshProviderModels(id: string) {
+  return unwrap(await api.POST("/providers/{id}/refresh", { params: { path: { id } } }))
 }
 
 export async function getRunSettings() {

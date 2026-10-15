@@ -19,8 +19,14 @@ export async function updateAgent(id: string, body: components["schemas"]["Agent
   return unwrap(await api.PATCH("/agents/{id}", { params: { path: { id } }, body }))
 }
 
+export function latestVersion<T extends { version: number }>(versions: T[]): T | undefined {
+  if (versions.length === 0) return undefined
+  return versions.reduce((best, item) => (item.version > best.version ? item : best))
+}
+
 export async function listVersions(id: string) {
-  return unwrap(await api.GET("/agents/{id}/versions", { params: { path: { id } } }))
+  const rows = unwrap(await api.GET("/agents/{id}/versions", { params: { path: { id } } }))
+  return [...rows].sort((a, b) => a.version - b.version)
 }
 
 export async function createVersion(id: string, sections: Sections) {

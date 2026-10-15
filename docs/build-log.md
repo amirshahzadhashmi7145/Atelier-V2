@@ -91,3 +91,12 @@ Failures / known gaps: Real-model Connect 4 end-to-end with screenshots not re-r
 New dependencies: none
 Follow-ups for the next session: Wire Responses/reasoning API with the same pairing helper when that gateway path exists.
 
+## S11 feat/gemini-provider
+
+Session: S11 feat/gemini-provider
+Built: Model calls route through a provider protocol (`list_models`, `config_schema`, `complete`, `pricing`) with OpenAI and Gemini implementations; the gateway handles pairing, capture, 60s first-token / 10m total limits, two retries with MODEL_RETRY, and fails with `model call timed out (<provider>/<model>)`. Settings > Providers shows OpenAI and Gemini cards (key found/missing, test, refresh); the agent model picker groups models by provider. Gemini uses google-genai only inside `api/gateway/providers/gemini.py`.
+Decisions: Default provider when an agent omits `provider` stays OpenAI unless only Gemini is configured (no OpenAI key). Ollama remains on the OpenAI-compatible path until a dedicated adapter lands. Classifier heuristics check scope “never does” before treating “build …” as a task.
+Failures / known gaps: Anthropic and Ollama adapters are not implemented. Some engine eval/scaffold tests still fail on this machine (loop evidence / snap sandbox), same as main. Real Gemini tic-tac-toe runs only with RUN_REAL_LLM_TESTS=1 and a key.
+New dependencies: google-genai — official Gemini SDK isolated to the gateway provider module.
+Follow-ups for the next session: Anthropic and Ollama providers on the same interface; Backend Engineer role; fix eval loop flake if still present on main.
+

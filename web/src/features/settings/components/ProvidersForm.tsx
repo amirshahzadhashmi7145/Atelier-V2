@@ -23,15 +23,15 @@ export function ProvidersForm() {
   }
   const test = useMutation({
     mutationFn: testProviderConnection,
-    onSuccess: async () => {
-      setConnection("Connected")
+    onSuccess: async (_data, providerId) => {
+      setConnection(`${providerId}:connected`)
       setConnectionError(null)
       toast.success("Connection succeeded")
       await invalidate()
     },
-    onError: (error) => {
+    onError: (error, providerId) => {
       const message = error instanceof Error ? error.message : "Connection failed"
-      setConnection("failed")
+      setConnection(`${providerId}:failed`)
       setConnectionError(message)
       toast.error(message)
     },
@@ -52,7 +52,10 @@ export function ProvidersForm() {
         {(items) => (
           <div className="flex flex-col gap-4">
             {items.map((provider) => {
-              const connected = connection === "Connected" || (connection !== "failed" && provider.connected)
+              const connected =
+                connection === `${provider.id}:connected` ||
+                (connection !== `${provider.id}:failed` && provider.connected)
+              const providerModels = (models.data ?? []).filter((model) => model.provider === provider.id)
               return (
                 <Card key={provider.id}>
                   <CardHeader>
@@ -62,26 +65,36 @@ export function ProvidersForm() {
                     </CardTitle>
                     <CardDescription>
                       {provider.keyRef ? "key found" : "key missing"}
-                      {(models.data ?? []).length > 0 && provider.modelsCachedAt
-                        ? ` · models cached ${provider.modelsCachedAt}`
+                      {providerModels.length > 0 && provider.modelsCachedAt
+                        ? ` · ${providerModels.length} models cached ${provider.modelsCachedAt}`
                         : ""}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" disabled={test.isPending} onClick={() => test.mutate()}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={test.isPending}
+                        onClick={() => test.mutate(provider.id)}
+                      >
                         {test.isPending ? "Testing…" : "Test connection"}
                       </Button>
-                      <Button type="button" variant="outline" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={refresh.isPending}
+                        onClick={() => refresh.mutate(provider.id)}
+                      >
                         {refresh.isPending ? "Refreshing…" : "Refresh models"}
                       </Button>
                     </div>
                     {connectionError ? <p className="text-sm text-destructive">{connectionError}</p> : null}
                     <ul className="flex flex-col gap-1 text-sm">
-                      {(models.data ?? []).length === 0 ? (
+                      {providerModels.length === 0 ? (
                         <li className="text-muted-foreground">Refresh models to load the catalog.</li>
                       ) : (
-                        models.data?.map((model) => <li key={model.name}>{model.name}</li>)
+                        providerModels.map((model) => <li key={model.name}>{model.name}</li>)
                       )}
                     </ul>
                   </CardContent>

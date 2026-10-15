@@ -54,8 +54,9 @@ function speedFor(id: string): "fast" | "balanced" | "slow" {
 }
 
 export function modelInfoFromId(id: string) {
+  const provider = /^gemini/i.test(id) ? ("gemini" as const) : ("openai" as const)
   return {
-    provider: "openai" as const,
+    provider,
     name: id,
     // ponytail: the models list has no context window or price
     contextWindow: 128000,

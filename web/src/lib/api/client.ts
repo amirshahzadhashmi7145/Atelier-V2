@@ -15,7 +15,18 @@ export function apiBaseUrl() {
 
 export const api = createClient<paths>({
   baseUrl: apiBaseUrl(),
-  fetch: (request: Request) => globalThis.fetch(request),
+  fetch: async (request: Request) => {
+    try {
+      return await globalThis.fetch(request)
+    } catch {
+      const base = apiBaseUrl()
+      throw new ApiError(
+        `Cannot reach the API at ${base}. Start the API server (uvicorn on port 8000) and check NEXT_PUBLIC_API_URL in web/.env.local.`,
+        0,
+        "network",
+      )
+    }
+  },
 })
 
 export class ApiError extends Error {

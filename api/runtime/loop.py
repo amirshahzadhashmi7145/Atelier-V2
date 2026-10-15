@@ -57,7 +57,6 @@ def drive(run_id: str) -> None:
         answer = note
     track = db.get("run-track", run_id) or _fresh_track()
     db.put("run-track", run_id, track)
-    timeout_seen = False
     model_call_index = 0
     for _ in range(max_iterations):
         if _cancelled(run_id):
@@ -69,40 +68,34 @@ def drive(run_id: str) -> None:
         turn = {"content": "", "tool_calls": [], "usage": {"input_tokens": 0, "output_tokens": 0}, "usd": 0}
         opened: list[str] = []
         counts: dict[str, int] = {}
-        for attempt in range(3):
-            try:
-                stream = openai_gateway.stream_turn(
-                    run["model"]["name"],
-                    _messages(run, agent, answer, track),
-                    tools.openai_tools(agent),
-                    run["model"].get("config") or {},
-                    run_id=run_id,
-                    call_index=model_call_index,
-                )
-                for item in stream:
-                    if item["kind"] == "delta":
-                        cid = item.get("call") or call_id
-                        if cid not in opened:
-                            opened.append(cid)
-                        index = int(item["index"]) if item.get("index") else counts.get(cid, 0) + 1
-                        counts[cid] = max(counts.get(cid, 0), index)
-                        live.delta(run_id, cid, index, item["text"])
-                    else:
-                        turn = item
-                break
-            except ToolPairingError:
-                _fail(run, "error", "internal: tool result missing", recent)
-                return
-            except openai_gateway.ModelTimeout as exc:
-                db.append_event(run_id, "MODEL_RETRY", {"attempt": attempt + 1, "reason": str(exc)})
-                if timeout_seen:
-                    _fail(run, "timeout", str(exc), recent)
-                    return
-                timeout_seen = True
-                answer = str(exc)
-                time.sleep(min(8, 2**attempt))
-        else:
-            _fail(run, "timeout", "Model call timed out.", recent)
+        try:
+            stream = openai_gateway.stream_turn(
+                run["model"]["name"],
+                _messages(run, agent, answer, track),
+                tools.openai_tools(agent),
+                run["model"].get("config") or {},
+                run_id=run_id,
+                call_index=model_call_index,
+                provider=run["model"].get("provider"),
+            )
+            for item in stream:
+                if item.get("kind") == "retry":
+                    db.append_event(run_id, "MODEL_RETRY", {"attempt": item.get("attempt"), "reason": item.get("reason")})
+                    continue
+                if item["kind"] == "delta":
+                    cid = item.get("call") or call_id
+                    if cid not in opened:
+                        opened.append(cid)
+                    index = int(item["index"]) if item.get("index") else counts.get(cid, 0) + 1
+                    counts[cid] = max(counts.get(cid, 0), index)
+                    live.delta(run_id, cid, index, item["text"])
+                else:
+                    turn = item
+        except ToolPairingError:
+            _fail(run, "error", "internal: tool result missing", recent)
+            return
+        except openai_gateway.ModelTimeout as exc:
+            _fail(run, "timeout", str(exc), recent)
             return
         model_call_index += 1
         if not opened:

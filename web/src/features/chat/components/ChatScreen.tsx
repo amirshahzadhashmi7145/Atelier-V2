@@ -10,6 +10,7 @@ import {
   answerChat,
   closeProject,
   createProject,
+  deleteProject,
   getChatRun,
   getProject,
   listChatAgents,
@@ -34,6 +35,7 @@ export function ChatScreen({
   projectId?: string
   renderRun?: (id: string) => ReactNode
 }) {
+  const router = useRouter()
   const projects = useQuery({ queryKey: queryKeys.projects, queryFn: listProjects })
   const queryClient = useQueryClient()
   const project = useQuery({
@@ -107,10 +109,32 @@ export function ChatScreen({
                 variant="outline"
                 onClick={() => {
                   if (!projectId) return
-                  void closeProject(projectId).then(() => queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) }))
+                  void closeProject(projectId)
+                    .then(() => {
+                      toast.success("Preview stopped")
+                      return queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+                    })
+                    .catch((error) => toast.error(error instanceof Error ? error.message : "Could not stop preview"))
                 }}
               >
-                Close project
+                Stop preview
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  if (!projectId || !project.data) return
+                  if (!window.confirm(`Delete “${project.data.name}” from the studio? Files on disk are kept.`)) return
+                  void deleteProject(projectId)
+                    .then(async () => {
+                      await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+                      toast.success("Project deleted")
+                      router.push("/chat")
+                    })
+                    .catch((error) => toast.error(error instanceof Error ? error.message : "Could not delete project"))
+                }}
+              >
+                Delete project
               </Button>
             </div>
           </div>
@@ -183,7 +207,8 @@ export function ChatScreen({
         </div>
         {projectId ? <Composer projectId={projectId} /> : null}
       </section>
-      <aside className="hidden h-full min-h-0 w-72 shrink-0 border-l p-3 xl:block">
+      <aside className="hidden h-full min-h-0 w-72 shrink-0 flex-col border-l p-3 xl:flex">
+        <h2 className="mb-2 text-sm font-medium">Preview</h2>
         <PreviewPane url={project.data?.previewUrl} />
       </aside>
     </div>
@@ -315,14 +340,46 @@ function Composer({ projectId }: { projectId: string }) {
 }
 
 function PreviewPane({ url }: { url?: string | null }) {
-  if (url) return <iframe key={url} title="Project preview" src={url} className="h-full min-h-0 w-full rounded border" />
-  return <p className="text-sm text-muted-foreground">The preview appears here when a run finishes.</p>
+  if (!url) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No preview URL yet. When a run publishes one, it appears here. You can also run <code className="text-xs">npm run dev</code> in the
+        project folder and open the local Vite URL.
+      </p>
+    )
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex flex-col gap-1 rounded border bg-muted/40 px-2 py-1.5">
+        <span className="text-xs font-medium text-muted-foreground">Running at</span>
+        <a href={url} target="_blank" rel="noreferrer" className="break-all text-sm underline">
+          {url}
+        </a>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mt-1 w-fit"
+          onClick={() => {
+            void navigator.clipboard.writeText(url)
+            toast.success("Preview URL copied")
+          }}
+        >
+          Copy URL
+        </Button>
+      </div>
+      <iframe key={url} title="Project preview" src={url} className="min-h-48 w-full flex-1 rounded border" />
+    </div>
+  )
 }
 
 function toolLine(name: string, args: unknown) {
   const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {}
   if (name === "package_install") return `running npm install ${String(record.name ?? "")}`.trim()
-  if (name === "files") return `writing ${String(record.path ?? "a file")}`
+  if (name === "files") {
+    const op = String(record.op ?? "write")
+    return `${op} ${String(record.path ?? "a file")}`
+  }
   if (name === "headless_browser") return "taking screenshots"
   if (name === "shell") return `running: ${String(record.command ?? "").slice(0, 80)}`
   return `running ${name}`
@@ -337,12 +394,29 @@ function Elapsed({ since }: { since: number }) {
   return <>{Math.max(0, Math.floor((now - since) / 1000))}s</>
 }
 
-function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => void }) {
+function modelWaitHint(model?: { provider?: string; name?: string }) {
+  const provider = model?.provider ?? "openai"
+  const name = model?.name?.trim()
+  if (provider === "ollama") return "Ollama (can take 30–120s on CPU)"
+  if (provider === "gemini") return name ? `Gemini · ${name}` : "Gemini"
+  return name ? `${provider} · ${name}` : provider
+}
+
+function LiveText({
+  runId,
+  model,
+  onActivity,
+}: {
+  runId: string
+  model?: { provider?: string; name?: string }
+  onActivity?: () => void
+}) {
   const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [active, setActive] = useState(true)
-  const [tools, setTools] = useState<{ name: string; args: unknown; done: boolean; started: number }[]>([])
+  const [tools, setTools] = useState<{ name: string; args: unknown; done: boolean; started: number; note?: string }[]>([])
   const [started] = useState(() => Date.now())
   const [retrying, setRetrying] = useState(false)
+  const [phase, setPhase] = useState("Starting run…")
   const seen = useRef(new Set<string>())
   const notify = useRef(onActivity)
   useEffect(() => {
@@ -357,6 +431,7 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
       seen.current.add(event.id)
       if (event.type !== "MODEL_DELTA") seq = Math.max(seq, event.seq)
       if (event.type === "MODEL_DELTA") {
+        setPhase("Model responding…")
         const callId = String(event.payload.modelCallId ?? event.payload.callId ?? "call")
         const index = Number(event.payload.index ?? 0)
         setBubbles((current) => placeDelta(current, callId, index, String(event.payload.text ?? "")))
@@ -374,11 +449,17 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
         })
         notify.current?.()
       }
-      if (event.type === "TOOL_CALLED") {
-        setTools((current) => [...current, { name: String(event.payload.name ?? ""), args: event.payload.arguments, done: false, started: Date.now() }])
+      if (event.type === "MODEL_STARTED") {
+        setPhase(`Turn ${String(event.payload.iteration ?? "?")}: waiting for ${modelWaitHint(model)}…`)
         notify.current?.()
       }
-      if (event.type === "TOOL_RESULT" || event.type === "TOOL_REFUSED") {
+      if (event.type === "TOOL_CALLED") {
+        const name = String(event.payload.name ?? "")
+        setPhase(toolLine(name, event.payload.arguments))
+        setTools((current) => [...current, { name, args: event.payload.arguments, done: false, started: Date.now() }])
+        notify.current?.()
+      }
+      if (event.type === "TOOL_RESULT") {
         setTools((current) => {
           const copy = current.slice()
           for (let index = copy.length - 1; index >= 0; index -= 1) {
@@ -389,6 +470,18 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
           }
           return copy
         })
+        setPhase("Model thinking…")
+        notify.current?.()
+      }
+      if (event.type === "TOOL_REFUSED") {
+        const name = String(event.payload.name ?? "")
+        const reason = String(event.payload.reason ?? "refused")
+        setPhase(`${name} refused: ${reason}`)
+        setTools((current) => [
+          ...current,
+          { name, args: event.payload.arguments, done: true, started: Date.now(), note: reason },
+        ])
+        notify.current?.()
       }
       if (event.type === "MODEL_RETRY") {
         setRetrying(true)
@@ -422,16 +515,16 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
     }
     void pump()
     return () => controller.abort()
-  }, [runId])
+  }, [runId, model?.provider, model?.name])
 
   const finished = tools.filter((item) => item.done)
   const runningTools = tools.filter((item) => !item.done)
   const spoken = bubbles.some((bubble) => bubbleText(bubble).length > 0)
   return (
     <div className="flex flex-col gap-1 text-sm" data-streaming={active ? "" : undefined}>
-      {active && !spoken ? (
-        <p data-thinking="">
-          {retrying ? "retrying" : "thinking"} <Elapsed since={started} />
+      {active ? (
+        <p data-thinking="" className="text-muted-foreground">
+          {retrying ? "Retrying model" : phase} · <Elapsed since={started} />
         </p>
       ) : null}
       {bubbles.map((bubble) => (
@@ -440,19 +533,15 @@ function LiveText({ runId, onActivity }: { runId: string; onActivity?: () => voi
           {active ? <span className="ml-0.5 inline-block animate-pulse">▍</span> : null}
         </p>
       ))}
-      {finished.length ? (
-        <details>
-          <summary>{finished.length} finished</summary>
-          {finished.map((item, index) => (
-            <p key={`${item.name}-${index}`} className="text-xs text-muted-foreground">
-              {toolLine(item.name, item.args)}
-            </p>
-          ))}
-        </details>
-      ) : null}
+      {finished.map((item, index) => (
+        <p key={`done-${item.name}-${index}`} className="text-xs text-muted-foreground">
+          ✓ {toolLine(item.name, item.args)}
+          {item.note ? ` — ${item.note}` : null}
+        </p>
+      ))}
       {runningTools.map((item, index) => (
-        <p key={`${item.name}-${index}`} className="text-xs text-muted-foreground">
-          {toolLine(item.name, item.args)} <Elapsed since={item.started} />
+        <p key={`run-${item.name}-${index}`} className="text-xs font-medium text-foreground">
+          → {toolLine(item.name, item.args)} <Elapsed since={item.started} />
         </p>
       ))}
     </div>
@@ -473,7 +562,7 @@ function RunFollow({
   onActivity?: () => void
 }) {
   const queryClient = useQueryClient()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [answer, setAnswer] = useState("")
   const runId = message.runId ?? ""
   const run = useQuery({
@@ -492,17 +581,22 @@ function RunFollow({
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send the answer"),
   })
   const retry = useMutation({
-    mutationFn: () => postMessage(message.projectId, `${prior ?? ""}\n\nPrevious attempt failed: ${run.data?.terminalCause ?? "error"}: ${message.text}`),
+    mutationFn: () => {
+      const base = (prior ?? message.text).split("\n\nPrevious attempt failed:")[0]?.trim() ?? message.text
+      const note = (run.data?.terminalCause ?? "error").slice(0, 80)
+      return postMessage(message.projectId, `${base}\n\nPrevious attempt failed: ${note}`)
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(message.projectId) })
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not try again"),
   })
-  if (!run.data) return streaming ? <LiveText runId={runId} onActivity={onActivity} /> : null
+  const runModel = run.data?.model
+  if (!run.data) return streaming ? <LiveText runId={runId} model={runModel} onActivity={onActivity} /> : null
   if (streaming) {
     return (
       <div className="flex flex-col gap-2">
-        <LiveText runId={runId} onActivity={onActivity} />
+        <LiveText runId={runId} model={runModel} onActivity={onActivity} />
         {running.has(run.data.status) ? (
           <Button type="button" variant="outline" onClick={() => setExpanded((value) => !value)}>
             {expanded ? "Collapse" : "Working"}

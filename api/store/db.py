@@ -104,7 +104,8 @@ BUILTIN_TOOLS = [
         "files",
         "builtin",
         "write",
-        "Read, list, edit, append, or write files. Prefer edit for existing files; write only for new files.",
+        "Read, list, edit, append, or write files. Prefer edit for existing files; write only for new files. "
+        "Do not re-read the same path; after one read, write or edit source files under src/.",
         {
             "op": {"type": "string", "enum": ["read", "list", "write", "edit", "append"]},
             "path": {"type": "string"},
@@ -150,6 +151,8 @@ def seed() -> None:
     for item in BUILTIN_TOOLS:
         record = tool_record(item)
         put("tool", record["id"], record)
+    from gateway.openai_gateway import gemini_api_key
+
     put(
         "provider",
         "openai",
@@ -157,6 +160,17 @@ def seed() -> None:
             "id": "openai",
             "name": "OpenAI",
             "keyRef": "env:OPENAI_API_KEY" if os.environ.get("OPENAI_API_KEY") else None,
+            "connected": False,
+            "modelsCachedAt": None,
+        },
+    )
+    put(
+        "provider",
+        "gemini",
+        {
+            "id": "gemini",
+            "name": "Google Gemini",
+            "keyRef": "env:GEMINI_API_KEY" if gemini_api_key() else None,
             "connected": False,
             "modelsCachedAt": None,
         },
