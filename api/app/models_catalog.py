@@ -49,15 +49,26 @@ def seed_tags(name: str) -> dict:
     return {"tags": [], "note": "", "heuristic": False}
 
 
-def info(name: str) -> dict:
+def info(name: str, provider: str | None = None) -> dict:
+    from gateway.providers import registry
+
+    pid = provider or ("gemini" if name.lower().startswith("gemini") else "openai")
+    impl = registry.get(pid)
+    schema = impl.config_schema(name)
+    pricing = impl.pricing(name) or {}
+    price_in = pricing.get("priceInPerM")
+    price_out = pricing.get("priceOutPerM")
+    benchmarks = pricing.get("benchmarks") or []
+    if benchmarks and not all(entry.get("sourceUrl") for entry in benchmarks):
+        benchmarks = []
     return {
-        "provider": "openai",
+        "provider": pid,
         "name": name,
-        "contextWindow": 128000,
-        "priceInPerM": None,
-        "priceOutPerM": None,
+        "contextWindow": pricing.get("contextWindow") or 128000,
+        "priceInPerM": price_in if pricing.get("sourceUrl") else None,
+        "priceOutPerM": price_out if pricing.get("sourceUrl") else None,
         "speedTier": speed(name),
-        "fitLine": None,
-        "configSchema": config_schema(name),
-        "benchmarks": [],
+        "fitLine": pricing.get("fitLine"),
+        "configSchema": schema,
+        "benchmarks": benchmarks,
     }

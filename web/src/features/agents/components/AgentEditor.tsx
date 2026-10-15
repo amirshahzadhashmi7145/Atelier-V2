@@ -27,6 +27,7 @@ import {
   listEditorSkills,
   listEditorStacks,
   listEditorTools,
+  latestVersion,
   listVersions,
   runEvals,
   updateAgent,
@@ -142,15 +143,20 @@ export function AgentEditor({ id }: { id: string }) {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [previewBody, setPreviewBody] = useState<components["schemas"]["CompilePreviewRequest"] | null>(null)
   const [evalForm, setEvalForm] = useState({ name: "", task: "", criteria: "", passRule: "" })
+  const latest = versionsQuery.data ? latestVersion(versionsQuery.data) : undefined
   const loaded =
     agentQuery.data && versionsQuery.data
-      ? draftFrom(agentQuery.data, versionsQuery.data.at(-1)?.sections)
+      ? draftFrom(agentQuery.data, latest?.sections)
       : null
   const current = draft ?? loaded
 
   useEffect(() => {
     setSelectedAgentId(id)
   }, [id, setSelectedAgentId])
+
+  useEffect(() => {
+    setDraft(null)
+  }, [id])
 
   const previewKey = current
     ? JSON.stringify({
@@ -176,7 +182,6 @@ export function AgentEditor({ id }: { id: string }) {
     enabled: previewBody !== null,
   })
 
-  const latest = versionsQuery.data?.at(-1)
   const selectedModel = modelsQuery.data?.find((model) => model.name === current?.model.name)
   const schema = selectedModel ? asSchema(selectedModel.configSchema) : null
   const configError = schema && current ? validateConfig(schema, { ...defaultsFromSchema(schema), ...current.model.config }) : null
@@ -208,6 +213,7 @@ export function AgentEditor({ id }: { id: string }) {
       return createVersion(id, current.sections)
     },
     onSuccess: async (version) => {
+      setDraft(null)
       await queryClient.invalidateQueries({ queryKey: queryKeys.versions(id) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.agent(id) })
       toast.success(`Saved version ${version.version}`)

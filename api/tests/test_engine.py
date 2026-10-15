@@ -12,7 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["PROJECTS_DIR"] = "/tmp/agent-studio-projects"
 
 from app.main import app  # noqa: E402
-from gateway import openai_gateway  # noqa: E402
+from gateway import mock_turns, openai_gateway  # noqa: E402
 from runtime.route_task import route_task  # noqa: E402
 from runtime.sandbox import guard_path  # noqa: E402
 from runtime.tools import dispatch  # noqa: E402
@@ -20,6 +20,8 @@ from store import db  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 os.environ.pop("OPENAI_API_KEY", None)
+os.environ.pop("GEMINI_API_KEY", None)
+os.environ.pop("GOOGLE_API_KEY", None)
 
 
 @pytest.fixture(autouse=True)
@@ -28,10 +30,12 @@ def fresh(tmp_path):
     os.environ["PROJECTS_DIR"] = str(tmp_path / "projects")
     os.environ["GATEWAY_MOCK"] = "1"
     os.environ["FORCE_LOCAL"] = "1"
+    os.environ.pop("GEMINI_API_KEY", None)
+    os.environ.pop("GOOGLE_API_KEY", None)
     db.reset_engine()
     openai_gateway.SCRIPTS.clear()
     openai_gateway.PROMPTS.clear()
-    openai_gateway._defaults = 0
+    mock_turns._defaults = 0
     openai_gateway.begin()
     os.environ.pop("STREAM_PACE_MS", None)
     from store import live

@@ -718,7 +718,7 @@ export interface paths {
         get: operations["getProject"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["deleteProject"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1254,7 +1254,7 @@ export interface components {
             usd: number;
         };
         /** @enum {string} */
-        EventType: "RUN_STARTED" | "MODEL_CALLED" | "MODEL_DELTA" | "MODEL_OUTPUT" | "MODEL_RETRY" | "TOOL_CALLED" | "TOOL_RESULT" | "TOOL_REFUSED" | "SKILL_LOADED" | "CLIENT_TOOL_REQUESTED" | "CLARIFICATION_RAISED" | "STATE_CHANGED" | "RUN_COMPLETED" | "RUN_FAILED";
+        EventType: "RUN_STARTED" | "MODEL_CALLED" | "MODEL_STARTED" | "MODEL_DELTA" | "MODEL_OUTPUT" | "MODEL_RETRY" | "TOOL_CALLED" | "TOOL_RESULT" | "TOOL_REFUSED" | "SKILL_LOADED" | "CLIENT_TOOL_REQUESTED" | "CLARIFICATION_RAISED" | "STATE_CHANGED" | "RUN_COMPLETED" | "RUN_FAILED";
         Event: {
             id: string;
             runId: string;
@@ -2702,6 +2702,27 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Project"];
                 };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project removed from the studio (project folder on disk is kept) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["Error"];
         };

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app import bridge, models_catalog
+from gateway.openai_gateway import default_model_spec, gemini_api_key
 from store import db
 
 router = APIRouter()
@@ -70,7 +71,9 @@ def delete_agent(id: str):
 def list_versions(id: str):
     if db.get("agent", id) is None:
         return missing()
-    return [item for item in db.listing("version") if item["agentId"] == id]
+    rows = [item for item in db.listing("version") if item["agentId"] == id]
+    rows.sort(key=lambda item: item["version"])
+    return rows
 
 
 @router.post("/agents/{id}/versions", status_code=201)
@@ -319,18 +322,31 @@ def patch_stack(id: str, body: dict):
     return stack
 
 
+def _models_from_caches() -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for key in ("openai", "gemini", "ollama"):
+        cached = db.get("model-cache", key)
+        if cached and cached.get("ids"):
+            rows.extend((name, key) for name in cached["ids"])
+    return rows
+
+
 @router.get("/models")
 def list_models():
     saved = db.get("model-tags", "all") or {}
-    cached = db.get("model-cache", "openai")
-    ids = cached["ids"] if cached else []
+    rows = _models_from_caches()
+    if not rows:
+        cached = db.get("model-cache", "openai")
+        rows = [(name, "openai") for name in (cached["ids"] if cached else [])]
     agents = db.listing("agent")
     runs = db.listing("run")
     models = []
-    for name in ids:
-        if not models_catalog.is_chat(name):
+    seen: set[str] = set()
+    for name, cache_provider in rows:
+        if name in seen or not models_catalog.is_chat(name):
             continue
-        record = models_catalog.info(name)
+        seen.add(name)
+        record = models_catalog.info(name, cache_provider)
         record["ownStats"] = _stats(name, agents, runs)
         models.append(record)
     return models
@@ -368,12 +384,28 @@ def put_run_settings(body: dict):
     return current
 
 
+def _provider_row(provider_id: str, name: str, env_key: str) -> dict:
+    row = db.get("provider", provider_id) or {
+        "id": provider_id,
+        "name": name,
+        "connected": False,
+        "modelsCachedAt": None,
+    }
+    if env_key == "GEMINI_API_KEY":
+        has_key = bool(gemini_api_key()) or os.environ.get("GATEWAY_MOCK") == "1"
+    else:
+        has_key = bool(os.environ.get(env_key)) or os.environ.get("GATEWAY_MOCK") == "1"
+    row["keyRef"] = f"env:{env_key}" if has_key else None
+    db.put("provider", provider_id, row)
+    return row
+
+
 @router.get("/providers")
 def list_providers():
-    provider = db.get("provider", "openai")
-    provider["keyRef"] = "env:OPENAI_API_KEY" if os.environ.get("OPENAI_API_KEY") else None
-    db.put("provider", "openai", provider)
-    return [provider]
+    return [
+        _provider_row("openai", "OpenAI", "OPENAI_API_KEY"),
+        _provider_row("gemini", "Google Gemini", "GEMINI_API_KEY"),
+    ]
 
 
 @router.put("/providers/{id}")
@@ -392,11 +424,17 @@ def test_provider(id: str):
     provider = db.get("provider", id)
     if provider is None:
         return missing()
-    if os.environ.get("GATEWAY_MOCK") != "1" and not os.environ.get("OPENAI_API_KEY"):
-        return error(422, "key_missing", "Set OPENAI_API_KEY in api/.env")
-    bridge.list_model_ids()
+    if id == "gemini":
+        if os.environ.get("GATEWAY_MOCK") != "1" and not gemini_api_key():
+            return error(422, "key_missing", "Set GEMINI_API_KEY (or GOOGLE_API_KEY) in api/.env")
+    elif id == "openai":
+        if os.environ.get("GATEWAY_MOCK") != "1" and not os.environ.get("OPENAI_API_KEY") and not os.environ.get("OLLAMA_BASE_URL"):
+            return error(422, "key_missing", "Set OPENAI_API_KEY or OLLAMA_BASE_URL in api/.env")
+    bridge.list_model_ids(id if id in ("openai", "gemini", "ollama") else None)
     provider["connected"] = True
-    provider["keyRef"] = "env:OPENAI_API_KEY" if os.environ.get("OPENAI_API_KEY") or os.environ.get("GATEWAY_MOCK") == "1" else None
+    env_key = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}.get(id, "OPENAI_API_KEY")
+    has_key = gemini_api_key() if env_key == "GEMINI_API_KEY" else os.environ.get(env_key)
+    provider["keyRef"] = f"env:{env_key}" if has_key or os.environ.get("GATEWAY_MOCK") == "1" else None
     db.put("provider", id, provider)
     return provider
 
@@ -405,8 +443,11 @@ def test_provider(id: str):
 def refresh_provider(id: str):
     if db.get("provider", id) is None:
         return missing()
-    ids = [name for name in bridge.list_model_ids() if models_catalog.is_chat(name)]
-    db.put("model-cache", "openai", {"ids": ids})
+    cache_key = id if id in ("openai", "gemini", "ollama") else "openai"
+    if cache_key == "gemini" and os.environ.get("GATEWAY_MOCK") != "1" and not gemini_api_key():
+        return error(422, "key_missing", "Set GEMINI_API_KEY (or GOOGLE_API_KEY) in api/.env")
+    ids = [name for name in bridge.list_model_ids(cache_key) if models_catalog.is_chat(name)]
+    db.put("model-cache", cache_key, {"ids": ids})
     provider = db.get("provider", id)
     provider["connected"] = True
     provider["modelsCachedAt"] = db.now()
@@ -467,12 +508,20 @@ def list_runs(agentId: str | None = None, status: str | None = None, page: int =
     return {"items": rows[start : start + 20], "page": page, "total": len(rows)}
 
 
+def _latest_prompt_version_id(agent_id: str) -> str | None:
+    rows = [item for item in db.listing("version") if item["agentId"] == agent_id]
+    if not rows:
+        return None
+    rows.sort(key=lambda item: item["version"])
+    return rows[-1]["id"]
+
+
 @router.post("/runs", status_code=201)
 def create_run(body: dict):
     agent = db.get("agent", body.get("agentId", ""))
     if agent is None:
         return missing()
-    if not agent.get("activePromptVersionId") and not body.get("promptVersionId"):
+    if not (body.get("promptVersionId") or agent.get("activePromptVersionId") or _latest_prompt_version_id(agent["id"])):
         return error(422, "no_version", "No active prompt version")
     run = _new_run(agent, body)
     folder = db.projects_dir() / run["id"]
@@ -644,6 +693,34 @@ def get_project(id: str):
     return _project_view(project) if project else missing()
 
 
+@router.delete("/projects/{id}", status_code=204)
+def delete_project(id: str):
+    from runtime import project_runs
+
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    project_runs.stop_all(id)
+    bridge.stop_preview(id)
+    for kind in ("preview", "project-spend"):
+        db.delete(kind, id)
+    run_ids = [item["id"] for item in db.listing("run") if item.get("projectId") == id]
+    for run_id in run_ids:
+        for event in db.listing("event"):
+            if event.get("runId") == run_id:
+                db.delete("event", event["id"])
+        for kind in ("workspace", "run-track", "clarify", "answer", "diff"):
+            db.delete(kind, run_id)
+        db.delete("run", run_id)
+    for task in db.listing("task"):
+        if task.get("projectId") == id:
+            db.delete("task", task["id"])
+    for message in db.listing("message"):
+        if message.get("projectId") == id:
+            db.delete("message", message["id"])
+    db.delete("project", id)
+
+
 @router.get("/projects/{id}/messages")
 def list_messages(id: str):
     if db.get("project", id) is None:
@@ -683,6 +760,8 @@ def post_message(id: str, body: dict):
     bridge.route_task(project, task)
     agent = db.get("agent", task["assignedAgentId"]) or {}
     kind = bridge.classify(agent, body["text"], id) if agent else "task"
+    if kind in ("chat", "out") and labeling.looks_like_task(agent, body["text"], id):
+        kind = "task"
     task["label"] = kind
     db.put("task", task["id"], task)
     if kind == "chat":
@@ -807,7 +886,7 @@ def _agent(body: dict) -> dict:
         "name": body.get("name"),
         "roleKey": body.get("roleKey"),
         "description": body.get("description") or "",
-        "model": body.get("model") or {"provider": "openai", "name": "gpt-5", "config": {}},
+        "model": body.get("model") or default_model_spec(),
         "activePromptVersionId": None,
         "toolIds": body.get("toolIds") or [],
         "skillIds": skills,

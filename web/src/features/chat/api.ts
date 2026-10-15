@@ -33,6 +33,12 @@ export async function closeProject(id: string) {
   return unwrap(await api.POST("/projects/{id}/close", { params: { path: { id } } }))
 }
 
+export async function deleteProject(id: string) {
+  const result = await api.DELETE("/projects/{id}", { params: { path: { id } } })
+  if (result.response.status === 204) return
+  return unwrap(result)
+}
+
 export async function listChatAgents() {
   return unwrap(await api.GET("/agents"))
 }

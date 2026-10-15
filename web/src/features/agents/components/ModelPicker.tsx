@@ -8,6 +8,7 @@ import { tagsFor, type TagRecord } from "@/lib/models/tags"
 
 type Model = {
   name: string
+  provider?: string
   ownStats?: { roleKey: string; runs: number; passed: number }[]
 }
 
@@ -27,6 +28,13 @@ export function ModelPicker({
   const [query, setQuery] = useState("")
   const needle = query.trim().toLowerCase()
   const shown = models.filter((model) => !needle || model.name.toLowerCase().includes(needle) || model.name === value)
+  const groups = shown.reduce<Record<string, Model[]>>((acc, model) => {
+    const key = model.provider || "openai"
+    acc[key] = acc[key] ?? []
+    acc[key].push(model)
+    return acc
+  }, {})
+  const providerLabel: Record<string, string> = { openai: "OpenAI", gemini: "Google Gemini", ollama: "Ollama" }
   const selected = tagsFor(value, value ? tags[value] : undefined)
   const stat = models.find((model) => model.name === value)?.ownStats?.find((item) => item.roleKey === roleKey)
   const best = value && bestForRole(models.map((model) => ({ name: model.name, ownStats: model.ownStats ?? [] })), roleKey).includes(value)
@@ -41,14 +49,18 @@ export function ModelPicker({
         onChange={(event) => onChange(event.target.value)}
       >
         <option value="">Choose a model</option>
-        {shown.map((model) => {
-          const record = tagsFor(model.name, tags[model.name])
-          return (
-            <option key={model.name} value={model.name} title={record.note}>
-              {model.name}
-            </option>
-          )
-        })}
+        {Object.entries(groups).map(([provider, items]) => (
+          <optgroup key={provider} label={providerLabel[provider] ?? provider}>
+            {items.map((model) => {
+              const record = tagsFor(model.name, tags[model.name])
+              return (
+                <option key={model.name} value={model.name} title={record.note}>
+                  {model.name}
+                </option>
+              )
+            })}
+          </optgroup>
+        ))}
         {value && !shown.some((model) => model.name === value) ? <option value={value}>{value}</option> : null}
       </select>
       {value ? (

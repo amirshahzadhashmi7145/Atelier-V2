@@ -9,6 +9,7 @@ import type { RunEvent } from "@/lib/runs/events"
 const labels: Record<RunEvent["type"], string> = {
   RUN_STARTED: "Run started",
   MODEL_CALLED: "Model called",
+  MODEL_STARTED: "Model turn started",
   MODEL_DELTA: "Model delta",
   MODEL_OUTPUT: "Model output",
   MODEL_RETRY: "Model retry",

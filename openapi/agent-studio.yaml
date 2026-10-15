@@ -975,6 +975,14 @@ paths:
                 $ref: "#/components/schemas/Project"
         "404":
           $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteProject
+      tags: [projects]
+      responses:
+        "204":
+          description: Project removed from the studio (project folder on disk is kept)
+        "404":
+          $ref: "#/components/responses/Error"
   /projects/{id}/messages:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2212,6 +2220,7 @@ components:
       enum:
         - RUN_STARTED
         - MODEL_CALLED
+        - MODEL_STARTED
         - MODEL_DELTA
         - MODEL_OUTPUT
         - MODEL_RETRY

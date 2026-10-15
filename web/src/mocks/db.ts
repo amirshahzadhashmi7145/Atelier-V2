@@ -110,7 +110,10 @@ const emptyDb = (): Db => ({
   stacks: [],
   dataSources: [],
   models: [],
-  providers: [{ id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null }],
+  providers: [
+    { id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null },
+    { id: "gemini", name: "Google Gemini", keyRef: null, connected: false, modelsCachedAt: null },
+  ],
   runs: [],
   runSettings: {
     maxSpendPerRunUsd: 5,

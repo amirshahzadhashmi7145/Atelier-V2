@@ -8,7 +8,20 @@ from runtime import compile as compiler
 from store import db
 
 CONTROL_WORDS = ("stop", "wait", "cancel", "hold on")
-FOLLOW_UP = re.compile(r"^(complete it|run it|continue|finish|fix it|make it faster)\b", re.I)
+FOLLOW_UP = re.compile(
+    r"^(complete it|complete and run|run it|continue|finish|fix it|make it faster)\b",
+    re.I,
+)
+PREVIEW_QUESTION = re.compile(
+    r"\b(where.*(running|preview|url)|what url|preview url|which port|open the (app|preview))\b",
+    re.I,
+)
+STACK_QUESTION = re.compile(
+    r"\b(what|which|with what)\b.*\b(stacks?|frameworks?|tech)\b|"
+    r"\b(stacks?|frameworks?|tech)\b.*\b(work with|use|support|enabled|can you)\b|"
+    r"\bwhat (tech|stacks?)\b",
+    re.I,
+)
 RUN_CAPABILITIES = "In a run I can edit files, run build and tests, open a preview, and capture screenshots."
 
 
@@ -34,13 +47,20 @@ def prior_context(project_id: str) -> dict | None:
     failure = None
     if run and run.get("status") == "failed":
         failure = next((item["payload"].get("text") for item in reversed(db.events_for(run["id"])) if item["type"] == "RUN_FAILED"), None)
+    task_text = (last.get("text") or "").split("\n\nPrevious attempt failed:")[0].strip()
+    if len(task_text) > 400:
+        task_text = task_text[:400] + "…"
     return {
-        "taskText": last.get("text") or "",
+        "taskText": task_text,
         "summary": last.get("summary") or "",
         "diff": diff,
         "failure": failure,
         "priorRunId": run["id"] if run else None,
     }
+
+
+def looks_like_task(agent: dict, text: str, project_id: str | None = None) -> bool:
+    return _heuristic(agent, text, project_id) == "task"
 
 
 def label(agent: dict, text: str, project_id: str | None = None) -> str:
@@ -49,6 +69,8 @@ def label(agent: dict, text: str, project_id: str | None = None) -> str:
     if os.environ.get("GATEWAY_MOCK") == "1":
         return _heuristic(agent, text, project_id)
     scope = agent.get("scope") or {}
+    if os.environ.get("OLLAMA_BASE_URL") or not (scope.get("does") or scope.get("neverDoes")):
+        return _heuristic(agent, text, project_id)
     does = ", ".join(scope.get("does") or []) or "none"
     never = ", ".join(scope.get("neverDoes") or []) or "none"
     last = ""
@@ -56,26 +78,31 @@ def label(agent: dict, text: str, project_id: str | None = None) -> str:
         ctx = prior_context(project_id)
         if ctx:
             last = f"Last task: {ctx['taskText']}\nStatus summary: {ctx.get('summary') or 'none'}"
-    turn = openai_gateway.complete(
-        (agent.get("model") or {}).get("name") or "gpt-4o",
-        [
-            {
-                "role": "user",
-                "content": (
-                    "Label the message as exactly one word: chat, task, or out.\n"
-                    "chat = greeting, question about the agent, or small talk.\n"
-                    "task = work inside scope.does, including follow-ups like continue or fix it when a task exists.\n"
-                    "out = work inside scope.neverDoes. Enabled stacks do not widen scope.\n"
-                    f"Does: {does}\nNever does: {never}\n{last}\nMessage: {text}"
-                ),
-            }
-        ],
-        [],
-        {},
-    )
-    word = (turn.get("content") or "task").strip().lower().split()
-    found = word[0] if word else "task"
-    return found if found in ("chat", "task", "out") else "task"
+    try:
+        model = agent.get("model") or {}
+        turn = openai_gateway.complete(
+            model.get("name") or "gpt-4o",
+            [
+                {
+                    "role": "user",
+                    "content": (
+                        "Label the message as exactly one word: chat, task, or out.\n"
+                        "chat = greeting, question about the agent, or small talk.\n"
+                        "task = work inside scope.does, including follow-ups like continue or fix it when a task exists.\n"
+                        "out = work inside scope.neverDoes. Enabled stacks do not widen scope.\n"
+                        f"Does: {does}\nNever does: {never}\n{last}\nMessage: {text}"
+                    ),
+                }
+            ],
+            [],
+            {},
+            provider=model.get("provider"),
+        )
+        word = (turn.get("content") or "task").strip().lower().split()
+        found = word[0] if word else "task"
+        return found if found in ("chat", "task", "out") else "task"
+    except Exception:
+        return _heuristic(agent, text, project_id)
 
 
 def chat_system(agent: dict) -> str:
@@ -93,7 +120,23 @@ def chat_system(agent: dict) -> str:
     return f"{body}\n\n{RUN_CAPABILITIES}"
 
 
+def preview_location_reply(project_id: str) -> str:
+    preview = db.get("preview", project_id)
+    url = (preview or {}).get("url")
+    if url:
+        return (
+            f"The preview is running at {url}. "
+            "In chat, open the Preview panel (right side on a wide window, or the Preview button on smaller screens)."
+        )
+    return (
+        "No preview URL is saved for this project yet. "
+        "From the project folder run `npm run dev` — Vite usually serves at http://127.0.0.1:5173."
+    )
+
+
 def chat_reply(agent: dict, text: str, project_id: str | None = None) -> str:
+    if project_id and PREVIEW_QUESTION.search(text.strip()):
+        return preview_location_reply(project_id)
     system = chat_system(agent)
     history = []
     if project_id:
@@ -106,11 +149,13 @@ def chat_reply(agent: dict, text: str, project_id: str | None = None) -> str:
     if os.environ.get("GATEWAY_MOCK") == "1":
         return _mock_chat(system, text, project_id)
     try:
+        model = agent.get("model") or {}
         turn = openai_gateway.complete(
-            (agent.get("model") or {}).get("name") or "gpt-4o",
+            model.get("name") or "gpt-4o",
             [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
             [],
             {},
+            provider=model.get("provider"),
         )
         body = (turn.get("content") or "").strip()
         if not body:
@@ -126,11 +171,13 @@ def refusal(agent: dict, text: str = "") -> str:
         return _mock_refusal(agent)
     system = compiler.scope_block(agent.get("scope")) + "\nReply in one or two sentences. It is outside the role. Tell the user to add an agent for that role. Do not offer to do the work."
     try:
+        model = agent.get("model") or {}
         turn = openai_gateway.complete(
-            (agent.get("model") or {}).get("name") or "gpt-4o",
+            model.get("name") or "gpt-4o",
             [{"role": "system", "content": system}, {"role": "user", "content": text}],
             [],
             {},
+            provider=model.get("provider"),
         )
         body = (turn.get("content") or "").strip()
         if not body:
@@ -181,9 +228,13 @@ def _stack_names(system: str) -> list[str]:
 
 def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
     low = text.lower().strip()
+    if PREVIEW_QUESTION.search(low) or STACK_QUESTION.search(low):
+        return "chat"
     words = low.split()
     first = words[0] if words else ""
     if first in {"hello", "hi", "hey", "thanks"} or low in {"how are you", "good morning"}:
+        return "chat"
+    if low.startswith("can you explain") or low.startswith("what is ") or low.startswith("how does "):
         return "chat"
     if low.startswith("can you") or low.startswith("what tech") or low.startswith("what can you"):
         return "chat"
@@ -203,4 +254,6 @@ def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
         for hint in hints.get(item, ()):
             if hint in low:
                 return "out"
+    if re.search(r"\b(create|build|implement|add|make|develop|write|fix|multiplayer|single[\s-]?player)\b", low):
+        return "task"
     return "task"

@@ -37,8 +37,8 @@ def stop_preview(project_id: str) -> None:
     tools.stop_preview(project_id)
 
 
-def list_model_ids() -> list[str]:
-    return openai_gateway.list_model_ids()
+def list_model_ids(provider: str | None = None) -> list[str]:
+    return openai_gateway.list_model_ids(provider)
 
 
 def classify(agent: dict, text: str, project_id: str | None = None) -> str:
