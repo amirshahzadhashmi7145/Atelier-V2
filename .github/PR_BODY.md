@@ -1,3 +1,5 @@
+**Note:** `origin` was missing at push time and was re-added as `https://github.com/amirshahzadhashmi7145/Atelier-V2.git`.
+
 ## What
 
 A Team Lead agent that splits work, assigns it, and reviews every result before the user sees it as done. It writes no application code.
