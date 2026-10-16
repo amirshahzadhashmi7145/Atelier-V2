@@ -5,6 +5,8 @@
 - **route_task** assigns by `@mention`, then scope, then stack keywords, then a classifier; “both” splits into two child tasks **backend first**. Backend `complete` writes `api/CONTRACT.md` and the frontend run reads it.
 - Thread messages show **agent name and colour**. One active run per project is unchanged; child tasks queue.
 
+**Note:** `origin` was missing at push time and was re-added as `https://github.com/amirshahzadhashmi7145/Atelier-V2.git`.
+
 ## What is real vs not
 
 | Real now | Not yet |
