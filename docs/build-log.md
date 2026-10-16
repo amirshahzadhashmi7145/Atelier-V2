@@ -118,12 +118,12 @@ Failures / known gaps: restart the API (or use `--reload`) after gateway changes
 New dependencies: none
 Follow-ups: Anthropic/Ollama adapters, Backend Engineer
 
-## S12 feat/backend-engineer
+## S11 follow-up (studio Connect 4 leftovers)
 
-Session: S12 feat/backend-engineer
-Built: The library has a Backend Engineer and a Node Express+Prisma+SQLite stack. A project can have several members; overlapping zones are blocked (package.json and tsconfig stay shared read-only). route_task assigns by @mention, scope, keyword, or classifier, and splits UI+API work into two child tasks backend-first. The backend completion writes api/CONTRACT.md for the frontend run. Chat shows each agent's name and colour.
-Decisions: Mentions are the first @word only. Shared-file writes are refused while another member is working. Classifier "both" always queues backend then frontend.
-Failures / known gaps: Reviewer, PM, and QA are out of scope. The live todo-app run is behind RUN_REAL_LLM_TESTS=1 and was not executed in this session. MCP/API catalog tools still do not execute.
+Session: S11 feat/gemini-provider (preview-stop / lucide / no-progress)
+Built: "ok stop the preview server" (including the "preiew" typo) stops the preview and does not start a coding run. File reads and listings no longer count toward the 15-tool "no progress" loop. `lucide-react` is on the React and Next.js stack allow-lists, and package names match with fnmatch so `@tailwindcss/*` works.
+Decisions: Preview-stop is handled before classify/control so "stop the preview" is not treated as stop-all. `os.kill` on a missing or unprivileged pid is ignored so the preview record still clears.
+Failures / known gaps: `vite`/`next` as a shell daemon is still refused; use the preview tool. Anthropic/Ollama adapters and Backend Engineer remain out of scope.
 New dependencies: none
-Follow-ups for the next session: Team Lead / reviewer role; run the live todo-app test.
+Follow-ups: Anthropic/Ollama adapters, Backend Engineer
 

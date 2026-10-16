@@ -53,6 +53,10 @@ def is_control(text: str) -> bool:
     return labeling.is_control(text)
 
 
+def is_preview_stop(text: str) -> bool:
+    return labeling.is_preview_stop(text)
+
+
 def refusal(agent: dict, text: str = "") -> str:
     return labeling.refusal(agent, text)
 

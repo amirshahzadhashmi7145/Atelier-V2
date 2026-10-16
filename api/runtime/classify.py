@@ -16,6 +16,12 @@ PREVIEW_QUESTION = re.compile(
     r"\b(where.*(running|preview|url)|what url|preview url|which port|open the (app|preview))\b",
     re.I,
 )
+PREVIEW_WORD = r"pre(?:view|iew)"
+PREVIEW_STOP = re.compile(
+    rf"\b(stop|kill|close|end|shut\s*off|shut\s*down)\b.{{0,40}}\b{PREVIEW_WORD}\b|"
+    rf"\b{PREVIEW_WORD}\b.{{0,24}}\b(stop|off)\b",
+    re.I,
+)
 STACK_QUESTION = re.compile(
     r"\b(what|which|with what)\b.*\b(stacks?|frameworks?|tech)\b|"
     r"\b(stacks?|frameworks?|tech)\b.*\b(work with|use|support|enabled|can you)\b|"
@@ -27,7 +33,13 @@ RUN_CAPABILITIES = "In a run I can edit files, run build and tests, open a previ
 
 def is_control(text: str) -> bool:
     low = text.lower().strip()
+    if is_preview_stop(low):
+        return False
     return low in CONTROL_WORDS or any(low.startswith(word + " ") or low == word for word in CONTROL_WORDS)
+
+
+def is_preview_stop(text: str) -> bool:
+    return PREVIEW_STOP.search(text.strip()) is not None
 
 
 def prior_context(project_id: str) -> dict | None:
@@ -64,6 +76,8 @@ def looks_like_task(agent: dict, text: str, project_id: str | None = None) -> bo
 
 
 def label(agent: dict, text: str, project_id: str | None = None) -> str:
+    if is_preview_stop(text):
+        return "chat"
     if is_control(text):
         return "control"
     if os.environ.get("GATEWAY_MOCK") == "1":
@@ -228,7 +242,7 @@ def _stack_names(system: str) -> list[str]:
 
 def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
     low = text.lower().strip()
-    if PREVIEW_QUESTION.search(low) or STACK_QUESTION.search(low):
+    if is_preview_stop(low) or PREVIEW_QUESTION.search(low) or STACK_QUESTION.search(low):
         return "chat"
     words = low.split()
     first = words[0] if words else ""

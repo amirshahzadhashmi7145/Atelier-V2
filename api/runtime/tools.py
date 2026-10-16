@@ -485,8 +485,10 @@ def stop_preview(project_id: str) -> None:
     if not record:
         return
     try:
-        os_kill(record["pid"])
-    except ProcessLookupError:
+        pid = int(record.get("pid") or 0)
+        if pid > 1:
+            os_kill(pid)
+    except (ProcessLookupError, PermissionError, OSError):
         pass
     db.delete("preview", project_id)
     project = db.get("project", project_id)

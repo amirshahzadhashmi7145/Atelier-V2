@@ -276,7 +276,9 @@ def _note_tool(run_id: str, track: dict, call: dict, result: dict) -> None:
         return
     changed = result.get("changed")
     if name == "files":
-        op = str(args.get("op") or "")
+        op = str(args.get("op") or "read")
+        if op in ("read", "list"):
+            return
         if op in ("write", "edit", "append") and changed:
             track["staleTools"] = 0
             track["writesSinceBuild"] = int(track.get("writesSinceBuild") or 0) + 1

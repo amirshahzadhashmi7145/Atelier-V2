@@ -261,6 +261,7 @@
         "packageAllowList": [
           "react",
           "react-dom",
+          "lucide-react",
           "@types/react",
           "next",
           "tailwindcss",
@@ -318,6 +319,7 @@
         "packageAllowList": [
           "react",
           "react-dom",
+          "lucide-react",
           "@types/react",
           "next",
           "tailwindcss",

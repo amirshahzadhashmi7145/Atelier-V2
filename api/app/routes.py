@@ -765,6 +765,13 @@ def post_message(id: str, body: dict):
     if not body.get("text"):
         return error(422, "invalid", "text is required")
     message_id = db.nid("msg")
+    if bridge.is_preview_stop(body["text"]):
+        user = _chat(id, "user", body["text"], None, None, message_id, "chat")
+        had_preview = bool(db.get("preview", id))
+        bridge.stop_preview(id)
+        reply = "Preview stopped." if had_preview else "No preview is running."
+        _chat(id, "agent", reply, None, None)
+        return user
     if bridge.is_control(body["text"]):
         user = _chat(id, "user", body["text"], None, None, message_id)
         project_runs.stop_all(id)
