@@ -189,6 +189,74 @@ test("complete it after a failed run starts a task run", async ({ page, request 
   await expect(page.getByText("without starting a run")).toHaveCount(0)
 })
 
+test("a project can add a member, flags overlap in red, and colours agent replies", async ({ page, request }) => {
+  test.setTimeout(90_000)
+  const front = await activateAgent(request, "Frontend Engineer", ["files"])
+  expect(
+    (
+      await request.patch(`http://127.0.0.1:8000/agents/${front}`, {
+        data: {
+          zones: ["src/**", "package.json"],
+          scope: { does: ["user interfaces"], neverDoes: [], zones: ["src/**", "package.json"] },
+        },
+      })
+    ).ok(),
+  ).toBeTruthy()
+  const back = await request.post("http://127.0.0.1:8000/agents", {
+    data: {
+      name: "Backend Engineer",
+      roleKey: "backend-engineer",
+      description: "APIs",
+      model: { provider: "openai", name: "gpt-5", config: {} },
+      toolIds: ["files"],
+      zones: ["api/**", "package.json", "tsconfig*.json"],
+      scope: {
+        does: ["HTTP APIs", "auth backends"],
+        neverDoes: ["user interfaces", "styling"],
+        zones: ["api/**", "package.json", "tsconfig*.json"],
+      },
+    },
+  })
+  expect(back.ok()).toBeTruthy()
+  const backId = ((await back.json()) as { id: string }).id
+  const backVersion = await request.post(`http://127.0.0.1:8000/agents/${backId}/versions`, {
+    data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
+  })
+  const backSaved = (await backVersion.json()) as { version: number }
+  expect((await request.post(`http://127.0.0.1:8000/agents/${backId}/versions/${backSaved.version}/activate`)).ok()).toBeTruthy()
+  const clash = await request.post("http://127.0.0.1:8000/agents", {
+    data: {
+      name: "Clash Agent",
+      roleKey: "frontend",
+      description: "Clash",
+      model: { provider: "openai", name: "gpt-5", config: {} },
+      toolIds: ["files"],
+      zones: ["src/**"],
+      scope: { does: ["user interfaces"], neverDoes: [], zones: ["src/**"] },
+    },
+  })
+  expect(clash.ok()).toBeTruthy()
+  const clashId = ((await clash.json()) as { id: string }).id
+  const clashVersion = await request.post(`http://127.0.0.1:8000/agents/${clashId}/versions`, {
+    data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
+  })
+  const clashSaved = (await clashVersion.json()) as { version: number }
+  expect((await request.post(`http://127.0.0.1:8000/agents/${clashId}/versions/${clashSaved.version}/activate`)).ok()).toBeTruthy()
+  await openChat(page, "Team", "Frontend Engineer")
+  await page.getByLabel("Add agent to project").selectOption({ label: "Backend Engineer" })
+  await page.getByRole("button", { name: "Add agent to project" }).click()
+  await expect(page.getByText("Backend Engineer").nth(0)).toBeVisible()
+  await page.getByLabel("Add agent to project").selectOption({ label: "Clash Agent" })
+  await page.getByRole("button", { name: "Add agent to project" }).click()
+  await expect(page.locator("[data-zone-overlap]")).toBeVisible()
+  await page.getByLabel("Message").fill("@Backend hello")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.locator("[data-agent='Backend Engineer']")).toBeVisible()
+  await page.getByLabel("Message").fill("@Frontend hello")
+  await page.getByRole("button", { name: "Send" }).click()
+  await expect(page.locator("[data-agent='Frontend Engineer']")).toBeVisible()
+})
+
 test("the chat page is exactly the viewport", async ({ page, request }) => {
   await activateAgent(request, "Layout Agent", ["files"])
   await openChat(page, "Layout", "Layout Agent")

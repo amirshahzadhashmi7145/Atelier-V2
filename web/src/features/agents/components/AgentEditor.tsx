@@ -266,9 +266,20 @@ export function AgentEditor({ id }: { id: string }) {
   if (agentQuery.isPending || versionsQuery.isPending) {
     return <Skeleton className="h-40 w-full" />
   }
-  if (agentQuery.isError || !agentQuery.data || !current) {
-    const message = agentQuery.error instanceof Error ? agentQuery.error.message : "Agent not found"
-    return <ErrorState message={message} onRetry={() => void agentQuery.refetch()} />
+  if (agentQuery.isError || versionsQuery.isError || !agentQuery.data || !current) {
+    const message =
+      (agentQuery.error instanceof Error && agentQuery.error.message) ||
+      (versionsQuery.error instanceof Error && versionsQuery.error.message) ||
+      "Agent not found"
+    return (
+      <ErrorState
+        message={message}
+        onRetry={() => {
+          void agentQuery.refetch()
+          void versionsQuery.refetch()
+        }}
+      />
+    )
   }
 
   const agent = agentQuery.data

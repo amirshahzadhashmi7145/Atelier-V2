@@ -19,8 +19,11 @@ from store import db
 router = APIRouter()
 
 
-def error(status: int, code: str, message: str):
-    return JSONResponse({"code": code, "message": message}, status_code=status)
+def error(status: int, code: str, message: str, details: dict | None = None):
+    body = {"code": code, "message": message}
+    if details is not None:
+        body["details"] = details
+    return JSONResponse(body, status_code=status)
 
 
 def missing():
@@ -693,6 +696,28 @@ def get_project(id: str):
     return _project_view(project) if project else missing()
 
 
+@router.post("/projects/{id}/members")
+def add_project_member(id: str, body: dict):
+    from runtime import members as memberlib
+
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    agent = db.get("agent", body.get("agentId") or "")
+    if agent is None:
+        return error(422, "invalid", "agentId is required")
+    members = list(project.get("members") or [])
+    if agent["id"] in members:
+        return _project_view(project)
+    overlap = memberlib.member_overlap(project, agent)
+    if overlap:
+        return error(409, "overlap", "Overlapping zones cannot be saved: " + ", ".join(overlap), {"overlapZones": overlap})
+    members.append(agent["id"])
+    project["members"] = members
+    db.put("project", project["id"], project)
+    return _project_view(project)
+
+
 @router.delete("/projects/{id}", status_code=204)
 def delete_project(id: str):
     from runtime import project_runs
@@ -765,24 +790,59 @@ def post_message(id: str, body: dict):
         "screenshotRefs": [],
     }
     bridge.route_task(project, task)
+    work_text = task.get("text") or body["text"]
+    if task.get("children"):
+        settings = db.get("settings", "runs") or {}
+        cap = float(settings.get("maxSpendPerDayUsd") or 20)
+        if project_runs.spend_today(id) >= cap:
+            return error(429, "budget", "The daily spend cap for this project was reached.")
+        task["label"] = "task"
+        db.put("task", task["id"], task)
+        user = _chat(id, "user", body["text"], task["id"], None, message_id, "task")
+        first_run = None
+        for child in task["children"]:
+            child_task = {
+                "id": db.nid("task"),
+                "projectId": id,
+                "parentTaskId": task["id"],
+                "text": child["text"],
+                "assignedAgentId": child["assignedAgentId"],
+                "routedBy": "rule",
+                "status": "queued",
+                "summary": None,
+                "diffRef": None,
+                "screenshotRefs": [],
+                "label": "task",
+            }
+            db.put("task", child_task["id"], child_task)
+            child_agent = db.get("agent", child["assignedAgentId"]) or {}
+            _chat(id, "agent", f"{child_agent.get('name') or 'Agent'} will handle this part.", child_task["id"], None, None, "task", child_agent)
+            run_message = _start_project_run(project, child_agent, child_task, child["text"], None, labeling.prior_context(id))
+            if first_run is None:
+                first_run = run_message
+        if first_run:
+            user["runId"] = first_run.get("runId")
+            user["statusNote"] = "Backend first, then Frontend"
+            db.put("message", user["id"], user)
+        return user
     agent = db.get("agent", task["assignedAgentId"]) or {}
-    kind = bridge.classify(agent, body["text"], id) if agent else "task"
-    if kind in ("chat", "out") and labeling.looks_like_task(agent, body["text"], id):
+    kind = bridge.classify(agent, work_text, id) if agent else "task"
+    if kind in ("chat", "out") and labeling.looks_like_task(agent, work_text, id):
         kind = "task"
     task["label"] = kind
     db.put("task", task["id"], task)
     if kind == "chat":
         user = _chat(id, "user", body["text"], task["id"], None, message_id, "chat")
-        reply = bridge.chat_reply(agent, body["text"], id)
-        _chat(id, "agent", reply, task["id"], None)
+        reply = bridge.chat_reply(agent, work_text, id)
+        _chat(id, "agent", reply, task["id"], None, None, None, agent)
         task["status"] = "completed"
         task["summary"] = reply
         db.put("task", task["id"], task)
         return user
     if kind == "out":
         user = _chat(id, "user", body["text"], task["id"], None, message_id, "out")
-        reply = bridge.refusal(agent, body["text"])
-        _chat(id, "agent", reply, task["id"], None)
+        reply = bridge.refusal(agent, work_text)
+        _chat(id, "agent", reply, task["id"], None, None, None, agent)
         task["status"] = "completed"
         task["summary"] = reply
         db.put("task", task["id"], task)
@@ -791,10 +851,10 @@ def post_message(id: str, body: dict):
     cap = float(settings.get("maxSpendPerDayUsd") or 20)
     if project_runs.spend_today(id) >= cap:
         return error(429, "budget", "The daily spend cap for this project was reached.")
-    return _start_project_run(project, agent, task, body["text"], message_id, labeling.prior_context(id))
+    return _start_project_run(project, agent, task, work_text, message_id, labeling.prior_context(id))
 
 
-def _start_project_run(project: dict, agent: dict, task: dict, text: str, message_id: str, prior: dict | None):
+def _start_project_run(project: dict, agent: dict, task: dict, text: str, message_id: str | None, prior: dict | None):
     from runtime import project_runs
 
     run = _new_run(agent, {"task": text, "workspace": _workspace(project), "criteria": []})
@@ -806,27 +866,29 @@ def _start_project_run(project: dict, agent: dict, task: dict, text: str, messag
     queued = project_runs.working(project["id"]) is not None
     run["status"] = "queued" if queued else "running"
     db.put("run", run["id"], run)
-    message = {
-        "id": message_id,
-        "projectId": project["id"],
-        "role": "user",
-        "text": text,
-        "taskId": task["id"],
-        "runId": run["id"],
-        "label": "task",
-        "createdAt": db.now(),
-    }
-    if queued:
-        message["queueStatus"] = "waiting"
-        message["statusNote"] = "queued, will start after the current task"
-    db.put("message", message["id"], message)
+    message = None
+    if message_id:
+        message = {
+            "id": message_id,
+            "projectId": project["id"],
+            "role": "user",
+            "text": text,
+            "taskId": task["id"],
+            "runId": run["id"],
+            "label": "task",
+            "createdAt": db.now(),
+        }
+        if queued:
+            message["queueStatus"] = "waiting"
+            message["statusNote"] = "queued, will start after the current task"
+        db.put("message", message["id"], message)
     task["status"] = "queued" if queued else "running"
     db.put("task", task["id"], task)
     if not queued:
         from app.worker import start_run
 
         start_run(run["id"])
-    return message
+    return message or {"runId": run["id"], "taskId": task["id"]}
 
 
 @router.post("/projects/{id}/close")
@@ -843,7 +905,9 @@ def _frame(event: dict) -> str:
     return f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
 
 
-def _chat(project_id: str, role: str, text: str, task_id: str | None, run_id: str | None, message_id: str | None = None, label: str | None = None) -> dict:
+def _chat(project_id: str, role: str, text: str, task_id: str | None, run_id: str | None, message_id: str | None = None, label: str | None = None, agent: dict | None = None) -> dict:
+    from runtime import members as memberlib
+
     message = {
         "id": message_id or db.nid("msg"),
         "projectId": project_id,
@@ -857,6 +921,8 @@ def _chat(project_id: str, role: str, text: str, task_id: str | None, run_id: st
         message["taskId"] = task_id
     if run_id:
         message["runId"] = run_id
+    if agent and role == "agent":
+        message.update(memberlib.stamp(agent))
     db.put("message", message["id"], message)
     return message
 
@@ -1066,6 +1132,9 @@ def _project_view(project: dict) -> dict:
         project["previewUrl"] = preview["url"]
     active = project_runs.working(project["id"])
     project["activeRunId"] = active["id"] if active else None
+    from runtime import members as memberlib
+
+    project["memberDetails"] = memberlib.member_details(project)
     return project
 
 

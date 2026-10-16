@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
+  addProjectMember,
   answerChat,
   closeProject,
   createProject,
@@ -19,6 +20,7 @@ import {
   postMessage,
   stopChatRun,
   type ChatMessage,
+  type Project,
 } from "@/features/chat/api"
 import { apiBaseUrl } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
@@ -139,6 +141,7 @@ export function ChatScreen({
             </div>
           </div>
           {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
+          {projectId ? <MemberPanel projectId={projectId} project={project.data} /> : null}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
@@ -166,7 +169,9 @@ export function ChatScreen({
                 return (
                   <article key={message.id} className="flex flex-col gap-2 rounded border p-3">
                     <p className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                      {message.role}
+                      <span style={message.agentColor ? { color: message.agentColor } : undefined} data-agent={message.agentName}>
+                        {message.agentName ?? message.role}
+                      </span>
                       {message.label ? (
                         <span data-label={message.label} className="rounded-full border px-2 py-0.5 normal-case">
                           {message.label === "out" ? "out of scope" : message.label === "task" ? "in scope" : "chat"}
@@ -211,6 +216,89 @@ export function ChatScreen({
         <h2 className="mb-2 text-sm font-medium">Preview</h2>
         <PreviewPane url={project.data?.previewUrl} />
       </aside>
+    </div>
+  )
+}
+
+function MemberPanel({ projectId, project }: { projectId: string; project: Project }) {
+  const queryClient = useQueryClient()
+  const agents = useQuery({ queryKey: queryKeys.agents, queryFn: listChatAgents })
+  const [agentId, setAgentId] = useState("")
+  const [overlap, setOverlap] = useState("")
+  const memberIds = new Set(project.members ?? [])
+  const candidates = (agents.data ?? []).filter((agent) => !memberIds.has(agent.id))
+  const add = useMutation({
+    mutationFn: () => addProjectMember(projectId, agentId),
+    onSuccess: async () => {
+      setAgentId("")
+      setOverlap("")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "Could not add agent"
+      toast.error(message)
+      setOverlap(message)
+    },
+  })
+  return (
+    <div className="rounded border p-2 text-sm">
+      <p className="mb-1 font-medium">Project members</p>
+      <ul className="flex flex-col gap-2">
+        {(project.memberDetails ?? []).map((member) => (
+          <li key={member.agentId}>
+            <p style={{ color: member.color }} className="font-medium">
+              {member.name}
+            </p>
+            <p className="text-xs text-muted-foreground">{member.lastTask ? `Last: ${member.lastTask}` : "No tasks yet"}</p>
+            <ul className="mt-1 flex flex-wrap gap-1">
+              {member.zones.map((zone) => {
+                const clash = (member.overlapZones ?? []).some((item) => item.includes(zone))
+                return (
+                  <li
+                    key={zone}
+                    data-zone-overlap={clash || undefined}
+                    className={clash ? "rounded bg-red-100 px-1 text-xs text-red-700" : "rounded bg-muted px-1 text-xs"}
+                  >
+                    {zone}
+                  </li>
+                )
+              })}
+            </ul>
+          </li>
+        ))}
+      </ul>
+      {overlap ? (
+        <p className="mt-2 text-xs text-red-700" data-zone-overlap="true">
+          {overlap}
+        </p>
+      ) : null}
+      <form
+        className="mt-2 flex gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (agentId) add.mutate()
+        }}
+      >
+        <label className="sr-only" htmlFor="add-member">
+          Add agent to project
+        </label>
+        <select
+          id="add-member"
+          className="flex-1 rounded border px-2 py-1"
+          value={agentId}
+          onChange={(event) => setAgentId(event.target.value)}
+        >
+          <option value="">Choose agent</option>
+          {candidates.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.name}
+            </option>
+          ))}
+        </select>
+        <Button type="submit" variant="outline" disabled={!agentId || add.isPending}>
+          Add agent to project
+        </Button>
+      </form>
     </div>
   )
 }

@@ -99,6 +99,10 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
     write_ops = {"write", "edit", "append"}
     if op in write_ops and zones and not _in_zones(path, zones):
         return {"refused": True, "reason": f"path outside your zones: {path}"}
+    from runtime import members as memberlib
+
+    if op in write_ops and memberlib.is_shared_path(path) and memberlib.other_member_busy(run):
+        return {"refused": True, "reason": f"writes to {path} wait until the other project member is idle"}
     try:
         target = sandbox.guard_path(folder, path)
     except PermissionError:

@@ -9,7 +9,8 @@ from pathlib import Path
 from gateway import openai_gateway
 from gateway.tool_pairing import ToolPairingError
 from runtime import messages as msglib
-from runtime.scaffold import write_vite_react_ts
+from runtime import contract_file, members as memberlib
+from runtime.scaffold import write_express_prisma, write_vite_react_ts
 from runtime.tool_results import format_tool_result
 from runtime import compile as compile_prompt
 from runtime import sandbox, tools
@@ -324,6 +325,9 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
         diff = prior.get("diff") or {}
         for item in (diff.get("files") or [])[:12]:
             system += f"Changed {item.get('path')}: { (item.get('after') or '')[:200]}\n"
+    contract = contract_file.read_contract(folder)
+    if contract and "backend" not in (agent.get("roleKey") or "").lower():
+        system += "\n\n# API contract\n" + contract
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
     tags = (agent.get("capabilities") or {}).get("tags") or []
     if task and "supervisor" in tags:
@@ -417,7 +421,13 @@ def _complete(run: dict, summary: dict) -> None:
         "criteria": summary.get("criteria") or [],
         "assumptions": [*(summary.get("assumptions") or []), *((db.get("clarify", run["id"]) or {}).get("assumptions") or [])],
         "followUps": summary.get("followUps") or [],
+        "endpoints": summary.get("endpoints") or [],
     }
+    agent = db.get("agent", run.get("agentId")) or {}
+    if "backend" in (agent.get("roleKey") or "").lower() and folder is not None:
+        written = contract_file.write_contract(folder, summary)
+        if written and "api/CONTRACT.md" not in summary["filesChanged"]:
+            summary["filesChanged"] = [*summary["filesChanged"], "api/CONTRACT.md"]
     project = db.get("project", run.get("projectId")) if run.get("projectId") else None
     git = _publish(project, run) if project else {}
     if run.get("projectId") and run.get("folder"):
@@ -533,6 +543,8 @@ def _prepare_scaffold(run: dict, agent: dict) -> str | None:
             # ponytail: template ids such as vite-react-ts are not shell commands; write a starter instead of an interactive CLI
             if command == "vite-react-ts":
                 write_vite_react_ts(folder)
+            elif command == "express-prisma":
+                write_express_prisma(folder)
             else:
                 _write_starter(folder)
         return f"The scaffold already exists ({command}). Do not run a create command."
@@ -609,10 +621,19 @@ def _say(run: dict, text: str) -> None:
     if not run.get("projectId") or not text:
         return
     message_id = db.nid("msg")
+    agent = db.get("agent", run.get("agentId")) or {}
     db.put(
         "message",
         message_id,
-        {"id": message_id, "projectId": run["projectId"], "role": "agent", "text": text, "runId": run["id"], "createdAt": db.now()},
+        {
+            "id": message_id,
+            "projectId": run["projectId"],
+            "role": "agent",
+            "text": text,
+            "runId": run["id"],
+            "createdAt": db.now(),
+            **memberlib.stamp(agent),
+        },
     )
 
 

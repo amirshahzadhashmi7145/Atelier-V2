@@ -36,7 +36,8 @@ function skillFromDir(id) {
   }
 }
 
-const role = readYaml(join(root, "roles/frontend-engineer.yaml"))
+const roleFiles = readdirSync(join(root, "roles")).filter((name) => name.endsWith(".yaml"))
+const roles = roleFiles.map((file) => readYaml(join(root, "roles", file)))
 const stackFiles = readdirSync(join(root, "stacks")).filter((name) => name.endsWith(".yaml"))
 const dataSources = []
 const stacks = stackFiles.map((file) => {
@@ -59,22 +60,20 @@ const skillIds = readdirSync(join(root, "skills")).filter((name) =>
 
 const seed = {
   library: {
-    agents: [
-      {
-        id: role.id,
-        name: role.name,
-        roleKey: role.roleKey,
-        description: role.description,
-        model: role.model,
-        toolIds: role.toolIds,
-        skillIds: role.skillIds,
-        stackIds: role.stackIds,
-        zones: role.zones,
-        scope: role.scope,
-        sections: role.sections,
-        evals: role.evals ?? [],
-      },
-    ],
+    agents: roles.map((role) => ({
+      id: role.id,
+      name: role.name,
+      roleKey: role.roleKey,
+      description: role.description,
+      model: role.model,
+      toolIds: role.toolIds,
+      skillIds: role.skillIds,
+      stackIds: role.stackIds,
+      zones: role.zones,
+      scope: role.scope,
+      sections: role.sections,
+      evals: role.evals ?? [],
+    })),
     skills: skillIds.map(skillFromDir),
     stacks,
     dataSources,
