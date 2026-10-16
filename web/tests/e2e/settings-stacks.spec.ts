@@ -24,6 +24,8 @@ test("run settings, model tags, and stacks", async ({ page }) => {
   test.setTimeout(90_000)
   await mockModelRoute(page)
   await page.goto("/settings/runs")
+  await expect(page.getByLabel("Approve plans before running")).toBeChecked()
+  await expect(page.getByLabel("Max spend per review")).toHaveValue("1")
   await expect(page.getByLabel("Max spend per run")).toHaveValue("5")
   await expect(page.getByLabel("Max iterations")).toBeHidden()
   await page.getByText("Advanced", { exact: true }).click()

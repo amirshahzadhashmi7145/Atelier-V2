@@ -122,6 +122,8 @@ const emptyDb = (): Db => ({
     maxMinutes: 45,
     loopDetection: true,
     recordModelRequests: false,
+    approvePlansBeforeRunning: true,
+    maxSpendPerReviewUsd: 1,
   },
   events: [],
   diffs: {},

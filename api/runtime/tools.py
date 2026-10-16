@@ -53,8 +53,17 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
         blocked = _blocked_command(agent, arguments.get("command", ""))
         if blocked:
             return {"refused": True, "reason": blocked}
-        return _shell(folder, arguments.get("command", ""), should_stop)
+        from runtime import lead as leadlib
+
+        command = arguments.get("command", "")
+        if (run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)) and not _build_or_test_command(command):
+            return {"refused": True, "reason": "the Team Lead may only run build and test commands"}
+        return _shell(folder, command, should_stop)
     if name == "package_install":
+        from runtime import lead as leadlib
+
+        if run.get("kind") in ("lead", "review") or leadlib.is_lead(agent):
+            return {"refused": True, "reason": "the Team Lead cannot install packages"}
         return _install(run, folder, arguments.get("name", ""), should_stop)
     if name == "build_test":
         return _build(run, folder, should_stop)
@@ -67,6 +76,10 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
     if name == "load_skill":
         return _skill(run, folder, arguments.get("name", ""))
     if name == "complete":
+        from runtime import lead as leadlib
+
+        if run.get("kind") in ("lead", "review") or leadlib.is_lead(agent):
+            return {"done": True, "summary": arguments.get("summary") or {}}
         track = db.get("run-track", run["id"]) or {}
         folder = Path(run["folder"]) if run.get("folder") else None
         has_pkg = folder is not None and (folder / "package.json").exists()
@@ -97,6 +110,11 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
     path = arguments.get("path") or ""
     op = arguments.get("op") or "read"
     write_ops = {"write", "edit", "append"}
+    from runtime import lead as leadlib
+
+    agent = db.get("agent", run.get("agentId") or "") or {}
+    if op in write_ops and (run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)):
+        return {"refused": True, "reason": "the Team Lead cannot write files"}
     if op in write_ops and zones and not _in_zones(path, zones):
         return {"refused": True, "reason": f"path outside your zones: {path}"}
     from runtime import members as memberlib
@@ -231,6 +249,12 @@ def _blocked_command(agent: dict, command: str) -> str | None:
 def _asks_to_change_scope(text: str) -> bool:
     low = text.lower()
     return ("enable" in low and "stack" in low) or "change scope" in low or "change your scope" in low or "change my scope" in low
+
+
+def _build_or_test_command(command: str) -> bool:
+    low = (command or "").lower()
+    tokens = ("npm run build", "npm run test", "npm test", "pnpm test", "pnpm run build", "pnpm run test", "npx vitest", "node --test", "pytest")
+    return any(token in low for token in tokens) and not _long_running(low)
 
 
 def _long_running(command: str) -> bool:
@@ -439,6 +463,9 @@ def _create_task(run: dict, arguments: dict) -> dict:
     project = db.get("project", run.get("projectId"))
     if project is None:
         return {"refused": True, "reason": "no project"}
+    criteria = arguments.get("acceptanceCriteria") or arguments.get("criteria") or []
+    if isinstance(criteria, str):
+        criteria = [line.strip() for line in criteria.split("\n") if line.strip()]
     task = {
         "id": db.nid("task"),
         "projectId": project["id"],
@@ -446,33 +473,31 @@ def _create_task(run: dict, arguments: dict) -> dict:
         "text": arguments.get("text") or "",
         "assignedAgentId": arguments.get("assignToAgentId") or "",
         "routedBy": "agent",
-        "status": "queued",
+        "status": "planned",
         "summary": None,
         "diffRef": None,
         "screenshotRefs": [],
+        "label": "task",
+        "order": int(arguments.get("order") or 0),
+        "acceptanceCriteria": list(criteria),
+        "createdAt": db.now(),
     }
     if not task["assignedAgentId"]:
         route_task.route_task(project, task)
         task["routedBy"] = "agent"
     db.put("task", task["id"], task)
+    track = db.get("run-track", run["id"]) or {}
+    created = list(track.get("createdTaskIds") or [])
+    created.append(task["id"])
+    track["createdTaskIds"] = created
+    db.put("run-track", run["id"], track)
     return {"output": task["id"], "taskId": task["id"]}
 
 
 def _review(run: dict, arguments: dict) -> dict:
-    task = db.get("task", arguments.get("taskId") or "")
-    if task is None:
-        return {"refused": True, "reason": "unknown task"}
-    text = f"{arguments.get('verdict')}: {arguments.get('notes') or ''}".strip()
-    message = {
-        "id": db.nid("msg"),
-        "projectId": task["projectId"],
-        "role": "agent",
-        "text": text,
-        "taskId": task["id"],
-        "createdAt": db.now(),
-    }
-    db.put("message", message["id"], message)
-    return {"output": text}
+    from runtime import lead as leadlib
+
+    return leadlib.apply_review(run, arguments.get("verdict") or "", arguments.get("notes") or "")
 
 
 def call_hash(name: str, arguments: dict) -> str:

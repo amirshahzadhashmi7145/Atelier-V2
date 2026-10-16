@@ -742,6 +742,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/plans/{planId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["approveProjectPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/plans/{planId}/edit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["editProjectPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/messages": {
         parameters: {
             query?: never;
@@ -1169,6 +1207,10 @@ export interface components {
             maxIterations: number;
             maxMinutes: number;
             loopDetection: boolean;
+            /** @default true */
+            approvePlansBeforeRunning: boolean;
+            /** @default 1 */
+            maxSpendPerReviewUsd: number;
             /**
              * @description When true, write redacted model request/response JSON under api/debug/runs/{runId}/.
              * @default false
@@ -1341,6 +1383,26 @@ export interface components {
             overlapZones?: string[];
             lastTask?: string | null;
         };
+        PlanItem: {
+            taskId: string;
+            assignedAgentId: string;
+            agentName?: string;
+            text: string;
+            acceptanceCriteria?: string[];
+            order?: number;
+        };
+        Plan: {
+            id: string;
+            projectId: string;
+            parentTaskId: string;
+            leadRunId?: string;
+            /** @enum {string} */
+            status: "pending" | "approved";
+            items: components["schemas"]["PlanItem"][];
+        };
+        PlanWrite: {
+            items?: components["schemas"]["PlanItem"][];
+        };
         ProjectMemberCreate: {
             agentId: string;
         };
@@ -1402,7 +1464,11 @@ export interface components {
             taskId?: string;
             runId?: string;
             /** @enum {string} */
-            label?: "chat" | "task" | "out";
+            label?: "chat" | "task" | "out" | "plan" | "review";
+            /** @enum {string} */
+            verdict?: "approve" | "changes_requested";
+            planId?: string;
+            planItems?: components["schemas"]["PlanItem"][];
             /** @enum {string} */
             queueStatus?: "waiting";
             statusNote?: string;
@@ -2794,6 +2860,62 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    approveProjectPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlanWrite"];
+            };
+        };
+        responses: {
+            /** @description Plan approved and the first child run may start */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    editProjectPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                planId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanWrite"];
+            };
+        };
+        responses: {
+            /** @description Plan items updated, still waiting for approve */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     listProjectMessages: {

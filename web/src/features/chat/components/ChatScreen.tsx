@@ -8,7 +8,9 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   addProjectMember,
+  approveProjectPlan,
   answerChat,
+  editProjectPlan,
   closeProject,
   createProject,
   deleteProject,
@@ -174,11 +176,25 @@ export function ChatScreen({
                       </span>
                       {message.label ? (
                         <span data-label={message.label} className="rounded-full border px-2 py-0.5 normal-case">
-                          {message.label === "out" ? "out of scope" : message.label === "task" ? "in scope" : "chat"}
+                          {message.label === "out"
+                            ? "out of scope"
+                            : message.label === "task"
+                              ? "in scope"
+                              : message.label === "plan"
+                                ? "plan"
+                                : message.label === "review"
+                                  ? "review"
+                                  : "chat"}
                         </span>
                       ) : null}
                     </p>
                     <p className="whitespace-pre-wrap text-sm">{message.text}</p>
+                    {message.verdict ? (
+                      <p className="text-xs font-medium" data-verdict={message.verdict}>
+                        {message.verdict === "approve" ? "Approved" : "Changes requested"}
+                      </p>
+                    ) : null}
+                    {message.planId && message.planItems ? <PlanCard projectId={projectId ?? ""} message={message} /> : null}
                     {message.statusNote ? <p className="text-xs text-muted-foreground">{message.statusNote}</p> : null}
                     {message.runId ? (
                       <RunFollow
@@ -216,6 +232,53 @@ export function ChatScreen({
         <h2 className="mb-2 text-sm font-medium">Preview</h2>
         <PreviewPane url={project.data?.previewUrl} />
       </aside>
+    </div>
+  )
+}
+
+function PlanCard({ projectId, message }: { projectId: string; message: ChatMessage }) {
+  const queryClient = useQueryClient()
+  const [items, setItems] = useState(() => (message.planItems ?? []).map((item) => ({ ...item })))
+  const approve = useMutation({
+    mutationFn: () => approveProjectPlan(projectId, message.planId ?? "", items),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not approve the plan"),
+  })
+  const edit = useMutation({
+    mutationFn: () => editProjectPlan(projectId, message.planId ?? "", items),
+    onSuccess: async () => {
+      toast.success("Plan updated")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not edit the plan"),
+  })
+  return (
+    <div className="flex flex-col gap-2 rounded border p-2" data-plan={message.planId}>
+      {items.map((item, index) => (
+        <label key={item.taskId} className="flex flex-col gap-1 text-sm">
+          {`${index + 1}. ${item.agentName || "Agent"}`}
+          <textarea
+            className="min-h-16 rounded border px-2 py-1 text-sm"
+            value={item.text}
+            onChange={(event) => {
+              const next = items.slice()
+              next[index] = { ...item, text: event.target.value }
+              setItems(next)
+            }}
+          />
+        </label>
+      ))}
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" disabled={edit.isPending} onClick={() => edit.mutate()}>
+          {edit.isPending ? "Saving…" : "Edit"}
+        </Button>
+        <Button type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
+          {approve.isPending ? "Starting…" : "Approve"}
+        </Button>
+      </div>
     </div>
   )
 }

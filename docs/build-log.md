@@ -127,3 +127,12 @@ Failures / known gaps: `vite`/`next` as a shell daemon is still refused; use the
 New dependencies: none
 Follow-ups: Anthropic/Ollama adapters, Backend Engineer
 
+## S13 feat/team-lead-reviewer
+
+Session: S13 feat/team-lead-reviewer
+Built: A Team Lead library role splits work, assigns child tasks, and reviews every result before the user sees it as done. It writes no application code. When a project has a lead, user messages go to that agent first; child tasks appear as an editable numbered plan (approve-before-run is on by default); each completed child starts a fresh review run; the parent finishes only after every child is approved, then the lead posts the wrap-up and refreshes the preview.
+Decisions: `create_task` only records planned children; runs start after plan approve. Review `changes_requested` creates a new task for the same author at most twice, then the user decides. Review spend is a separate cap (default $1) and is reported, not retried. Lead/review runs cannot write files or run non-build/test shell.
+Failures / known gaps: PM and QA as separate roles, and routing by learned stats, are out of scope. Isolated library "Run evals" for the lead still need a project with members. The live three-agent todo app is behind `RUN_REAL_LLM_TESTS=1`. `test_tic_tac_toe_ui_reaches_a_built_app_with_screenshots` failed on PNG dimensions (pre-existing flake). Playwright chromium was missing in this environment; a second `next dev` is locked by the studio already on :3000. Settings > Runs toggle was verified in the browser.
+New dependencies: none
+Follow-ups: PM role; run the live todo-app test with Team Lead + Backend + Frontend; Playwright browsers in CI.
+

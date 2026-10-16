@@ -21,6 +21,8 @@ export function RunsForm() {
   const [loop, setLoop] = useState<boolean | null>(null)
   const [recordRequests, setRecordRequests] = useState<boolean | null>(null)
   const [daily, setDaily] = useState<string | null>(null)
+  const [reviewSpend, setReviewSpend] = useState<string | null>(null)
+  const [approvePlans, setApprovePlans] = useState<boolean | null>(null)
   const save = useMutation({
     mutationFn: saveRunSettings,
     onSuccess: async () => {
@@ -41,6 +43,8 @@ export function RunsForm() {
           const loopDetection = loop ?? current.loopDetection
           const recordModelRequests = recordRequests ?? current.recordModelRequests ?? false
           const maxSpendPerDayUsd = Number(daily ?? current.maxSpendPerDayUsd ?? 20)
+          const maxSpendPerReviewUsd = Number(reviewSpend ?? current.maxSpendPerReviewUsd ?? 1)
+          const approvePlansBeforeRunning = approvePlans ?? current.approvePlansBeforeRunning ?? true
           return (
             <Card>
               <CardHeader>
@@ -57,6 +61,26 @@ export function RunsForm() {
                     step="0.01"
                     value={daily ?? String(current.maxSpendPerDayUsd ?? 20)}
                     onChange={(event) => setDaily(event.target.value)}
+                  />
+                </Field>
+                <Field orientation="horizontal">
+                  <input
+                    id="approve-plans"
+                    type="checkbox"
+                    checked={approvePlansBeforeRunning}
+                    onChange={(event) => setApprovePlans(event.target.checked)}
+                  />
+                  <FieldLabel htmlFor="approve-plans">Approve plans before running</FieldLabel>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="max-spend-review">Max spend per review</FieldLabel>
+                  <Input
+                    id="max-spend-review"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={reviewSpend ?? String(current.maxSpendPerReviewUsd ?? 1)}
+                    onChange={(event) => setReviewSpend(event.target.value)}
                   />
                 </Field>
                 <Field>
@@ -124,6 +148,8 @@ export function RunsForm() {
                       maxMinutes,
                       loopDetection,
                       recordModelRequests,
+                      approvePlansBeforeRunning,
+                      maxSpendPerReviewUsd,
                     })
                   }
                 >

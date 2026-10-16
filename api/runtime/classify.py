@@ -254,7 +254,9 @@ def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
         return "chat"
     if project_id and FOLLOW_UP.match(low) and prior_context(project_id):
         return "task"
-    never = [item.lower() for item in (agent.get("scope") or {}).get("neverDoes") or []]
+    from runtime import lead as leadlib
+
+    never = [] if leadlib.is_lead(agent) else [item.lower() for item in (agent.get("scope") or {}).get("neverDoes") or []]
     hints = {
         "servers": ("backend", "nodejs", "node.js", "node server"),
         "databases": ("database", "postgres", "sql"),
