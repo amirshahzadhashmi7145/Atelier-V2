@@ -50,7 +50,7 @@ test("skills, discovered models, and the tools registry", async ({ page }) => {
   await page.locator("[data-provider='openai']").getByRole("button", { name: "Refresh models" }).click()
   await expect(page.getByText("o3", { exact: true })).toBeVisible()
   await expect(page.getByText("gpt-4.1-mini", { exact: true })).toBeVisible()
-  const cached = page.getByText("4 models cached")
+  const cached = page.getByText("4 models cached", { exact: true })
   await expect(cached).toBeVisible()
   await expect(cached).toHaveCount(0, { timeout: 10_000 })
   await axe(page)

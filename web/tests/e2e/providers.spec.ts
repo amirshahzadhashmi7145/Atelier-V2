@@ -11,7 +11,7 @@ test("agent model picker groups providers", async ({ page }) => {
   await page.goto("/agents/new")
   await page.getByRole("button", { name: "Import Frontend Engineer" }).click()
   await expect(page.getByRole("heading", { name: "Frontend Engineer" })).toBeVisible()
-  const picker = page.getByLabel("Model")
+  const picker = page.getByLabel("Model", { exact: true })
   await expect(picker).toBeVisible()
   const groups = picker.locator("optgroup")
   await expect(groups.first()).toBeAttached()
