@@ -13,6 +13,8 @@ COLORS = {
     "frontend-engineer": "#2563eb",
     "backend": "#d97706",
     "backend-engineer": "#d97706",
+    "team-lead": "#7c3aed",
+    "lead": "#7c3aed",
 }
 
 

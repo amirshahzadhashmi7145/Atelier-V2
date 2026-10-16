@@ -21,6 +21,14 @@ export async function addProjectMember(id: string, agentId: string) {
   return unwrap(await api.POST("/projects/{id}/members", { params: { path: { id } }, body: { agentId } }))
 }
 
+export async function approveProjectPlan(id: string, planId: string, items?: components["schemas"]["PlanItem"][]) {
+  return unwrap(await api.POST("/projects/{id}/plans/{planId}/approve", { params: { path: { id, planId } }, body: items ? { items } : {} }))
+}
+
+export async function editProjectPlan(id: string, planId: string, items: components["schemas"]["PlanItem"][]) {
+  return unwrap(await api.POST("/projects/{id}/plans/{planId}/edit", { params: { path: { id, planId } }, body: { items } }))
+}
+
 export async function listMessages(id: string) {
   return unwrap(await api.GET("/projects/{id}/messages", { params: { path: { id } } }))
 }

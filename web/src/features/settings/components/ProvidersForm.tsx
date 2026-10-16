@@ -57,7 +57,7 @@ export function ProvidersForm() {
                 (connection !== `${provider.id}:failed` && provider.connected)
               const providerModels = (models.data ?? []).filter((model) => model.provider === provider.id)
               return (
-                <Card key={provider.id}>
+                <Card key={provider.id} data-provider={provider.id}>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       {provider.name}

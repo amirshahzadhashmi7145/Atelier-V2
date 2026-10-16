@@ -1006,6 +1006,57 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /projects/{id}/plans/{planId}/approve:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: approveProjectPlan
+      tags: [projects]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanWrite"
+      responses:
+        "200":
+          description: Plan approved and the first child run may start
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/plans/{planId}/edit:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: planId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: editProjectPlan
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanWrite"
+      responses:
+        "200":
+          description: Plan items updated, still waiting for approve
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "404":
+          $ref: "#/components/responses/Error"
   /projects/{id}/messages:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -1996,6 +2047,13 @@ components:
           minimum: 1
         loopDetection:
           type: boolean
+        approvePlansBeforeRunning:
+          type: boolean
+          default: true
+        maxSpendPerReviewUsd:
+          type: number
+          minimum: 0
+          default: 1
         recordModelRequests:
           type: boolean
           default: false
@@ -2391,6 +2449,53 @@ components:
             type: string
         lastTask:
           type: [string, "null"]
+    PlanItem:
+      type: object
+      additionalProperties: false
+      required: [taskId, assignedAgentId, text]
+      properties:
+        taskId:
+          type: string
+        assignedAgentId:
+          type: string
+        agentName:
+          type: string
+        text:
+          type: string
+        acceptanceCriteria:
+          type: array
+          items:
+            type: string
+        order:
+          type: integer
+    Plan:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, parentTaskId, status, items]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        parentTaskId:
+          type: string
+        leadRunId:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanItem"
+    PlanWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanItem"
     ProjectMemberCreate:
       type: object
       additionalProperties: false
@@ -2517,7 +2622,16 @@ components:
           type: string
         label:
           type: string
-          enum: [chat, task, out]
+          enum: [chat, task, out, plan, review]
+        verdict:
+          type: string
+          enum: [approve, changes_requested]
+        planId:
+          type: string
+        planItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanItem"
         queueStatus:
           type: string
           enum: [waiting]

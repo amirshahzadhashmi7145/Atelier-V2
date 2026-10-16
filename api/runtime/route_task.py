@@ -6,7 +6,7 @@ import os
 import re
 
 from gateway import openai_gateway
-from runtime import members as memberlib
+from runtime import lead as leadlib
 from store import db
 
 MENTION = re.compile(r"^@([A-Za-z]+)", re.I)
@@ -165,9 +165,6 @@ def _classifier_choice(agents: list[dict], text: str) -> str:
 
 def route_task(project: dict, task: dict) -> dict:
     mention, stripped = parse_mention(task.get("text") or "")
-    if mention:
-        task["text"] = stripped
-        task["mention"] = mention
     agents = _agents(project)
     members = project.get("members") or []
     if not agents:
@@ -176,6 +173,14 @@ def route_task(project: dict, task: dict) -> dict:
             task["routedBy"] = "user"
             return task
         raise ValueError("routing needs a project member")
+    lead = leadlib.lead_of(project)
+    if lead and not task.get("parentTaskId") and not task.get("assignedAgentId"):
+        if mention:
+            task["mention"] = mention
+        return _assign(task, lead, "user")
+    if mention:
+        task["text"] = stripped
+        task["mention"] = mention
     if mention:
         needle = mention.lower()
         match = next((item for item in agents if needle in (item.get("name") or "").lower() or needle in (item.get("roleKey") or "").lower() or needle in _kind(item)), None)

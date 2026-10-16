@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 
 SCRIPTS: list[dict] = []
@@ -32,10 +33,102 @@ def next_mock(messages: list[dict]) -> dict:
     return turn
 
 
+def _done_turns(description: str, endpoints=None) -> list[dict]:
+    summary = {
+        "description": description,
+        "filesChanged": [],
+        "dependencies": [],
+        "criteria": [],
+        "assumptions": [],
+        "followUps": [],
+    }
+    if endpoints:
+        summary["endpoints"] = endpoints
+    return [
+        {
+            "content": description,
+            "tool_calls": [{"id": "done", "name": "complete", "arguments": {"summary": summary}}],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+    ]
+
+
+def _lead_turns(blob: str) -> list[dict]:
+    members = []
+    for line in blob.splitlines():
+        match = re.search(r"id=(\S+)\s+name=(.*?)\s+role=(\S+)", line)
+        if match:
+            members.append({"id": match.group(1), "name": match.group(2), "role": match.group(3).lower()})
+    back = next((item for item in members if "backend" in item["role"] or "backend" in item["name"].lower()), None)
+    front = next((item for item in members if "frontend" in item["role"] or "frontend" in item["name"].lower()), None)
+    calls = []
+    if back:
+        calls.append(
+            {
+                "id": "task_back",
+                "name": "create_task",
+                "arguments": {
+                    "text": "Implement the HTTP API, database, and auth",
+                    "assignToAgentId": back["id"],
+                    "acceptanceCriteria": ["login works", "CONTRACT.md lists endpoints"],
+                    "order": 1,
+                },
+            }
+        )
+    if front:
+        calls.append(
+            {
+                "id": "task_front",
+                "name": "create_task",
+                "arguments": {
+                    "text": "Build the React UI against the contract",
+                    "assignToAgentId": front["id"],
+                    "acceptanceCriteria": ["form against contract"],
+                    "order": 2,
+                },
+            }
+        )
+    if not calls:
+        return _done_turns("Need Backend and Frontend members before I can split the work.")
+    calls.append({"id": "done", "name": "complete", "arguments": {"summary": {"description": "Plan ready."}}})
+    return [{"content": "Splitting the work.", "tool_calls": calls, "usage": {"input_tokens": 1, "output_tokens": 1}}]
+
+
+def _review_turns(blob: str) -> list[dict]:
+    low = blob.lower()
+    summary = ""
+    if "Author summary:" in blob:
+        summary = blob.split("Author summary:", 1)[1].splitlines()[0].lower()
+    seeded = "omit delete" in low or "omits delete" in low
+    delete_unmet = bool(re.search(r"\b(delete|remove)\b", low)) and not re.search(r"\b(delete|deleted|remove|removed)\b", summary)
+    verdict = "changes_requested" if seeded or delete_unmet else "approve"
+    notes = "The result omits delete." if verdict == "changes_requested" else "All criteria are met."
+    return [
+        {
+            "content": notes,
+            "tool_calls": [{"id": "rev", "name": "record_review", "arguments": {"verdict": verdict, "notes": notes}}],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+    ]
+
+
 def _plan(messages: list[dict]) -> list[dict]:
     blob = "\n".join(item.get("content") or "" for item in messages if isinstance(item.get("content"), str))
     if "force-fail" in blob:
         return [{"content": "This will fail.", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 600_000}}]
+    if "# Review packet" in blob:
+        return _review_turns(blob)
+    if "# Project members and scope" in blob:
+        return _lead_turns(blob)
+    if "omits delete" in blob.lower() or "omit delete" in blob.lower():
+        return _done_turns("Notes can be listed and created.")
+    if "Implement the HTTP API" in blob:
+        return _done_turns(
+            "API ready.",
+            endpoints=[{"method": "POST", "path": "/login", "request": "{email}", "response": "{token}"}],
+        )
+    if "Build the React UI" in blob:
+        return _done_turns("UI against the contract.")
     if "interleave-bubbles" in blob:
         return [
             {

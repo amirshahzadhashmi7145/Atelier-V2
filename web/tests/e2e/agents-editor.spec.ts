@@ -24,9 +24,10 @@ test("import a library agent, configure the model, and activate a version", asyn
   test.setTimeout(90_000)
   await mockModelRoute(page)
   await page.goto("/settings/providers")
-  await page.getByRole("button", { name: "Test connection" }).click()
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Refresh models" }).click()
+  const openai = page.locator("[data-provider='openai']")
+  await openai.getByRole("button", { name: "Test connection" }).click()
+  await expect(openai.getByText("Connected", { exact: true })).toBeVisible()
+  await openai.getByRole("button", { name: "Refresh models" }).click()
   await expect(page.getByText("gpt-5", { exact: true })).toBeVisible()
 
   await page.goto("/agents/new")

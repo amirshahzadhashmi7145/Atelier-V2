@@ -33,6 +33,7 @@ def engine():
         _engine = create_engine(url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(_engine)
         seed()
+        sync_builtin_tools()
         sync_stack_allow_lists()
     return _engine
 
@@ -126,8 +127,29 @@ BUILTIN_TOOLS = [
     ("complete", "control", "write", "Finish the run with a summary.", {"summary": {"type": "object"}}, ["summary"], "control"),
     ("raise_clarification", "control", "read", "Ask the user a question and wait.", {"question": {"type": "string"}}, ["question"], "control"),
     ("escalate", "control", "external", "Hand the run to a person.", {"reason": {"type": "string"}}, ["reason"], "control"),
-    ("create_task", "control", "write", "Create a follow-up task.", {"text": {"type": "string"}}, ["text"], "control"),
-    ("record_review", "control", "write", "Record a review of a task.", {"taskId": {"type": "string"}, "verdict": {"type": "string"}, "notes": {"type": "string"}}, ["taskId", "verdict", "notes"], "control"),
+    (
+        "create_task",
+        "control",
+        "write",
+        "Create a child task for a project member. Set assignToAgentId, acceptanceCriteria, and order. Do not start the work yourself.",
+        {
+            "text": {"type": "string"},
+            "assignToAgentId": {"type": "string"},
+            "acceptanceCriteria": {"type": "array", "items": {"type": "string"}},
+            "order": {"type": "integer"},
+        },
+        ["text"],
+        "control",
+    ),
+    (
+        "record_review",
+        "control",
+        "write",
+        "Record a review of a child task. verdict is approve or changes_requested.",
+        {"taskId": {"type": "string"}, "verdict": {"type": "string"}, "notes": {"type": "string"}},
+        ["verdict", "notes"],
+        "control",
+    ),
 ]
 
 
@@ -186,9 +208,18 @@ def seed() -> None:
             "maxMinutes": 45,
             "loopDetection": True,
             "recordModelRequests": False,
+            "approvePlansBeforeRunning": True,
+            "maxSpendPerReviewUsd": 1,
         },
     )
     put("meta", "seeded", {"ok": True})
+    sync_builtin_tools()
+
+
+def sync_builtin_tools() -> None:
+    for item in BUILTIN_TOOLS:
+        record = tool_record(item)
+        put("tool", record["id"], record)
 
 
 def sync_stack_allow_lists() -> None:

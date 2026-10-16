@@ -9,7 +9,7 @@ from pathlib import Path
 from gateway import openai_gateway
 from gateway.tool_pairing import ToolPairingError
 from runtime import messages as msglib
-from runtime import contract_file, members as memberlib
+from runtime import contract_file, lead as leadlib, members as memberlib
 from runtime.scaffold import write_express_prisma, write_vite_react_ts
 from runtime.tool_results import format_tool_result
 from runtime import compile as compile_prompt
@@ -34,15 +34,19 @@ def drive(run_id: str) -> None:
     run["folder"] = workspace.get("folder")
     agent = db.get("agent", run["agentId"]) or {}
     settings = db.get("settings", "runs") or {}
-    raw_cap = settings.get("maxSpendPerRunUsd")
-    cap = float(5 if raw_cap is None else raw_cap)
+    if run.get("kind") == "review":
+        raw_cap = settings.get("maxSpendPerReviewUsd")
+        cap = float(1 if raw_cap is None else raw_cap)
+    else:
+        raw_cap = settings.get("maxSpendPerRunUsd")
+        cap = float(5 if raw_cap is None else raw_cap)
     max_iterations = int(settings.get("maxIterations") or 60)
     max_minutes = int(settings.get("maxMinutes") or 45)
     detect_loops = settings.get("loopDetection", True)
     openai_gateway.begin()
     db.append_event(run_id, "RUN_STARTED", {})
     _status(run, "running")
-    blocked = _blocked_framework(run, agent)
+    blocked = None if run.get("kind") in ("lead", "review") or leadlib.is_lead(agent) else _blocked_framework(run, agent)
     if blocked:
         question = f"This task mentions {blocked}, which is not enabled for this agent. Enable it or rephrase?"
         if not _pause(run, "waiting_user", "CLARIFICATION_RAISED", {"question": question}):
@@ -53,7 +57,7 @@ def drive(run_id: str) -> None:
     recent: list[str] = []
     last_key = None
     streak = 0
-    note = _prepare_scaffold(run, agent)
+    note = None if run.get("kind") in ("lead", "review") or leadlib.is_lead(agent) else _prepare_scaffold(run, agent)
     if note:
         answer = note
     track = db.get("run-track", run_id) or _fresh_track()
@@ -121,7 +125,8 @@ def drive(run_id: str) -> None:
         run["iterations"] += 1
         db.put("run", run_id, _public(run))
         if run["costUsd"] > cap:
-            _fail(run, "budget", "The run exceeded the spend cap.", recent)
+            message = "The review exceeded its spend cap." if run.get("kind") == "review" else "The run exceeded the spend cap."
+            _fail(run, "budget", message, recent)
             return
         calls = _calls(turn.get("tool_calls") or [])
         if not calls:
@@ -325,17 +330,20 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
         diff = prior.get("diff") or {}
         for item in (diff.get("files") or [])[:12]:
             system += f"Changed {item.get('path')}: { (item.get('after') or '')[:200]}\n"
-    contract = contract_file.read_contract(folder)
-    if contract and "backend" not in (agent.get("roleKey") or "").lower():
-        system += "\n\n# API contract\n" + contract
+    project = db.get("project", run.get("projectId")) if run.get("projectId") else None
+    if run.get("kind") == "review":
+        system += "\n\n" + leadlib.review_system(run, folder)
+    elif leadlib.is_lead(agent) and project:
+        system += "\n\n" + leadlib.lead_system(project, folder)
+    else:
+        contract = contract_file.read_contract(folder)
+        if contract and "backend" not in (agent.get("roleKey") or "").lower():
+            system += "\n\n# API contract\n" + contract
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
-    tags = (agent.get("capabilities") or {}).get("tags") or []
-    if task and "supervisor" in tags:
-        system += f"\n\n# Work to review\n{task.get('summary') or ''}\n{task.get('diffRef') or ''}\n{', '.join(task.get('screenshotRefs') or [])}"
     prefix: list[dict] = []
     history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
     history.sort(key=lambda item: item["createdAt"])
-    project = db.get("project", run.get("projectId")) if run.get("projectId") else None
+    project = project or (db.get("project", run.get("projectId")) if run.get("projectId") else None)
     if project and project.get("summary"):
         prefix.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
     for item in history[-20:]:
@@ -408,12 +416,17 @@ def _finish_run(run: dict) -> None:
 
 def _complete(run: dict, summary: dict) -> None:
     folder = Path(run["folder"]) if run.get("folder") else None
-    if run.get("projectId") and folder is not None and (folder / "package.json").exists():
+    agent = db.get("agent", run.get("agentId")) or {}
+    project = db.get("project", run.get("projectId")) if run.get("projectId") else None
+    skip_build = run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)
+    skip_preview = skip_build or bool(leadlib.lead_of(project or {}))
+    if run.get("projectId") and folder is not None and (folder / "package.json").exists() and not skip_build:
         tools._build(run, folder, lambda: False)
         index = folder / "index.html"
         if index.exists():
             tools._browser(run, index.as_uri())
-        tools._preview(run, folder)
+        if not skip_preview:
+            tools._preview(run, folder)
     summary = {
         "description": summary.get("description") or "Done.",
         "filesChanged": summary.get("filesChanged") or [item["path"] for item in (db.get("diff", run["id"]) or {"files": []})["files"]],
@@ -423,14 +436,12 @@ def _complete(run: dict, summary: dict) -> None:
         "followUps": summary.get("followUps") or [],
         "endpoints": summary.get("endpoints") or [],
     }
-    agent = db.get("agent", run.get("agentId")) or {}
     if "backend" in (agent.get("roleKey") or "").lower() and folder is not None:
         written = contract_file.write_contract(folder, summary)
         if written and "api/CONTRACT.md" not in summary["filesChanged"]:
             summary["filesChanged"] = [*summary["filesChanged"], "api/CONTRACT.md"]
-    project = db.get("project", run.get("projectId")) if run.get("projectId") else None
     git = _publish(project, run) if project else {}
-    if run.get("projectId") and run.get("folder"):
+    if run.get("projectId") and run.get("folder") and not skip_preview:
         preview = tools._preview(run, Path(run["folder"]))
         if preview.get("previewUrl"):
             git["previewUrl"] = preview["previewUrl"]
@@ -440,22 +451,38 @@ def _complete(run: dict, summary: dict) -> None:
     db.append_event(run["id"], "RUN_COMPLETED", {"summary": summary, **{key: value for key, value in git.items() if value}})
     run["status"] = "completed"
     db.put("run", run["id"], _public(run))
+    if run.get("kind") == "review":
+        _finish_run(run)
+        return
     if run.get("taskId"):
         task = db.get("task", run["taskId"])
         if task:
-            task["status"] = "completed"
-            task["summary"] = summary["description"]
-            task["diffRef"] = run["id"]
-            shots = [item["id"] for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("kind") == "screenshot"]
-            task["screenshotRefs"] = shots
-            db.put("task", task["id"], task)
-    if project:
+            if run.get("kind") == "lead":
+                leadlib.publish_plan(run)
+            else:
+                task["status"] = "completed"
+                task["summary"] = summary["description"]
+                task["diffRef"] = run["id"]
+                shots = [item["id"] for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("kind") == "screenshot"]
+                task["screenshotRefs"] = shots
+                db.put("task", task["id"], task)
+                if task.get("parentTaskId") and leadlib.lead_of(project or {}):
+                    leadlib.start_review(run, task)
+    if project and run.get("kind") != "lead":
         reply = summary["description"]
         if git.get("prUrl"):
             reply = reply + "\n" + git["prUrl"]
         _say(run, reply)
         refresh_summary(project["id"], run["model"]["name"])
+    elif project and run.get("kind") == "lead" and not children_waiting(run):
+        reply = summary["description"]
+        _say(run, reply)
     _finish_run(run)
+
+
+def children_waiting(run: dict) -> bool:
+    task_id = run.get("taskId")
+    return bool(task_id and leadlib.children_of(task_id))
 
 
 def _publish(project: dict, run: dict) -> dict:

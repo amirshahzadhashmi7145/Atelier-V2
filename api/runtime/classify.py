@@ -241,7 +241,7 @@ def _stack_names(system: str) -> list[str]:
 
 
 def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
-    low = text.lower().strip()
+    low = re.sub(r"^@[A-Za-z]+\s*", "", text, flags=re.I).lower().strip() or text.lower().strip()
     if is_preview_stop(low) or PREVIEW_QUESTION.search(low) or STACK_QUESTION.search(low):
         return "chat"
     words = low.split()
@@ -254,7 +254,9 @@ def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
         return "chat"
     if project_id and FOLLOW_UP.match(low) and prior_context(project_id):
         return "task"
-    never = [item.lower() for item in (agent.get("scope") or {}).get("neverDoes") or []]
+    from runtime import lead as leadlib
+
+    never = [] if leadlib.is_lead(agent) else [item.lower() for item in (agent.get("scope") or {}).get("neverDoes") or []]
     hints = {
         "servers": ("backend", "nodejs", "node.js", "node server"),
         "databases": ("database", "postgres", "sql"),

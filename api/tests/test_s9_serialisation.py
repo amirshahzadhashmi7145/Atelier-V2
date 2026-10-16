@@ -253,17 +253,14 @@ def test_model_call_timeout(client: TestClient, monkeypatch: pytest.MonkeyPatch)
 
 def test_no_progress_stop(client: TestClient):
     agent_id = ready(client)
+    client.patch(f"/agents/{agent_id}", json={"toolIds": ["files", "shell", "package_install", "search_data"]})
     read = {"id": "r", "name": "search_data", "arguments": {"query": "x"}}
     for _ in range(16):
         openai_gateway.SCRIPTS.append({"tool_calls": [read], "usage": {"input_tokens": 1, "output_tokens": 1}})
     project = client.post("/projects", json={"name": "Stale", "agentId": agent_id}).json()
     message = client.post(f"/projects/{project['id']}/messages", json={"text": "spin"}).json()
-    deadline = time.time() + 12
-    while time.time() < deadline:
-        run = client.get(f"/runs/{message['runId']}").json()
-        if run["status"] == "failed":
-            break
-        time.sleep(0.05)
+    finished = wait_status(client, message["runId"], {"failed"}, timeout=20)
+    assert finished["status"] == "failed"
     text = next(item["payload"]["text"] for item in db.events_for(message["runId"]) if item["type"] == "RUN_FAILED")
     assert "no progress" in text
 

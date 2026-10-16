@@ -71,6 +71,7 @@ const seed = {
       stackIds: role.stackIds,
       zones: role.zones,
       scope: role.scope,
+      capabilities: role.capabilities ?? { stacks: role.stackIds ?? [], skills: role.skillIds ?? [], tags: [] },
       sections: role.sections,
       evals: role.evals ?? [],
     })),

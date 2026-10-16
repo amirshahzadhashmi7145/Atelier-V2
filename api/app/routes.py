@@ -376,12 +376,16 @@ def save_tag(body: dict):
 
 @router.get("/settings/runs")
 def get_run_settings():
-    return db.get("settings", "runs")
+    from runtime import lead as leadlib
+
+    return leadlib.settings()
 
 
 @router.put("/settings/runs")
 def put_run_settings(body: dict):
-    current = db.get("settings", "runs")
+    from runtime import lead as leadlib
+
+    current = leadlib.settings()
     current.update(body)
     db.put("settings", "runs", current)
     return current
@@ -826,7 +830,11 @@ def post_message(id: str, body: dict):
             db.put("message", user["id"], user)
         return user
     agent = db.get("agent", task["assignedAgentId"]) or {}
+    from runtime import lead as leadlib
+
     kind = bridge.classify(agent, work_text, id) if agent else "task"
+    if leadlib.is_lead(agent) and kind == "out":
+        kind = "task"
     if kind in ("chat", "out") and labeling.looks_like_task(agent, work_text, id):
         kind = "task"
     task["label"] = kind
@@ -851,15 +859,42 @@ def post_message(id: str, body: dict):
     cap = float(settings.get("maxSpendPerDayUsd") or 20)
     if project_runs.spend_today(id) >= cap:
         return error(429, "budget", "The daily spend cap for this project was reached.")
-    return _start_project_run(project, agent, task, work_text, message_id, labeling.prior_context(id))
+    kind = "lead" if leadlib.is_lead(agent) else None
+    return _start_project_run(project, agent, task, work_text, message_id, labeling.prior_context(id), kind=kind)
 
 
-def _start_project_run(project: dict, agent: dict, task: dict, text: str, message_id: str | None, prior: dict | None):
+@router.post("/projects/{id}/plans/{planId}/approve")
+def approve_plan(id: str, planId: str, body: dict | None = None):
+    from runtime import lead as leadlib
+
+    if db.get("project", id) is None:
+        return missing()
+    try:
+        return leadlib.approve_plan(id, planId, (body or {}).get("items"))
+    except KeyError:
+        return missing()
+
+
+@router.post("/projects/{id}/plans/{planId}/edit")
+def edit_plan(id: str, planId: str, body: dict):
+    from runtime import lead as leadlib
+
+    if db.get("project", id) is None:
+        return missing()
+    try:
+        return leadlib.edit_plan(id, planId, body.get("items") or [])
+    except KeyError:
+        return missing()
+
+
+def _start_project_run(project: dict, agent: dict, task: dict, text: str, message_id: str | None, prior: dict | None, kind: str | None = None):
     from runtime import project_runs
 
     run = _new_run(agent, {"task": text, "workspace": _workspace(project), "criteria": []})
     run["taskId"] = task["id"]
     run["projectId"] = project["id"]
+    if kind:
+        run["kind"] = kind
     if prior:
         run["priorContext"] = prior
     db.put("workspace", run["id"], {"folder": project["folderPath"]})
@@ -968,7 +1003,11 @@ def _agent(body: dict) -> dict:
         "scope": body.get("scope") or {"does": [], "neverDoes": [], "zones": body.get("zones") or []},
         "evals": body.get("evals") or [],
         "reportsTo": body.get("reportsTo"),
-        "capabilities": body.get("capabilities") or {"stacks": stacks, "skills": skills, "tags": []},
+        "capabilities": {
+            "stacks": (body.get("capabilities") or {}).get("stacks") or stacks,
+            "skills": (body.get("capabilities") or {}).get("skills") or skills,
+            "tags": (body.get("capabilities") or {}).get("tags") or [],
+        },
         "createdAt": timestamp,
         "updatedAt": timestamp,
     }

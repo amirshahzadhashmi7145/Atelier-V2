@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test"
 
+const API = process.env.E2E_API_URL || "http://127.0.0.1:8000"
+
 test("a message creates a project run and shows the summary", async ({ page, request }) => {
   test.setTimeout(90_000)
-  const agent = await request.post("http://127.0.0.1:8000/agents", {
+  const agent = await request.post(`${API}/agents`, {
     data: {
       name: "Frontend",
       roleKey: "frontend",
@@ -13,11 +15,11 @@ test("a message creates a project run and shows the summary", async ({ page, req
   })
   expect(agent.ok()).toBeTruthy()
   const created = (await agent.json()) as { id: string }
-  const version = await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions`, {
+  const version = await request.post(`${API}/agents/${created.id}/versions`, {
     data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
   })
   const saved = (await version.json()) as { version: number }
-  const active = await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions/${saved.version}/activate`)
+  const active = await request.post(`${API}/agents/${created.id}/versions/${saved.version}/activate`)
   expect(active.ok()).toBeTruthy()
 
   await page.goto("/chat")
@@ -30,22 +32,22 @@ test("a message creates a project run and shows the summary", async ({ page, req
   await page.getByLabel("Message").fill("Create a landing page with a hero and three feature cards")
   await page.getByRole("button", { name: "Send" }).click()
   await expect(page.locator("[data-streaming]")).toContainText("Building", { timeout: 15_000 })
-  await expect(page.getByText("Landing page with a hero and three feature cards.")).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText("index.html")).toBeVisible()
+  await expect(page.getByText("Landing page with a hero and three feature cards.", { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText("Files changed: index.html", { exact: true })).toBeVisible()
 })
 
 test("run evals shows chips and enables set active", async ({ page, request }) => {
   test.setTimeout(90_000)
-  const agent = await request.post("http://127.0.0.1:8000/agents", {
+  const agent = await request.post(`${API}/agents`, {
     data: { name: "Eval Agent", roleKey: "frontend", description: "Evals", model: { provider: "openai", name: "gpt-5", config: {} }, toolIds: ["files", "build_test", "headless_browser"] },
   })
   expect(agent.ok()).toBeTruthy()
   const created = (await agent.json()) as { id: string }
-  const added = await request.post(`http://127.0.0.1:8000/agents/${created.id}/evals`, {
+  const added = await request.post(`${API}/agents/${created.id}/evals`, {
     data: { name: "Hero", task: "Ship a page", criteria: ["Hero is visible"], passRule: "build_and_tests" },
   })
   expect(added.ok()).toBeTruthy()
-  const version = await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions`, {
+  const version = await request.post(`${API}/agents/${created.id}/versions`, {
     data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
   })
   expect(version.ok()).toBeTruthy()
@@ -58,15 +60,15 @@ test("run evals shows chips and enables set active", async ({ page, request }) =
 
 test("a failed run shows the error and try again", async ({ page, request }) => {
   test.setTimeout(90_000)
-  const agent = await request.post("http://127.0.0.1:8000/agents", {
+  const agent = await request.post(`${API}/agents`, {
     data: { name: "Retry Agent", roleKey: "frontend", description: "Builds pages", model: { provider: "openai", name: "gpt-5", config: {} }, toolIds: ["files"] },
   })
   const created = (await agent.json()) as { id: string }
-  const version = await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions`, {
+  const version = await request.post(`${API}/agents/${created.id}/versions`, {
     data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
   })
   const saved = (await version.json()) as { version: number }
-  expect((await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions/${saved.version}/activate`)).ok()).toBeTruthy()
+  expect((await request.post(`${API}/agents/${created.id}/versions/${saved.version}/activate`)).ok()).toBeTruthy()
   await page.goto("/chat")
   await page.getByRole("button", { name: "New project" }).click()
   await page.getByLabel("Name").fill("Retry")
@@ -74,22 +76,24 @@ test("a failed run shows the error and try again", async ({ page, request }) => 
   await page.getByRole("button", { name: "Create" }).click()
   await page.getByLabel("Message").fill("force-fail the build")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText("The run exceeded the spend cap.")).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("article.rounded p.whitespace-pre-wrap").filter({ hasText: "The run exceeded the spend cap." })).toBeVisible({
+    timeout: 30_000,
+  })
   await page.getByRole("button", { name: "Try again" }).click()
   await expect(page.getByText("Previous attempt failed:")).toBeVisible()
 })
 
 async function activateAgent(request: import("@playwright/test").APIRequestContext, name: string, toolIds: string[]) {
-  const agent = await request.post("http://127.0.0.1:8000/agents", {
+  const agent = await request.post(`${API}/agents`, {
     data: { name, roleKey: "frontend", description: name, model: { provider: "openai", name: "gpt-5", config: {} }, toolIds },
   })
   expect(agent.ok()).toBeTruthy()
   const created = (await agent.json()) as { id: string }
-  const version = await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions`, {
+  const version = await request.post(`${API}/agents/${created.id}/versions`, {
     data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
   })
   const saved = (await version.json()) as { version: number }
-  expect((await request.post(`http://127.0.0.1:8000/agents/${created.id}/versions/${saved.version}/activate`)).ok()).toBeTruthy()
+  expect((await request.post(`${API}/agents/${created.id}/versions/${saved.version}/activate`)).ok()).toBeTruthy()
   return created.id
 }
 
@@ -100,6 +104,15 @@ async function openChat(page: import("@playwright/test").Page, project: string, 
   await page.getByLabel("Agent").selectOption({ label: agent })
   await page.getByRole("button", { name: "Create" }).click()
   await expect(page.getByRole("heading", { name: project })).toBeVisible()
+}
+
+async function addMemberById(page: import("@playwright/test").Page, agentId: string) {
+  const addMember = page.locator("#add-member")
+  await expect(addMember.locator(`option[value="${agentId}"]`)).toHaveCount(1, { timeout: 15_000 })
+  await addMember.selectOption(agentId)
+  const submit = page.getByRole("button", { name: "Add agent to project", exact: true })
+  await expect(submit).toBeEnabled({ timeout: 10_000 })
+  await submit.click()
 }
 
 test("interleaved model calls stay in two bubbles", async ({ page, request }) => {
@@ -128,7 +141,7 @@ test("a long command shows running with the command", async ({ page, request }) 
   await openChat(page, "Shell", "Shell Agent")
   await page.getByLabel("Message").fill("slow-command please")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText(/running: sleep 8/)).toBeVisible({ timeout: 20_000 })
+  await expect(page.locator("[data-thinking]")).toContainText(/running: sleep 8/, { timeout: 20_000 })
 })
 
 test("teach creates a skill and the preview updates", async ({ page, request }) => {
@@ -191,10 +204,10 @@ test("complete it after a failed run starts a task run", async ({ page, request 
 
 test("a project can add a member, flags overlap in red, and colours agent replies", async ({ page, request }) => {
   test.setTimeout(90_000)
-  const front = await activateAgent(request, "Frontend Engineer", ["files"])
+  const front = await activateAgent(request, "Overlap Frontend Engineer", ["files"])
   expect(
     (
-      await request.patch(`http://127.0.0.1:8000/agents/${front}`, {
+      await request.patch(`${API}/agents/${front}`, {
         data: {
           zones: ["src/**", "package.json"],
           scope: { does: ["user interfaces"], neverDoes: [], zones: ["src/**", "package.json"] },
@@ -202,9 +215,9 @@ test("a project can add a member, flags overlap in red, and colours agent replie
       })
     ).ok(),
   ).toBeTruthy()
-  const back = await request.post("http://127.0.0.1:8000/agents", {
+  const back = await request.post(`${API}/agents`, {
     data: {
-      name: "Backend Engineer",
+      name: "Overlap Backend Engineer",
       roleKey: "backend-engineer",
       description: "APIs",
       model: { provider: "openai", name: "gpt-5", config: {} },
@@ -219,14 +232,14 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   })
   expect(back.ok()).toBeTruthy()
   const backId = ((await back.json()) as { id: string }).id
-  const backVersion = await request.post(`http://127.0.0.1:8000/agents/${backId}/versions`, {
+  const backVersion = await request.post(`${API}/agents/${backId}/versions`, {
     data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
   })
   const backSaved = (await backVersion.json()) as { version: number }
-  expect((await request.post(`http://127.0.0.1:8000/agents/${backId}/versions/${backSaved.version}/activate`)).ok()).toBeTruthy()
-  const clash = await request.post("http://127.0.0.1:8000/agents", {
+  expect((await request.post(`${API}/agents/${backId}/versions/${backSaved.version}/activate`)).ok()).toBeTruthy()
+  const clash = await request.post(`${API}/agents`, {
     data: {
-      name: "Clash Agent",
+      name: "Overlap Clash Agent",
       roleKey: "frontend",
       description: "Clash",
       model: { provider: "openai", name: "gpt-5", config: {} },
@@ -237,24 +250,104 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   })
   expect(clash.ok()).toBeTruthy()
   const clashId = ((await clash.json()) as { id: string }).id
-  const clashVersion = await request.post(`http://127.0.0.1:8000/agents/${clashId}/versions`, {
+  const clashVersion = await request.post(`${API}/agents/${clashId}/versions`, {
     data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
   })
   const clashSaved = (await clashVersion.json()) as { version: number }
-  expect((await request.post(`http://127.0.0.1:8000/agents/${clashId}/versions/${clashSaved.version}/activate`)).ok()).toBeTruthy()
-  await openChat(page, "Team", "Frontend Engineer")
-  await page.getByLabel("Add agent to project").selectOption({ label: "Backend Engineer" })
-  await page.getByRole("button", { name: "Add agent to project" }).click()
-  await expect(page.getByText("Backend Engineer").nth(0)).toBeVisible()
-  await page.getByLabel("Add agent to project").selectOption({ label: "Clash Agent" })
-  await page.getByRole("button", { name: "Add agent to project" }).click()
+  expect((await request.post(`${API}/agents/${clashId}/versions/${clashSaved.version}/activate`)).ok()).toBeTruthy()
+  await openChat(page, "Team", "Overlap Frontend Engineer")
+  await addMemberById(page, backId)
+  await expect(page.locator("[data-member='Overlap Backend Engineer']")).toBeVisible()
+  await addMemberById(page, clashId)
   await expect(page.locator("[data-zone-overlap]")).toBeVisible()
-  await page.getByLabel("Message").fill("@Backend hello")
+  const message = page.getByLabel("Message", { exact: true })
+  await message.scrollIntoViewIfNeeded()
+  await message.fill("@Backend hello")
+  await page.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(page.locator("[data-agent='Overlap Backend Engineer']")).toBeVisible({ timeout: 15_000 })
+  await message.fill("@Frontend hello")
+  await page.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(page.locator("[data-agent='Overlap Frontend Engineer']")).toBeVisible({ timeout: 15_000 })
+})
+
+async function activateRole(
+  request: import("@playwright/test").APIRequestContext,
+  body: Record<string, unknown>,
+) {
+  const agent = await request.post(`${API}/agents`, { data: body })
+  expect(agent.ok()).toBeTruthy()
+  const created = (await agent.json()) as { id: string }
+  const version = await request.post(`${API}/agents/${created.id}/versions`, {
+    data: { sections: { role: "Role", goal: "Goal", instructions: "Work", constraints: "Stay", output: "Done" } },
+  })
+  const saved = (await version.json()) as { version: number }
+  expect((await request.post(`${API}/agents/${created.id}/versions/${saved.version}/activate`)).ok()).toBeTruthy()
+  return created.id
+}
+
+test("a team lead plan can be edited and approved and the review verdict shows", async ({ page, request }) => {
+  test.setTimeout(120_000)
+  await activateRole(request, {
+    name: "S13 Team Lead",
+    roleKey: "team-lead",
+    description: "Splits and reviews",
+    model: { provider: "openai", name: "gpt-5", config: {} },
+    toolIds: ["files", "shell", "build_test", "headless_browser"],
+    zones: [],
+    capabilities: { stacks: [], skills: [], tags: ["supervisor"] },
+    scope: {
+      does: ["splitting requests into tasks", "assigning tasks", "reviewing code against the task", "deciding when work is done"],
+      neverDoes: ["writing application code", "editing files"],
+      zones: [],
+    },
+  })
+  await activateRole(request, {
+    name: "S13 Backend Engineer",
+    roleKey: "backend-engineer",
+    description: "APIs",
+    model: { provider: "openai", name: "gpt-5", config: {} },
+    toolIds: ["files", "build_test"],
+    zones: ["api/**", "package.json", "tsconfig*.json"],
+    scope: {
+      does: ["HTTP APIs", "auth backends"],
+      neverDoes: ["user interfaces", "styling"],
+      zones: ["api/**", "package.json", "tsconfig*.json"],
+    },
+  })
+  await activateRole(request, {
+    name: "S13 Frontend Engineer",
+    roleKey: "frontend-engineer",
+    description: "UI",
+    model: { provider: "openai", name: "gpt-5", config: {} },
+    toolIds: ["files", "build_test"],
+    zones: ["src/**", "app/**", "public/**", "package.json", "tsconfig*.json"],
+    scope: {
+      does: ["user interfaces", "client-side state"],
+      neverDoes: ["servers", "databases"],
+      zones: ["src/**", "app/**", "public/**", "package.json", "tsconfig*.json"],
+    },
+  })
+  await page.goto("/settings/runs")
+  await expect(page.getByLabel("Approve plans before running")).toBeChecked()
+  await openChat(page, "LeadReview", "S13 Team Lead")
+  await page.getByLabel("Add agent to project").selectOption({ label: "S13 Backend Engineer" })
+  await page.getByRole("button", { name: "Add agent to project" }).click()
+  await expect(page.getByText("S13 Backend Engineer").nth(0)).toBeVisible()
+  await page.getByLabel("Add agent to project").selectOption({ label: "S13 Frontend Engineer" })
+  await page.getByRole("button", { name: "Add agent to project" }).click()
+  await expect(page.getByText("S13 Frontend Engineer").nth(0)).toBeVisible()
+  await page.getByLabel("Message").fill("build a todo app with login")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-agent='Backend Engineer']")).toBeVisible()
-  await page.getByLabel("Message").fill("@Frontend hello")
-  await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-agent='Frontend Engineer']")).toBeVisible()
+  const plan = page.locator("[data-plan]")
+  await expect(plan).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("[data-label='plan']")).toBeVisible()
+  const firstStep = plan.locator("textarea").first()
+  await firstStep.fill("Implement login and the notes API")
+  await plan.getByRole("button", { name: "Edit" }).click()
+  await expect(page.getByText("Plan updated")).toBeVisible()
+  await plan.getByRole("button", { name: "Approve" }).click()
+  await expect(page.locator("[data-verdict='approve']").first()).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator("[data-label='review']").first()).toBeVisible()
 })
 
 test("the chat page is exactly the viewport", async ({ page, request }) => {
@@ -264,5 +357,5 @@ test("the chat page is exactly the viewport", async ({ page, request }) => {
     await page.setViewportSize({ width, height: 800 })
     expect(await page.evaluate(() => document.documentElement.scrollHeight === window.innerHeight)).toBe(true)
   }
-  await expect(page.getByRole("button", { name: "Preview" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Preview", exact: true })).toBeVisible()
 })
