@@ -89,6 +89,11 @@ class GeminiProvider:
     def pricing(self, model: str) -> dict | None:
         return None
 
+    def supported_config(self, model: str, config: dict) -> dict:
+        """Drop keys the model's schema does not list (e.g. OpenAI leftovers like webSearch)."""
+        allowed = self.config_schema(model)["properties"].keys()
+        return {key: value for key, value in (config or {}).items() if key in allowed}
+
     def complete(
         self,
         model: str,
@@ -179,15 +184,23 @@ class GeminiProvider:
         system, contents = _to_gemini_contents(messages)
         global last_contents_sent
         last_contents_sent = contents
+        config = self.supported_config(model, config)
+        # Gemini rejects a JSON response mime type together with function declarations.
+        structured = bool(config.get("structuredOutputs")) and not tools
         gen_config = types.GenerateContentConfig(
             system_instruction=system or None,
             tools=_to_gemini_tools(tools) or None,
             temperature=config.get("temperature"),
             max_output_tokens=config.get("maxOutputTokens"),
-            response_mime_type="application/json" if config.get("structuredOutputs") else None,
+            response_mime_type="application/json" if structured else None,
         )
-        if config.get("thinkingBudget") is not None and THINKING.search(model):
-            gen_config.thinking_config = types.ThinkingConfig(thinking_budget=int(config["thinkingBudget"]))
+        if THINKING.search(model):
+            # Stream thought summaries: a large functionCall arrives as one part only when
+            # fully generated, so without thoughts the first-token clock would see nothing.
+            thinking = {"include_thoughts": True}
+            if config.get("thinkingBudget") is not None:
+                thinking["thinking_budget"] = int(config["thinkingBudget"])
+            gen_config.thinking_config = types.ThinkingConfig(**thinking)
 
         pieces: list[str] = []
         calls: dict[int, dict] = {}
@@ -205,6 +218,10 @@ class GeminiProvider:
             candidate = chunk.candidates[0]
             parts = candidate.content.parts if candidate.content else []
             for part in parts or []:
+                if getattr(part, "thought", False):
+                    # Thought summary: activity for the first-token timer, not answer text.
+                    yield {"kind": "thinking", "text": part.text or ""}
+                    continue
                 if part.text:
                     pieces.append(part.text)
                     yield {"kind": "delta", "text": part.text}
@@ -218,10 +235,8 @@ class GeminiProvider:
                     args = fc.args
                     if args is not None:
                         slot["arguments"] = json.dumps(args) if isinstance(args, dict) else str(args)
-                    if function_call_parts and function_call_parts[-1].function_call.name == fc.name:
-                        function_call_parts[-1] = part
-                    else:
-                        function_call_parts.append(part)
+                    # One stored part per call, in order. Parallel same-name calls stay separate.
+                    function_call_parts.append(part)
                     yield {
                         "kind": "tool_delta",
                         "index": index,
@@ -291,7 +306,10 @@ class GeminiProvider:
             if not saw_token:
                 if item.candidates:
                     parts = item.candidates[0].content.parts if item.candidates[0].content else []
-                    if any(getattr(p, "text", None) or getattr(p, "function_call", None) for p in parts or []):
+                    if any(
+                        getattr(p, "thought", False) or getattr(p, "text", None) or getattr(p, "function_call", None)
+                        for p in parts or []
+                    ):
                         saw_token = True
             yield item
 

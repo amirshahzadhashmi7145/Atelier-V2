@@ -151,10 +151,18 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
         }
     if op == "edit":
         old = arguments.get("old_text") or arguments.get("old") or ""
-        new = arguments.get("new_text") or arguments.get("new") or ""
+        new_given = next((key for key in ("new_text", "new") if key in arguments), None)
+        new = (arguments.get(new_given) or "") if new_given else ""
         if not target.exists():
             return {"refused": True, "reason": "file missing; use write for new files"}
-        content = before.replace(old, new, 1) if old and old in before else before
+        if not old:
+            return {"refused": True, "reason": "edit needs old_text; use write to replace the whole file"}
+        if new_given is None:
+            # The model sent `content` (or nothing) instead of new_text; silently deleting old_text would gut the file.
+            return {"refused": True, "reason": "edit needs new_text (the replacement for old_text); use write to replace the whole file"}
+        if old not in before:
+            return {"output": "old_text not found; no change", "changed": False}
+        content = before.replace(old, new, 1)
         target.write_text(content)
         _diff(run["id"], folder, path, before, content)
         return {"output": "edited", "changed": before != content}
@@ -247,12 +255,19 @@ def _build(run: dict, folder: Path | None, should_stop) -> dict:
     log = ""
     ok = False
     if folder is not None and (folder / "package.json").exists():
-        package = json.loads((folder / "package.json").read_text())
+        try:
+            package = json.loads((folder / "package.json").read_text())
+        except json.JSONDecodeError:
+            package = None
+        if not isinstance(package, dict):
+            log = "package.json is not valid JSON; rewrite it with files.write"
+            package = {}
         scripts = package.get("scripts") or {}
-        ok = "build" in scripts and "test" in scripts
+        ok = "build" in scripts and "test" in scripts and not log
         for script in ("build", "test"):
             if script not in scripts:
                 ok = False
+                log += f'package.json has no "{script}" script; add one under "scripts"\n'
                 continue
             code, output = sandbox.run_command(folder, f"npm run {script}", should_stop)
             log += output

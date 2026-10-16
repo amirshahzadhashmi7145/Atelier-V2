@@ -64,6 +64,113 @@ def test_reconstructed_assistant_raises_thought_signature_lost():
         list(openai_gateway.stream_turn("gemini-2.0-flash", bad, [], {}, provider="gemini"))
 
 
+def _fake_stream_chunks(parts_per_chunk):
+    from types import SimpleNamespace
+
+    def chunks(self, model, contents, gen_config):
+        for parts in parts_per_chunk:
+            content = SimpleNamespace(parts=parts)
+            yield SimpleNamespace(candidates=[SimpleNamespace(content=content)], usage_metadata=None)
+
+    return chunks
+
+
+def test_parallel_same_name_calls_keep_one_part_each(monkeypatch):
+    import base64
+
+    from google.genai import types
+
+    monkeypatch.delenv("GATEWAY_MOCK", raising=False)
+    sig = base64.b64encode(b"first-call-signature")
+    first = types.Part(function_call=types.FunctionCall(name="files", args={"op": "write", "path": "a.html"}), thought_signature=sig)
+    second = types.Part(function_call=types.FunctionCall(name="files", args={"op": "write", "path": "b.css"}))
+    with patch.object(gemini_mod.GeminiProvider, "_stream_chunks", _fake_stream_chunks([[first], [second]])):
+        events = list(gemini_mod.GeminiProvider().complete("gemini-2.5-pro", [{"role": "user", "content": "go"}], [], {}, stream=True))
+    done = [event for event in events if event["kind"] == "done"][-1]
+    assert [call["name"] for call in done["tool_calls"]] == ["files", "files"]
+    parts = done["gemini_model_content"]["parts"]
+    assert len([part for part in parts if part.get("function_call")]) == 2
+    assert parts[0].get("thought_signature")
+    # Replaying this turn must pass the pairing invariant.
+    from runtime import messages as msglib
+
+    calls = [{"id": c["id"], "name": c["name"], "arguments": c["arguments"]} for c in done["tool_calls"]]
+    history = [
+        {"role": "user", "content": "go"},
+        msglib.assistant_message("", calls, gemini_model_content=done["gemini_model_content"]),
+        msglib.tool_message(calls[0]["id"], "ok"),
+        msglib.tool_message(calls[1]["id"], "ok"),
+    ]
+    gemini_transcript.assert_gemini_thought_signatures(history)
+
+
+def test_thought_parts_are_signalled_not_content(monkeypatch):
+    from google.genai import types
+
+    monkeypatch.delenv("GATEWAY_MOCK", raising=False)
+    thought = types.Part(text="Planning the board layout", thought=True)
+    answer = types.Part(text="Done.")
+    with patch.object(gemini_mod.GeminiProvider, "_stream_chunks", _fake_stream_chunks([[thought], [answer]])):
+        events = list(gemini_mod.GeminiProvider().complete("gemini-3.8-flash", [{"role": "user", "content": "go"}], [], {}, stream=True))
+    kinds = [event["kind"] for event in events]
+    assert kinds == ["thinking", "delta", "done"]
+    assert events[-1]["content"] == "Done."
+
+
+def test_thought_part_counts_as_first_token(monkeypatch):
+    """A thought summary arriving early must stop the 60s first-token timer."""
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("GATEWAY_MOCK", raising=False)
+    monkeypatch.setenv("MODEL_FIRST_TOKEN_S", "0.2")
+
+    class FakeModels:
+        @staticmethod
+        def generate_content_stream(model, contents, config):
+            thought = SimpleNamespace(text="thinking", thought=True, function_call=None)
+            yield SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[thought]))], usage_metadata=None)
+            time.sleep(0.5)  # longer than the first-token limit, but a token was already seen
+            fc = SimpleNamespace(name="files", args={"op": "list", "path": "."}, id=None)
+            part = SimpleNamespace(text=None, thought=False, function_call=fc, thought_signature=b"sig")
+            yield SimpleNamespace(candidates=[SimpleNamespace(content=SimpleNamespace(parts=[part]))], usage_metadata=None)
+
+    fake_client = SimpleNamespace(models=FakeModels())
+    monkeypatch.setattr(gemini_transcript, "dump_model_content", lambda content: {"role": "model", "parts": []})
+    with patch.object(gemini_mod.GeminiProvider, "_client", return_value=fake_client):
+        chunks = list(gemini_mod.GeminiProvider()._stream_chunks("gemini-3.8-flash", [], None))
+    assert len(chunks) == 2
+
+
+def test_supported_config_drops_foreign_keys():
+    provider = gemini_mod.GeminiProvider()
+    kept = provider.supported_config("gemini-3.8-flash", {"webSearch": True, "structuredOutputs": True, "temperature": 0.3, "maxOutputTokens": 10})
+    assert kept == {"structuredOutputs": True, "temperature": 0.3}
+
+
+def test_structured_outputs_ignored_when_tools_present(monkeypatch):
+    captured = {}
+
+    def fake_chunks(self, model, contents, gen_config):
+        captured["mime"] = gen_config.response_mime_type
+        captured["tools"] = gen_config.tools
+        return iter(())
+
+    monkeypatch.delenv("GATEWAY_MOCK", raising=False)
+    tools = [{"type": "function", "function": {"name": "files", "description": "f", "parameters": {"type": "object"}}}]
+    with patch.object(gemini_mod.GeminiProvider, "_stream_chunks", fake_chunks):
+        list(
+            gemini_mod.GeminiProvider().complete(
+                "gemini-3.8-flash",
+                [{"role": "user", "content": "go"}],
+                tools,
+                {"structuredOutputs": True, "webSearch": True},
+                stream=True,
+            )
+        )
+    assert captured["mime"] is None
+    assert captured["tools"]
+
+
 def test_pairing_rejects_orphan_tool_on_gemini_path():
     messages = [
         {"role": "assistant", "tool_calls": [{"id": "x", "type": "function", "function": {"name": "files", "arguments": "{}"}}], "content": None},
@@ -190,7 +297,11 @@ def test_real_connect_four_gemini(tmp_path):
             "name": "Frontend",
             "roleKey": "frontend",
             "toolIds": ["files", "shell", "build_test", "headless_browser"],
-            "model": {"provider": "gemini", "name": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"), "config": {}},
+            "model": {
+                "provider": "gemini",
+                "name": os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
+                "config": {"webSearch": True, "structuredOutputs": True},
+            },
         },
     ).json()
     version = client.post(
@@ -203,7 +314,7 @@ def test_real_connect_four_gemini(tmp_path):
         json={
             "agentId": agent["id"],
             "workspace": {"kind": "scaffold", "template": "local"},
-            "task": "Build a Connect 4 game UI with a playable board",
+            "task": "create connect 4 multiplayer game with an option to choose single player with computer on the other side and add a difficulty levels easy med hard",
         },
     ).json()
     deadline = time.time() + 600

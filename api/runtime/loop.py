@@ -82,6 +82,8 @@ def drive(run_id: str) -> None:
                 if item.get("kind") == "retry":
                     db.append_event(run_id, "MODEL_RETRY", {"attempt": item.get("attempt"), "reason": item.get("reason")})
                     continue
+                if item.get("kind") == "thinking":
+                    continue
                 if item["kind"] == "delta":
                     cid = item.get("call") or call_id
                     if cid not in opened:

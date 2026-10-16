@@ -109,3 +109,12 @@ Failures / known gaps: unchanged out-of-scope items (Anthropic/Ollama adapters, 
 New dependencies: none
 Follow-ups: none for this bug
 
+## S11 follow-up (studio 400 / stale server)
+
+Session: S11 feat/gemini-provider (studio 400)
+Built: Parallel same-name Gemini function calls keep one stored part each; agent config is filtered to the Gemini schema and `structuredOutputs` is not sent as JSON mime type when tools are present. Thought summaries count as first token. API restarted from current code with `--reload`. Live Connect 4 (multiplayer + CPU difficulty) on gemini-3.8-flash completed.
+Decisions: The 11:31 studio failure (`run_11317`) was the old uvicorn process plus reconstructed functionCall parts; after reload, the same prompt completes.
+Failures / known gaps: restart the API (or use `--reload`) after gateway changes or the studio will keep serving the previous adapter.
+New dependencies: none
+Follow-ups: Anthropic/Ollama adapters, Backend Engineer
+

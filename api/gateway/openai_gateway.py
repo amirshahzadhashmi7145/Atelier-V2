@@ -187,7 +187,7 @@ def _stream_turn_body(
 
     done_payload = None
     for event in _with_retries(model, provider, factory):
-        if event["kind"] == "retry":
+        if event["kind"] in ("retry", "thinking"):
             yield event
             continue
         if event["kind"] == "delta":

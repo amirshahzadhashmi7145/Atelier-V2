@@ -5,6 +5,7 @@
 - **Settings > Providers** Gemini card and **grouped model picker**; gateway **timeouts and retries** with `MODEL_RETRY` / “Retrying model” in chat.
 - **Connect 4 hang (pre-fix):** runs called the **OpenAI** API with a **Gemini model id**, so the stream never completed reliably and the run appeared frozen until gateway timeouts and provider routing were added.
 - **Gemini `thought_signature` (post-merge fix):** the adapter rebuilt assistant function-call turns from TOOL_CALLED events and dropped `thought_signature`; the transcript now stores verbatim `gemini_model_content` from the SDK stream and replays it on the next call. Missing storage raises `internal: thought_signature lost`; provider 4xx fails the run immediately with the API message.
+- **Studio 400 on Connect 4 (`run_11317`):** the API process was started before this code and never reloaded, so the studio still sent reconstructed functionCall parts. Parallel same-name calls now keep one stored part each; OpenAI leftover config (`webSearch`, `structuredOutputs` with tools) is filtered/ignored so Gemini 3.8 does not get `response_mime_type=application/json` together with tools.
 
 **Note:** `origin` was missing at session start and was re-added as `https://github.com/amirshahzad-hashmi7145/Atelier-V2.git`.
 
@@ -19,8 +20,8 @@
 ## Test plan
 
 - [x] `cd api && GATEWAY_MOCK=1 .venv/bin/pytest -q` — 58 passed, 5 skipped/failed (eval loop + vite scaffold match main/local env)
-- [x] `api/tests/test_gemini_provider.py` — fixture stream, `thought_signature` replay on second request, pairing, provider 400 → failed run &lt;2s, config_schema, list filter, timeout mock
-- [x] `RUN_REAL_LLM_TESTS=1` Connect 4 on Gemini (`gemini-3.8-flash` / `GEMINI_MODEL`) with **Record model requests** — completed (~5 min); captures at `api/debug/runs/<run_id>/*.json` (gitignored)
+- [x] `api/tests/test_gemini_provider.py` — fixture stream, `thought_signature` replay, parallel same-name calls, leftover config dropped, structuredOutputs ignored when tools present, provider 400 → failed run &lt;2s
+- [x] `RUN_REAL_LLM_TESTS=1` Connect 4 multiplayer + CPU difficulty on `gemini-3.8-flash` with **Record model requests** — completed in 5m36s; captures at `api/debug/runs/<run_id>/*.json` (gitignored)
 - [ ] `cd web && pnpm exec playwright test tests/e2e/providers.spec.ts` (with dev server / MSW as in CI)
 
 ## New dependencies
