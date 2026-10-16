@@ -25,8 +25,8 @@ export function latestVersion<T extends { version: number }>(versions: T[]): T |
 }
 
 export async function listVersions(id: string) {
-  const rows = unwrap(await api.GET("/agents/{id}/versions", { params: { path: { id } } }))
-  return [...rows].sort((a, b) => a.version - b.version)
+  const rows = await unwrap(await api.GET("/agents/{id}/versions", { params: { path: { id } } }))
+  return [...(rows ?? [])].sort((a, b) => a.version - b.version)
 }
 
 export async function createVersion(id: string, sections: Sections) {
