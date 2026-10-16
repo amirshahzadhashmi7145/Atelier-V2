@@ -84,6 +84,35 @@ def test_files_edit_and_write_hash(client: TestClient, tmp_path):
     assert "hash" in wrote and wrote["size"] == 3
 
 
+def test_files_edit_without_new_text_is_refused_not_destructive(client: TestClient, tmp_path):
+    """Gemini sent `content` instead of `new_text`; the old code wiped the file and said changed=True."""
+    agent_id = ready(client)
+    folder = tmp_path / "ws"
+    folder.mkdir()
+    run = {"id": "run_edit2", "agentId": agent_id, "folder": str(folder)}
+    (folder / "package.json").write_text('{"name": "x"}\n')
+    result = dispatch(run, "files", {"op": "edit", "path": "package.json", "old_text": '{"name": "x"}', "content": "{}"}, lambda: False)
+    assert result["refused"] and "new_text" in result["reason"]
+    assert (folder / "package.json").read_text() == '{"name": "x"}\n'
+    missing = dispatch(run, "files", {"op": "edit", "path": "package.json", "old_text": "nope", "new_text": "x"}, lambda: False)
+    assert missing["changed"] is False and "not found" in missing["output"]
+
+
+def test_build_test_survives_broken_package_json_and_names_missing_scripts(client: TestClient, tmp_path):
+    from runtime import tools
+
+    agent_id = ready(client)
+    folder = tmp_path / "ws"
+    folder.mkdir()
+    run = {"id": "run_build_bad", "agentId": agent_id, "folder": str(folder)}
+    (folder / "package.json").write_text("\n")
+    broken = tools._build(run, folder, lambda: False)
+    assert broken["buildOk"] is False and "not valid JSON" in broken["output"]
+    (folder / "package.json").write_text('{"scripts": {"test": "node -e 0"}}')
+    partial = tools._build(run, folder, lambda: False)
+    assert partial["buildOk"] is False and 'no "build" script' in partial["output"]
+
+
 def test_full_write_nudge_and_third_fails(client: TestClient):
     agent_id = ready(client)
     for version in ("v1", "v2", "v3"):

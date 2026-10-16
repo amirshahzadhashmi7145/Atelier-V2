@@ -82,6 +82,8 @@ def drive(run_id: str) -> None:
                 if item.get("kind") == "retry":
                     db.append_event(run_id, "MODEL_RETRY", {"attempt": item.get("attempt"), "reason": item.get("reason")})
                     continue
+                if item.get("kind") == "thinking":
+                    continue
                 if item["kind"] == "delta":
                     cid = item.get("call") or call_id
                     if cid not in opened:
@@ -91,8 +93,11 @@ def drive(run_id: str) -> None:
                     live.delta(run_id, cid, index, item["text"])
                 else:
                     turn = item
-        except ToolPairingError:
-            _fail(run, "error", "internal: tool result missing", recent)
+        except ToolPairingError as exc:
+            _fail(run, "error", str(exc), recent)
+            return
+        except openai_gateway.ProviderError as exc:
+            _fail(run, "error", exc.message, recent)
             return
         except openai_gateway.ModelTimeout as exc:
             _fail(run, "timeout", str(exc), recent)
@@ -121,7 +126,13 @@ def drive(run_id: str) -> None:
         if not calls:
             continue
         transcript = track.get("transcript") or []
-        transcript.append(msglib.assistant_message(turn.get("content") or "", calls))
+        transcript.append(
+            msglib.assistant_message(
+                turn.get("content") or "",
+                calls,
+                gemini_model_content=turn.get("gemini_model_content"),
+            )
+        )
         for call in calls:
             if _cancelled(run_id):
                 return

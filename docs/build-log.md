@@ -100,3 +100,21 @@ Failures / known gaps: Anthropic and Ollama adapters are not implemented. Some e
 New dependencies: google-genai — official Gemini SDK isolated to the gateway provider module.
 Follow-ups for the next session: Anthropic and Ollama providers on the same interface; Backend Engineer role; fix eval loop flake if still present on main.
 
+## S11 follow-up (thought_signature)
+
+Session: S11 feat/gemini-provider (follow-up)
+Built: Gemini model turns store verbatim `gemini_model_content` on the run transcript (including `thought_signature` on function-call parts); history replay uses stored parts, not reconstructed TOOL_CALLED events. Provider 4xx surfaces immediately on the run; Connect 4 on live Gemini completes with request capture under `api/debug/runs/<run_id>/`.
+Decisions: Function-call parts are accumulated from the stream (last chunk alone dropped signatures); assistant rows with tool_calls must carry `gemini_model_content` or the gateway raises `internal: thought_signature lost`.
+Failures / known gaps: unchanged out-of-scope items (Anthropic/Ollama adapters, Backend Engineer).
+New dependencies: none
+Follow-ups: none for this bug
+
+## S11 follow-up (studio 400 / stale server)
+
+Session: S11 feat/gemini-provider (studio 400)
+Built: Parallel same-name Gemini function calls keep one stored part each; agent config is filtered to the Gemini schema and `structuredOutputs` is not sent as JSON mime type when tools are present. Thought summaries count as first token. API restarted from current code with `--reload`. Live Connect 4 (multiplayer + CPU difficulty) on gemini-3.8-flash completed.
+Decisions: The 11:31 studio failure (`run_11317`) was the old uvicorn process plus reconstructed functionCall parts; after reload, the same prompt completes.
+Failures / known gaps: restart the API (or use `--reload`) after gateway changes or the studio will keep serving the previous adapter.
+New dependencies: none
+Follow-ups: Anthropic/Ollama adapters, Backend Engineer
+

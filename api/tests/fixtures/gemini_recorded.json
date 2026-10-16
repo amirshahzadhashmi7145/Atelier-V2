@@ -3,41 +3,93 @@
     {
       "role": "user",
       "content": "Read config"
-    },
-    {
-      "role": "assistant",
-      "content": null,
-      "tool_calls": [
-        {
-          "id": "call_files_1",
-          "type": "function",
-          "function": {
-            "name": "files",
-            "arguments": "{\"op\":\"read\",\"path\":\"package.json\"}"
-          }
-        }
-      ]
-    },
-    {
-      "role": "tool",
-      "tool_call_id": "call_files_1",
-      "content": "{\"name\":\"demo\"}"
     }
   ],
   "recorded": {
     "deltas": [
       {
-        "text": "Got "
+        "text": "Reading "
       },
       {
-        "text": "it."
+        "text": "package.json"
       }
     ],
-    "content": "Got it.",
-    "tool_calls_final": [],
+    "content": "Reading package.json",
+    "tool_calls_final": [
+      {
+        "id": "call_files_1",
+        "name": "files",
+        "arguments": "{\"op\":\"read\",\"path\":\"package.json\"}"
+      }
+    ],
+    "gemini_model_content": {
+      "role": "model",
+      "parts": [
+        {
+          "function_call": {
+            "name": "files",
+            "args": {
+              "op": "read",
+              "path": "package.json"
+            }
+          },
+          "thought_signature": "WjJWdGFXNXBMWFJvYjNWbmFIUXRjMmxuTFhZeA=="
+        }
+      ]
+    },
     "usage": {
       "input_tokens": 42,
-      "output_tokens": 7
+      "output_tokens": 12
+    }
+  },
+  "second_request": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Read config"
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_files_1",
+            "type": "function",
+            "function": {
+              "name": "files",
+              "arguments": "{\"op\":\"read\",\"path\":\"package.json\"}"
+            }
+          }
+        ],
+        "gemini_model_content": {
+          "role": "model",
+          "parts": [
+            {
+              "function_call": {
+                "name": "files",
+                "args": {
+                  "op": "read",
+                  "path": "package.json"
+                }
+              },
+              "thought_signature": "WjJWdGFXNXBMWFJvYjNWbmFIUXRjMmxuTFhZeA=="
+            }
+          ]
+        }
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_files_1",
+        "content": "{\"name\":\"demo\"}"
+      }
+    ],
+    "recorded": {
+      "content": "Got it.",
+      "tool_calls": [],
+      "usage": {
+        "input_tokens": 55,
+        "output_tokens": 4
+      }
     }
   }
 }

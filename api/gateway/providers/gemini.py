@@ -11,8 +11,10 @@ import time
 from pathlib import Path
 from typing import Iterator
 
-from gateway import mock_turns
-from gateway.exceptions import ModelTimeout
+from gateway import gemini_transcript, mock_turns
+from gateway.exceptions import ModelTimeout, ProviderError
+from gateway.tool_pairing import ToolPairingError, assert_chat_tool_pairing
+
 FIRST_TOKEN_S = 60.0
 TOTAL_CALL_S = 600.0
 TEXT_MODEL = re.compile(r"^models/gemini|^gemini", re.I)
@@ -32,9 +34,30 @@ STRUCTURED = {"type": "boolean", "default": False, "description": "Require struc
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "gemini_recorded.json"
 
+# Tests inspect the last contents list sent to the (mock) API.
+last_contents_sent: list | None = None
+
 
 def api_key() -> str:
     return (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+
+
+def provider_error_message(exc: Exception) -> str:
+    from google.genai.errors import ClientError, ServerError
+
+    if isinstance(exc, (ClientError, ServerError)):
+        payload = getattr(exc, "response_json", None) or {}
+        if isinstance(payload, dict):
+            err = payload.get("error") or payload
+            message = err.get("message") if isinstance(err, dict) else None
+            status = err.get("status") if isinstance(err, dict) else None
+            code = status or getattr(exc, "code", None)
+            if message and code:
+                return f"{code}: {message}"
+            if message:
+                return str(message)
+        return str(payload) or str(exc)
+    return str(exc)
 
 
 class GeminiProvider:
@@ -66,6 +89,11 @@ class GeminiProvider:
     def pricing(self, model: str) -> dict | None:
         return None
 
+    def supported_config(self, model: str, config: dict) -> dict:
+        """Drop keys the model's schema does not list (e.g. OpenAI leftovers like webSearch)."""
+        allowed = self.config_schema(model)["properties"].keys()
+        return {key: value for key, value in (config or {}).items() if key in allowed}
+
     def complete(
         self,
         model: str,
@@ -76,6 +104,8 @@ class GeminiProvider:
         stream: bool = True,
         tool_choice: str | None = None,
     ) -> Iterator[dict]:
+        assert_chat_tool_pairing(messages)
+        gemini_transcript.assert_gemini_thought_signatures(messages)
         if os.environ.get("GATEWAY_MOCK") == "1":
             yield from self._mock_stream(messages, stream)
             return
@@ -90,19 +120,36 @@ class GeminiProvider:
             limit = float(os.environ.get("MODEL_FIRST_TOKEN_S") or str(FIRST_TOKEN_S))
             time.sleep(limit + 0.05)
             raise ModelTimeout("Model call timed out waiting for the first token.")
+        if os.environ.get("MOCK_GEMINI_PROVIDER_ERROR"):
+            raise ProviderError(os.environ["MOCK_GEMINI_PROVIDER_ERROR"])
         if FIXTURE.is_file() and not mock_turns.SCRIPTS:
             payload = json.loads(FIXTURE.read_text())
             if payload.get("messages") == messages:
                 recorded = payload.get("recorded") or {}
                 for delta in recorded.get("deltas") or []:
                     yield {"kind": "delta", "text": delta.get("text") or ""}
-                for call in recorded.get("tool_calls") or []:
-                    yield {"kind": "tool_delta", "index": call.get("index", 0), "id": call.get("id"), "name": call.get("name"), "arguments": call.get("arguments") or ""}
                 usage = recorded.get("usage") or {"input_tokens": 1, "output_tokens": 1}
-                yield {
+                done = {
                     "kind": "done",
                     "content": recorded.get("content") or "",
                     "tool_calls": recorded.get("tool_calls_final") or recorded.get("tool_calls") or [],
+                    "usage": usage,
+                    "usd": mock_turns.usd(usage),
+                    "gemini_model_content": recorded.get("gemini_model_content"),
+                }
+                yield done
+                return
+            second = payload.get("second_request") or {}
+            if second.get("messages") == messages:
+                _, contents = _to_gemini_contents(messages)
+                global last_contents_sent
+                last_contents_sent = contents
+                recorded = second.get("recorded") or {}
+                usage = recorded.get("usage") or {"input_tokens": 1, "output_tokens": 1}
+                yield {
+                    "kind": "done",
+                    "content": recorded.get("content") or "ok",
+                    "tool_calls": recorded.get("tool_calls") or [],
                     "usage": usage,
                     "usd": mock_turns.usd(usage),
                 }
@@ -119,6 +166,7 @@ class GeminiProvider:
             "tool_calls": turn.get("tool_calls") or [],
             "usage": usage,
             "usd": mock_turns.usd(usage),
+            "gemini_model_content": turn.get("gemini_model_content"),
         }
 
     def _collect(self, model: str, messages: list[dict], tools: list[dict], config: dict) -> dict:
@@ -134,19 +182,30 @@ class GeminiProvider:
         from google.genai import types
 
         system, contents = _to_gemini_contents(messages)
+        global last_contents_sent
+        last_contents_sent = contents
+        config = self.supported_config(model, config)
+        # Gemini rejects a JSON response mime type together with function declarations.
+        structured = bool(config.get("structuredOutputs")) and not tools
         gen_config = types.GenerateContentConfig(
             system_instruction=system or None,
             tools=_to_gemini_tools(tools) or None,
             temperature=config.get("temperature"),
             max_output_tokens=config.get("maxOutputTokens"),
-            response_mime_type="application/json" if config.get("structuredOutputs") else None,
+            response_mime_type="application/json" if structured else None,
         )
-        if config.get("thinkingBudget") is not None and THINKING.search(model):
-            gen_config.thinking_config = types.ThinkingConfig(thinking_budget=int(config["thinkingBudget"]))
+        if THINKING.search(model):
+            # Stream thought summaries: a large functionCall arrives as one part only when
+            # fully generated, so without thoughts the first-token clock would see nothing.
+            thinking = {"include_thoughts": True}
+            if config.get("thinkingBudget") is not None:
+                thinking["thinking_budget"] = int(config["thinkingBudget"])
+            gen_config.thinking_config = types.ThinkingConfig(**thinking)
 
         pieces: list[str] = []
         calls: dict[int, dict] = {}
         usage = {"input_tokens": 0, "output_tokens": 0}
+        function_call_parts: list = []
         for chunk in self._stream_chunks(model, contents, gen_config):
             meta = getattr(chunk, "usage_metadata", None)
             if meta:
@@ -156,8 +215,13 @@ class GeminiProvider:
                 }
             if not chunk.candidates:
                 continue
-            parts = chunk.candidates[0].content.parts if chunk.candidates[0].content else []
+            candidate = chunk.candidates[0]
+            parts = candidate.content.parts if candidate.content else []
             for part in parts or []:
+                if getattr(part, "thought", False):
+                    # Thought summary: activity for the first-token timer, not answer text.
+                    yield {"kind": "thinking", "text": part.text or ""}
+                    continue
                 if part.text:
                     pieces.append(part.text)
                     yield {"kind": "delta", "text": part.text}
@@ -171,6 +235,8 @@ class GeminiProvider:
                     args = fc.args
                     if args is not None:
                         slot["arguments"] = json.dumps(args) if isinstance(args, dict) else str(args)
+                    # One stored part per call, in order. Parallel same-name calls stay separate.
+                    function_call_parts.append(part)
                     yield {
                         "kind": "tool_delta",
                         "index": index,
@@ -184,12 +250,23 @@ class GeminiProvider:
             if isinstance(call.get("arguments"), dict):
                 call["arguments"] = json.dumps(call["arguments"])
             normalized.append(call)
+        gemini_model_content = None
+        if function_call_parts or pieces:
+            from google.genai import types
+
+            model_parts: list[types.Part] = []
+            text = "".join(pieces)
+            if text:
+                model_parts.append(types.Part(text=text))
+            model_parts.extend(function_call_parts)
+            gemini_model_content = gemini_transcript.dump_model_content(types.Content(role="model", parts=model_parts))
         yield {
             "kind": "done",
             "content": "".join(pieces),
             "tool_calls": normalized,
             "usage": usage,
             "usd": mock_turns.usd(usage),
+            "gemini_model_content": gemini_model_content,
         }
 
     def _stream_chunks(self, model: str, contents, gen_config):
@@ -225,11 +302,14 @@ class GeminiProvider:
             if item is None:
                 return
             if isinstance(item, Exception):
-                raise item
+                raise ProviderError(provider_error_message(item)) from item
             if not saw_token:
                 if item.candidates:
                     parts = item.candidates[0].content.parts if item.candidates[0].content else []
-                    if any(getattr(p, "text", None) or getattr(p, "function_call", None) for p in parts or []):
+                    if any(
+                        getattr(p, "thought", False) or getattr(p, "text", None) or getattr(p, "function_call", None)
+                        for p in parts or []
+                    ):
                         saw_token = True
             yield item
 
@@ -279,20 +359,21 @@ def _to_gemini_contents(messages: list[dict]) -> tuple[str, list]:
             index += 1
             continue
         if role == "assistant":
+            stored = message.get("gemini_model_content")
+            if stored:
+                contents.append(gemini_transcript.load_model_content(stored))
+                for call in message.get("tool_calls") or []:
+                    call_id = call.get("id") or ""
+                    fn = call.get("function") if isinstance(call, dict) else {}
+                    if call_id and fn.get("name"):
+                        pending_calls[call_id] = fn.get("name")
+                index += 1
+                continue
+            if message.get("tool_calls"):
+                raise ToolPairingError("internal: thought_signature lost")
             parts: list[types.Part] = []
             if message.get("content"):
                 parts.append(types.Part(text=str(message["content"])))
-            for call in message.get("tool_calls") or []:
-                fn = call.get("function") if isinstance(call, dict) else {}
-                call_id = call.get("id") or ""
-                if call_id and fn.get("name"):
-                    pending_calls[call_id] = fn.get("name")
-                args_raw = fn.get("arguments") if isinstance(fn, dict) else "{}"
-                try:
-                    args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
-                except json.JSONDecodeError:
-                    args = {}
-                parts.append(types.Part(function_call=types.FunctionCall(name=fn.get("name"), args=args or {})))
             contents.append(types.Content(role="model", parts=parts or [types.Part(text="")]))
             index += 1
             continue
@@ -311,6 +392,9 @@ def _to_gemini_contents(messages: list[dict]) -> tuple[str, list]:
                     )
                 )
                 index += 1
+            if not responses:
+                index += 1
+                continue
             contents.append(types.Content(role="user", parts=responses))
             continue
         index += 1
