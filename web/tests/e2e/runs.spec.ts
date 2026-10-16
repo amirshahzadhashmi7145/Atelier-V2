@@ -23,8 +23,9 @@ async function mockModelRoute(page: Page) {
 async function activateAgent(page: Page) {
   await mockModelRoute(page)
   await page.goto("/settings/providers")
-  await page.getByRole("button", { name: "Test connection" }).click()
-  await page.getByRole("button", { name: "Refresh models" }).click()
+  const openai = page.locator("[data-provider='openai']")
+  await openai.getByRole("button", { name: "Test connection" }).click()
+  await openai.getByRole("button", { name: "Refresh models" }).click()
   await expect(page.getByText("gpt-5", { exact: true })).toBeVisible()
   await page.goto("/agents/new")
   await page.getByRole("button", { name: "Import Frontend Engineer" }).click()
