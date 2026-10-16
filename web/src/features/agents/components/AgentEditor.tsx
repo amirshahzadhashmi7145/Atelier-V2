@@ -154,10 +154,6 @@ export function AgentEditor({ id }: { id: string }) {
     setSelectedAgentId(id)
   }, [id, setSelectedAgentId])
 
-  useEffect(() => {
-    setDraft(null)
-  }, [id])
-
   const previewKey = current
     ? JSON.stringify({
         sections: current.sections,

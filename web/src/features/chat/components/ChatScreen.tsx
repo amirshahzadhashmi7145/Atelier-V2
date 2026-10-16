@@ -570,6 +570,7 @@ function LiveText({
   const [phase, setPhase] = useState("Starting run…")
   const seen = useRef(new Set<string>())
   const notify = useRef(onActivity)
+  const waitHint = modelWaitHint(model)
   useEffect(() => {
     notify.current = onActivity
   }, [onActivity])
@@ -601,7 +602,7 @@ function LiveText({
         notify.current?.()
       }
       if (event.type === "MODEL_STARTED") {
-        setPhase(`Turn ${String(event.payload.iteration ?? "?")}: waiting for ${modelWaitHint(model)}…`)
+        setPhase(`Turn ${String(event.payload.iteration ?? "?")}: waiting for ${waitHint}…`)
         notify.current?.()
       }
       if (event.type === "TOOL_CALLED") {
@@ -666,11 +667,10 @@ function LiveText({
     }
     void pump()
     return () => controller.abort()
-  }, [runId, model?.provider, model?.name])
+  }, [runId, waitHint])
 
   const finished = tools.filter((item) => item.done)
   const runningTools = tools.filter((item) => !item.done)
-  const spoken = bubbles.some((bubble) => bubbleText(bubble).length > 0)
   return (
     <div className="flex flex-col gap-1 text-sm" data-streaming={active ? "" : undefined}>
       {active ? (
