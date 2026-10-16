@@ -10,6 +10,7 @@ scaffoldTemplate: vite-react-ts
 packageAllowList:
   - react
   - react-dom
+  - lucide-react
   - "@types/react"
   - next
   - tailwindcss

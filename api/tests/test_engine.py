@@ -171,6 +171,29 @@ def test_allow_list_refusal(client: TestClient):
     assert "vue" in body
 
 
+def test_react_stack_allows_lucide_and_tailwind_globs(client: TestClient):
+    from runtime.tools import _package_allowed
+
+    react = yaml.safe_load((ROOT / "stacks" / "react.yaml").read_text())
+    nextjs = yaml.safe_load((ROOT / "stacks" / "nextjs.yaml").read_text())
+    assert "lucide-react" in react["packageAllowList"]
+    assert "lucide-react" in nextjs["packageAllowList"]
+    agent_id = ready(client)
+    stack = client.post(
+        "/stacks",
+        json={"name": "React", "version": "19", "packageAllowList": ["react", "lucide-react", "@tailwindcss/*"]},
+    ).json()
+    client.patch(f"/agents/{agent_id}", json={"stackIds": [stack["id"]]})
+    agent = db.get("agent", agent_id)
+    assert _package_allowed(agent, "lucide-react")
+    assert _package_allowed(agent, "@tailwindcss/postcss")
+    assert not _package_allowed(agent, "vue")
+    db.put("stack", "react", {"id": "react", "packageAllowList": ["react"], "enabledByDefault": True})
+    db.sync_stack_allow_lists()
+    client.patch(f"/agents/{agent_id}", json={"stackIds": ["react"]})
+    assert _package_allowed(db.get("agent", agent_id), "lucide-react")
+
+
 def test_spend_cap_stops_the_run(client: TestClient):
     openai_gateway.SCRIPTS.append({"content": "thinking", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 600000}})
     run = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Spend"}).json()
@@ -403,6 +426,31 @@ def test_classifier_routes_chat_task_and_out(client: TestClient):
     assert stored["label"] == "out"
     assert "outside my role" in stored["summary"]
     assert wait_status(client, task["runId"], {"completed", "failed"}, timeout=20)["status"] == "completed"
+
+
+def test_stop_preview_message_does_not_start_a_run(client: TestClient):
+    from runtime.classify import is_control, is_preview_stop, label
+
+    assert is_preview_stop("ok stop the preiew server")
+    assert is_preview_stop("ok stop the preview server")
+    assert not is_control("ok stop the preiew server")
+    assert not is_control("stop the preview server")
+    assert is_control("stop")
+    assert label({}, "ok stop the preiew server") == "chat"
+    agent_id = ready(client)
+    project = client.post("/projects", json={"name": "Preview", "agentId": agent_id}).json()
+    db.put("preview", project["id"], {"pid": 0, "url": "http://127.0.0.1:9"})
+    message = client.post(f"/projects/{project['id']}/messages", json={"text": "ok stop the preiew server"}).json()
+    assert "runId" not in message
+    rows = client.get(f"/projects/{project['id']}/messages").json()
+    assert rows[-1]["text"] == "Preview stopped."
+    assert db.get("preview", project["id"]) is None
+    assert client.get("/runs").json()["total"] == 0
+    idle = client.post("/projects", json={"name": "Idle", "agentId": agent_id}).json()
+    again = client.post(f"/projects/{idle['id']}/messages", json={"text": "stop the preview"}).json()
+    assert "runId" not in again
+    idle_rows = client.get(f"/projects/{idle['id']}/messages").json()
+    assert idle_rows[-1]["text"] == "No preview is running."
 
 
 def test_scope_refuses_backend_work_and_a_server_file(client: TestClient):
