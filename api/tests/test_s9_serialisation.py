@@ -9,7 +9,7 @@ from gateway import openai_gateway
 from runtime.tools import dispatch
 from store import db
 
-from test_engine import client, fresh, ready  # noqa: F401
+from test_engine import client, fresh, ready, wait_status  # noqa: F401
 
 
 def _done():
@@ -266,6 +266,20 @@ def test_no_progress_stop(client: TestClient):
         time.sleep(0.05)
     text = next(item["payload"]["text"] for item in db.events_for(message["runId"]) if item["type"] == "RUN_FAILED")
     assert "no progress" in text
+
+
+def test_distinct_file_reads_are_not_no_progress(client: TestClient):
+    agent_id = ready(client)
+    project = client.post("/projects", json={"name": "Reads", "agentId": agent_id}).json()
+    folder = Path(project["folderPath"])
+    for index in range(16):
+        (folder / f"f{index}.txt").write_text(f"body {index}")
+        openai_gateway.SCRIPTS.append(
+            {"tool_calls": [{"id": f"r{index}", "name": "files", "arguments": {"op": "read", "path": f"f{index}.txt"}}], "usage": {"input_tokens": 1, "output_tokens": 1}}
+        )
+    openai_gateway.SCRIPTS.append(_done())
+    message = client.post(f"/projects/{project['id']}/messages", json={"text": "read the files"}).json()
+    assert wait_status(client, message["runId"], {"completed", "failed"}, timeout=12)["status"] == "completed"
 
 
 def test_daily_cap_blocks_new_runs(client: TestClient):

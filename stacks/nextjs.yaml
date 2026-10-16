@@ -9,6 +9,7 @@ scaffoldTemplate: next
 packageAllowList:
   - react
   - react-dom
+  - lucide-react
   - "@types/react"
   - next
   - tailwindcss

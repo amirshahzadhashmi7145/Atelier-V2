@@ -244,9 +244,13 @@ def _allow_list(agent: dict) -> set[str]:
     return names
 
 
+def _package_allowed(agent: dict, name: str) -> bool:
+    return any(fnmatch(name, pattern) for pattern in _allow_list(agent))
+
+
 def _install(run: dict, folder: Path | None, name: str, should_stop) -> dict:
     agent = db.get("agent", run["agentId"]) or {}
-    if name not in _allow_list(agent):
+    if not _package_allowed(agent, name):
         return {"refused": True, "reason": f"{name} is not on an enabled stack allow-list"}
     return _shell(folder, f"npm install {name}", should_stop)
 
@@ -477,8 +481,10 @@ def stop_preview(project_id: str) -> None:
     if not record:
         return
     try:
-        os_kill(record["pid"])
-    except ProcessLookupError:
+        pid = int(record.get("pid") or 0)
+        if pid > 1:
+            os_kill(pid)
+    except (ProcessLookupError, PermissionError, OSError):
         pass
     db.delete("preview", project_id)
     project = db.get("project", project_id)

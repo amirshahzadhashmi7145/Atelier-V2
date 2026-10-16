@@ -33,6 +33,7 @@ def engine():
         _engine = create_engine(url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(_engine)
         seed()
+        sync_stack_allow_lists()
     return _engine
 
 
@@ -188,6 +189,24 @@ def seed() -> None:
         },
     )
     put("meta", "seeded", {"ok": True})
+
+
+def sync_stack_allow_lists() -> None:
+    """Add new library allow-list packages onto stacks that were imported earlier."""
+    try:
+        templates = json.loads(SEED_PATH.read_text())["library"]["stacks"]
+    except (OSError, KeyError, json.JSONDecodeError, TypeError):
+        return
+    for template in templates:
+        stack_id = template.get("id")
+        existing = get("stack", stack_id) if stack_id else None
+        if not existing:
+            continue
+        allow = list(existing.get("packageAllowList") or [])
+        extra = [name for name in (template.get("packageAllowList") or []) if name not in allow]
+        if extra:
+            existing["packageAllowList"] = allow + extra
+            put("stack", stack_id, existing)
 
 
 def library() -> dict:

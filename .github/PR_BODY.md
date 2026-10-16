@@ -6,6 +6,7 @@
 - **Connect 4 hang (pre-fix):** runs called the **OpenAI** API with a **Gemini model id**, so the stream never completed reliably and the run appeared frozen until gateway timeouts and provider routing were added.
 - **Gemini `thought_signature` (post-merge fix):** the adapter rebuilt assistant function-call turns from TOOL_CALLED events and dropped `thought_signature`; the transcript now stores verbatim `gemini_model_content` from the SDK stream and replays it on the next call. Missing storage raises `internal: thought_signature lost`; provider 4xx fails the run immediately with the API message.
 - **Studio 400 on Connect 4 (`run_11317`):** the API process was started before this code and never reloaded, so the studio still sent reconstructed functionCall parts. Parallel same-name calls now keep one stored part each; OpenAI leftover config (`webSearch`, `structuredOutputs` with tools) is filtered/ignored so Gemini 3.8 does not get `response_mime_type=application/json` together with tools.
+- **Connect 4 leftover studio bugs:** `lucide-react` was refused (not on the React allow-list); `ok stop the preview server` started a coding run (heuristic defaulted to task, and the "preiew" typo did not match); 15 file reads failed the run as "no progress". Preview-stop now replies without a run, reads/lists skip the stale-tool counter, and lucide/fnmatch are on the stack allow-list.
 
 **Note:** `origin` was missing at session start and was re-added as `https://github.com/amirshahzad-hashmi7145/Atelier-V2.git`.
 
@@ -21,6 +22,7 @@
 
 - [x] `cd api && GATEWAY_MOCK=1 .venv/bin/pytest -q` — 58 passed, 5 skipped/failed (eval loop + vite scaffold match main/local env)
 - [x] `api/tests/test_gemini_provider.py` — fixture stream, `thought_signature` replay, parallel same-name calls, leftover config dropped, structuredOutputs ignored when tools present, provider 400 → failed run &lt;2s
+- [x] Preview-stop does not create a run (`ok stop the preiew server`); 16 distinct file reads complete; `search_data` ×16 still fails "no progress"; lucide-react + `@tailwindcss/*` allowed
 - [x] `RUN_REAL_LLM_TESTS=1` Connect 4 multiplayer + CPU difficulty on `gemini-3.8-flash` with **Record model requests** — completed in 5m36s; captures at `api/debug/runs/<run_id>/*.json` (gitignored)
 - [ ] `cd web && pnpm exec playwright test tests/e2e/providers.spec.ts` (with dev server / MSW as in CI)
 

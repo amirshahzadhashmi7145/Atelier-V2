@@ -118,3 +118,12 @@ Failures / known gaps: restart the API (or use `--reload`) after gateway changes
 New dependencies: none
 Follow-ups: Anthropic/Ollama adapters, Backend Engineer
 
+## S11 follow-up (studio Connect 4 leftovers)
+
+Session: S11 feat/gemini-provider (preview-stop / lucide / no-progress)
+Built: "ok stop the preview server" (including the "preiew" typo) stops the preview and does not start a coding run. File reads and listings no longer count toward the 15-tool "no progress" loop. `lucide-react` is on the React and Next.js stack allow-lists, and package names match with fnmatch so `@tailwindcss/*` works.
+Decisions: Preview-stop is handled before classify/control so "stop the preview" is not treated as stop-all. `os.kill` on a missing or unprivileged pid is ignored so the preview record still clears.
+Failures / known gaps: `vite`/`next` as a shell daemon is still refused; use the preview tool. Anthropic/Ollama adapters and Backend Engineer remain out of scope.
+New dependencies: none
+Follow-ups: Anthropic/Ollama adapters, Backend Engineer
+
