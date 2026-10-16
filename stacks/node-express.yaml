@@ -1,0 +1,22 @@
+id: node-express
+name: Node Express
+version: "5"
+skillIds:
+  - definition-of-done
+dataSourceIds: []
+scaffoldTemplate: express-prisma
+packageAllowList:
+  - express
+  - prisma
+  - "@prisma/client"
+  - zod
+  - jsonwebtoken
+  - bcrypt
+  - cors
+  - vitest
+  - supertest
+  - tsx
+  - typescript
+  - "@types/*"
+enabledByDefault: true
+sources: []

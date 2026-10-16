@@ -983,6 +983,29 @@ paths:
           description: Project removed from the studio (project folder on disk is kept)
         "404":
           $ref: "#/components/responses/Error"
+  /projects/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: addProjectMember
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectMemberCreate"
+      responses:
+        "200":
+          description: Project with the new member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
   /projects/{id}/messages:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2082,6 +2105,12 @@ components:
           type: array
           items:
             type: string
+        endpoints:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Backend-created HTTP endpoints copied into api/CONTRACT.md
     Run:
       type: object
       additionalProperties: false
@@ -2332,9 +2361,43 @@ components:
           description: Run currently working in this project, if any.
         summary:
           type: [string, "null"]
+        memberDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectMember"
         createdAt:
           type: string
           format: date-time
+    ProjectMember:
+      type: object
+      additionalProperties: false
+      required: [agentId, name, color, zones]
+      properties:
+        agentId:
+          type: string
+        name:
+          type: string
+        roleKey:
+          type: string
+        color:
+          type: string
+        zones:
+          type: array
+          items:
+            type: string
+        overlapZones:
+          type: array
+          items:
+            type: string
+        lastTask:
+          type: [string, "null"]
+    ProjectMemberCreate:
+      type: object
+      additionalProperties: false
+      required: [agentId]
+      properties:
+        agentId:
+          type: string
     ProjectCreate:
       type: object
       additionalProperties: false
@@ -2459,6 +2522,12 @@ components:
           type: string
           enum: [waiting]
         statusNote:
+          type: string
+        agentId:
+          type: string
+        agentName:
+          type: string
+        agentColor:
           type: string
         createdAt:
           type: string

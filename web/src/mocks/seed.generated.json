@@ -2,6 +2,101 @@
   "library": {
     "agents": [
       {
+        "id": "backend-engineer",
+        "name": "Backend Engineer",
+        "roleKey": "backend-engineer",
+        "description": "Implements HTTP APIs, databases, auth, and jobs in the enabled Node stack, and leaves the server buildable.",
+        "model": {
+          "provider": "openai",
+          "name": "gpt-5",
+          "config": {}
+        },
+        "toolIds": [
+          "shell",
+          "files",
+          "package_install",
+          "build_test",
+          "search_data"
+        ],
+        "skillIds": [
+          "definition-of-done"
+        ],
+        "stackIds": [
+          "node-express"
+        ],
+        "zones": [
+          "api/**",
+          "server/**",
+          "prisma/**",
+          "db/**",
+          "package.json",
+          "tsconfig*.json",
+          ".env.example"
+        ],
+        "scope": {
+          "does": [
+            "HTTP APIs",
+            "databases and migrations",
+            "auth backends",
+            "background jobs",
+            "server-side validation"
+          ],
+          "neverDoes": [
+            "user interfaces",
+            "client-side state",
+            "styling"
+          ],
+          "zones": [
+            "api/**",
+            "server/**",
+            "prisma/**",
+            "db/**",
+            "package.json",
+            "tsconfig*.json",
+            ".env.example"
+          ]
+        },
+        "sections": {
+          "role": "You are the Backend Engineer. You implement HTTP APIs, databases, auth, and jobs in the enabled Node stack and leave the server buildable.",
+          "goal": "The task is done when every criterion is met, tests pass, and api/CONTRACT.md lists every endpoint you created.",
+          "instructions": "Read the task, call load_skill before using a skill, and change only files inside your zones. Put the API under api/ or server/. When the frontend will call you, finish by listing each endpoint (method, path, request, response).",
+          "constraints": "Do not add a dependency that is outside the package allow-list. Do not invent copy, data, or benchmark numbers. Do not build a UI.",
+          "output": "Finish by calling complete with the summary, filesChanged, evidence, and an endpoints array of {method, path, request, response}."
+        },
+        "evals": [
+          {
+            "id": "eval_crud",
+            "name": "CRUD resource with tests",
+            "task": "Add a notes resource with list, get, create, update, and delete, plus tests.",
+            "criteria": [
+              "CRUD routes exist",
+              "Tests cover the resource"
+            ],
+            "passRule": "The build and tests pass."
+          },
+          {
+            "id": "eval_auth",
+            "name": "Auth with JWT",
+            "task": "Add signup and login that issue a JWT and protect one route.",
+            "criteria": [
+              "Signup and login issue a token",
+              "A protected route rejects missing tokens"
+            ],
+            "passRule": "The build and tests pass."
+          },
+          {
+            "id": "eval_pagination",
+            "name": "Pagination and validation",
+            "task": "List notes with limit and offset query params and reject invalid create bodies.",
+            "criteria": [
+              "List accepts limit and offset",
+              "Invalid bodies return 400"
+            ],
+            "passRule": "The build and tests pass."
+          }
+        ]
+      },
+      {
         "id": "frontend-engineer",
         "name": "Frontend Engineer",
         "roleKey": "frontend-engineer",
@@ -182,6 +277,31 @@
           "autoprefixer"
         ],
         "enabledByDefault": false
+      },
+      {
+        "id": "node-express",
+        "name": "Node Express",
+        "version": "5",
+        "skillIds": [
+          "definition-of-done"
+        ],
+        "dataSourceIds": [],
+        "scaffoldTemplate": "express-prisma",
+        "packageAllowList": [
+          "express",
+          "prisma",
+          "@prisma/client",
+          "zod",
+          "jsonwebtoken",
+          "bcrypt",
+          "cors",
+          "vitest",
+          "supertest",
+          "tsx",
+          "typescript",
+          "@types/*"
+        ],
+        "enabledByDefault": true
       },
       {
         "id": "react",

@@ -724,6 +724,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addProjectMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/messages": {
         parameters: {
             query?: never;
@@ -1151,8 +1169,11 @@ export interface components {
             maxIterations: number;
             maxMinutes: number;
             loopDetection: boolean;
-            /** @description When true, write redacted model request/response JSON under api/debug/runs/{runId}/. */
-            recordModelRequests?: boolean;
+            /**
+             * @description When true, write redacted model request/response JSON under api/debug/runs/{runId}/.
+             * @default false
+             */
+            recordModelRequests: boolean;
         };
         ProviderKey: {
             apiKey: string;
@@ -1202,6 +1223,10 @@ export interface components {
             criteria: components["schemas"]["CriterionResult"][];
             assumptions: string[];
             followUps: string[];
+            /** @description Backend-created HTTP endpoints copied into api/CONTRACT.md */
+            endpoints?: {
+                [key: string]: unknown;
+            }[];
         };
         Run: {
             id: string;
@@ -1303,8 +1328,21 @@ export interface components {
             /** @description Run currently working in this project, if any. */
             activeRunId?: string | null;
             summary?: string | null;
+            memberDetails?: components["schemas"]["ProjectMember"][];
             /** Format: date-time */
             createdAt: string;
+        };
+        ProjectMember: {
+            agentId: string;
+            name: string;
+            roleKey?: string;
+            color: string;
+            zones: string[];
+            overlapZones?: string[];
+            lastTask?: string | null;
+        };
+        ProjectMemberCreate: {
+            agentId: string;
         };
         ProjectCreate: {
             name: string;
@@ -1368,6 +1406,9 @@ export interface components {
             /** @enum {string} */
             queueStatus?: "waiting";
             statusNote?: string;
+            agentId?: string;
+            agentName?: string;
+            agentColor?: string;
             /** Format: date-time */
             createdAt: string;
         };
@@ -2725,6 +2766,34 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["Error"];
+        };
+    };
+    addProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectMemberCreate"];
+            };
+        };
+        responses: {
+            /** @description Project with the new member */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     listProjectMessages: {

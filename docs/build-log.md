@@ -118,3 +118,12 @@ Failures / known gaps: restart the API (or use `--reload`) after gateway changes
 New dependencies: none
 Follow-ups: Anthropic/Ollama adapters, Backend Engineer
 
+## S12 feat/backend-engineer
+
+Session: S12 feat/backend-engineer
+Built: The library has a Backend Engineer and a Node Express+Prisma+SQLite stack. A project can have several members; overlapping zones are blocked (package.json and tsconfig stay shared read-only). route_task assigns by @mention, scope, keyword, or classifier, and splits UI+API work into two child tasks backend-first. The backend completion writes api/CONTRACT.md for the frontend run. Chat shows each agent's name and colour.
+Decisions: Mentions are the first @word only. Shared-file writes are refused while another member is working. Classifier "both" always queues backend then frontend.
+Failures / known gaps: Reviewer, PM, and QA are out of scope. The live todo-app run is behind RUN_REAL_LLM_TESTS=1 and was not executed in this session. MCP/API catalog tools still do not execute.
+New dependencies: none
+Follow-ups for the next session: Team Lead / reviewer role; run the live todo-app test.
+
