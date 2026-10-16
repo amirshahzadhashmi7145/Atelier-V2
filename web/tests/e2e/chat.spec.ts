@@ -106,6 +106,15 @@ async function openChat(page: import("@playwright/test").Page, project: string, 
   await expect(page.getByRole("heading", { name: project })).toBeVisible()
 }
 
+async function addMemberById(page: import("@playwright/test").Page, agentId: string) {
+  const addMember = page.locator("#add-member")
+  await expect(addMember.locator(`option[value="${agentId}"]`)).toHaveCount(1, { timeout: 15_000 })
+  await addMember.selectOption(agentId)
+  const submit = page.getByRole("button", { name: "Add agent to project", exact: true })
+  await expect(submit).toBeEnabled({ timeout: 10_000 })
+  await submit.click()
+}
+
 test("interleaved model calls stay in two bubbles", async ({ page, request }) => {
   test.setTimeout(60_000)
   await activateAgent(request, "Bubble Agent", ["files"])
@@ -247,21 +256,18 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   const clashSaved = (await clashVersion.json()) as { version: number }
   expect((await request.post(`${API}/agents/${clashId}/versions/${clashSaved.version}/activate`)).ok()).toBeTruthy()
   await openChat(page, "Team", "Overlap Frontend Engineer")
-  const addMember = page.locator("#add-member")
-  await expect(addMember.locator("option", { hasText: "Overlap Backend Engineer" })).toHaveCount(1)
-  await addMember.selectOption({ label: "Overlap Backend Engineer" })
-  await page.getByRole("button", { name: "Add agent to project" }).click()
-  await expect(page.getByText("Overlap Backend Engineer").nth(0)).toBeVisible()
-  await expect(addMember.locator("option", { hasText: "Overlap Clash Agent" })).toHaveCount(1)
-  await addMember.selectOption({ label: "Overlap Clash Agent" })
-  await page.getByRole("button", { name: "Add agent to project" }).click()
+  await addMemberById(page, backId)
+  await expect(page.locator("[data-member='Overlap Backend Engineer']")).toBeVisible()
+  await addMemberById(page, clashId)
   await expect(page.locator("[data-zone-overlap]")).toBeVisible()
-  await page.getByLabel("Message").fill("@Backend hello")
-  await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-agent='Overlap Backend Engineer']")).toBeVisible()
-  await page.getByLabel("Message").fill("@Frontend hello")
-  await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-agent='Overlap Frontend Engineer']")).toBeVisible()
+  const message = page.getByLabel("Message", { exact: true })
+  await message.scrollIntoViewIfNeeded()
+  await message.fill("@Backend hello")
+  await page.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(page.locator("[data-agent='Overlap Backend Engineer']")).toBeVisible({ timeout: 15_000 })
+  await message.fill("@Frontend hello")
+  await page.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(page.locator("[data-agent='Overlap Frontend Engineer']")).toBeVisible({ timeout: 15_000 })
 })
 
 async function activateRole(

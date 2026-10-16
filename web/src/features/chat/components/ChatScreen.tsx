@@ -91,7 +91,7 @@ export function ChatScreen({
           </p>
         ) : null}
         {projectId && project.data ? (
-          <div className="flex flex-col gap-1">
+          <div className="flex shrink-0 flex-col gap-1 overflow-auto">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-semibold">{project.data.name}</h1>
             <div className="flex gap-2">
@@ -309,7 +309,7 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
       <ul className="flex flex-col gap-2">
         {(project.memberDetails ?? []).map((member) => (
           <li key={member.agentId}>
-            <p style={{ color: member.color }} className="font-medium">
+            <p style={{ color: member.color }} className="font-medium" data-member={member.name}>
               {member.name}
             </p>
             <p className="text-xs text-muted-foreground">{member.lastTask ? `Last: ${member.lastTask}` : "No tasks yet"}</p>
@@ -359,7 +359,7 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
           ))}
         </select>
         <Button type="submit" variant="outline" disabled={!agentId || add.isPending}>
-          Add agent to project
+          {add.isPending ? "Adding…" : "Add agent to project"}
         </Button>
       </form>
     </div>
