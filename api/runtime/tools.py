@@ -406,6 +406,7 @@ def _preview(run: dict, folder: Path | None) -> dict:
         return {"output": "no workspace"}
     import socket
 
+    folder.mkdir(parents=True, exist_ok=True)
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
@@ -414,9 +415,14 @@ def _preview(run: dict, folder: Path | None) -> dict:
         command = f"npm run dev -- --port {port} --host 127.0.0.1"
     else:
         command = f"python3 -m http.server {port}"
-    process = subprocess.Popen(command, cwd=folder, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
-    db.put("preview", run.get("projectId") or run["id"], {"pid": process.pid, "url": url})
+    pid = 0
+    try:
+        process = subprocess.Popen(command, cwd=folder, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        pid = process.pid
+    except OSError:
+        pass
+    db.put("preview", run.get("projectId") or run["id"], {"pid": pid, "url": url})
     if run.get("projectId"):
         project = db.get("project", run["projectId"])
         if project:

@@ -32,8 +32,8 @@ test("a message creates a project run and shows the summary", async ({ page, req
   await page.getByLabel("Message").fill("Create a landing page with a hero and three feature cards")
   await page.getByRole("button", { name: "Send" }).click()
   await expect(page.locator("[data-streaming]")).toContainText("Building", { timeout: 15_000 })
-  await expect(page.getByText("Landing page with a hero and three feature cards.")).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText("index.html")).toBeVisible()
+  await expect(page.getByText("Landing page with a hero and three feature cards.", { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText("Files changed: index.html", { exact: true })).toBeVisible()
 })
 
 test("run evals shows chips and enables set active", async ({ page, request }) => {
@@ -76,7 +76,9 @@ test("a failed run shows the error and try again", async ({ page, request }) => 
   await page.getByRole("button", { name: "Create" }).click()
   await page.getByLabel("Message").fill("force-fail the build")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText("The run exceeded the spend cap.")).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator("article.rounded p.whitespace-pre-wrap").filter({ hasText: "The run exceeded the spend cap." })).toBeVisible({
+    timeout: 30_000,
+  })
   await page.getByRole("button", { name: "Try again" }).click()
   await expect(page.getByText("Previous attempt failed:")).toBeVisible()
 })
@@ -130,7 +132,7 @@ test("a long command shows running with the command", async ({ page, request }) 
   await openChat(page, "Shell", "Shell Agent")
   await page.getByLabel("Message").fill("slow-command please")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.getByText(/running: sleep 8/)).toBeVisible({ timeout: 20_000 })
+  await expect(page.locator("[data-thinking]")).toContainText(/running: sleep 8/, { timeout: 20_000 })
 })
 
 test("teach creates a skill and the preview updates", async ({ page, request }) => {
@@ -193,7 +195,7 @@ test("complete it after a failed run starts a task run", async ({ page, request 
 
 test("a project can add a member, flags overlap in red, and colours agent replies", async ({ page, request }) => {
   test.setTimeout(90_000)
-  const front = await activateAgent(request, "Frontend Engineer", ["files"])
+  const front = await activateAgent(request, "Overlap Frontend Engineer", ["files"])
   expect(
     (
       await request.patch(`${API}/agents/${front}`, {
@@ -206,7 +208,7 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   ).toBeTruthy()
   const back = await request.post(`${API}/agents`, {
     data: {
-      name: "Backend Engineer",
+      name: "Overlap Backend Engineer",
       roleKey: "backend-engineer",
       description: "APIs",
       model: { provider: "openai", name: "gpt-5", config: {} },
@@ -228,7 +230,7 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   expect((await request.post(`${API}/agents/${backId}/versions/${backSaved.version}/activate`)).ok()).toBeTruthy()
   const clash = await request.post(`${API}/agents`, {
     data: {
-      name: "Clash Agent",
+      name: "Overlap Clash Agent",
       roleKey: "frontend",
       description: "Clash",
       model: { provider: "openai", name: "gpt-5", config: {} },
@@ -244,19 +246,22 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   })
   const clashSaved = (await clashVersion.json()) as { version: number }
   expect((await request.post(`${API}/agents/${clashId}/versions/${clashSaved.version}/activate`)).ok()).toBeTruthy()
-  await openChat(page, "Team", "Frontend Engineer")
-  await page.getByLabel("Add agent to project").selectOption({ label: "Backend Engineer" })
+  await openChat(page, "Team", "Overlap Frontend Engineer")
+  const addMember = page.locator("#add-member")
+  await expect(addMember.locator("option", { hasText: "Overlap Backend Engineer" })).toHaveCount(1)
+  await addMember.selectOption({ label: "Overlap Backend Engineer" })
   await page.getByRole("button", { name: "Add agent to project" }).click()
-  await expect(page.getByText("Backend Engineer").nth(0)).toBeVisible()
-  await page.getByLabel("Add agent to project").selectOption({ label: "Clash Agent" })
+  await expect(page.getByText("Overlap Backend Engineer").nth(0)).toBeVisible()
+  await expect(addMember.locator("option", { hasText: "Overlap Clash Agent" })).toHaveCount(1)
+  await addMember.selectOption({ label: "Overlap Clash Agent" })
   await page.getByRole("button", { name: "Add agent to project" }).click()
   await expect(page.locator("[data-zone-overlap]")).toBeVisible()
   await page.getByLabel("Message").fill("@Backend hello")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-agent='Backend Engineer']")).toBeVisible()
+  await expect(page.locator("[data-agent='Overlap Backend Engineer']")).toBeVisible()
   await page.getByLabel("Message").fill("@Frontend hello")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-agent='Frontend Engineer']")).toBeVisible()
+  await expect(page.locator("[data-agent='Overlap Frontend Engineer']")).toBeVisible()
 })
 
 async function activateRole(
@@ -346,5 +351,5 @@ test("the chat page is exactly the viewport", async ({ page, request }) => {
     await page.setViewportSize({ width, height: 800 })
     expect(await page.evaluate(() => document.documentElement.scrollHeight === window.innerHeight)).toBe(true)
   }
-  await expect(page.getByRole("button", { name: "Preview" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Preview", exact: true })).toBeVisible()
 })

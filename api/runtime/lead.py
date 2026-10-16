@@ -296,10 +296,15 @@ def finish_parent(parent: dict) -> None:
     if lead and project:
         _stamp_message(project["id"], body, parent["id"], lead, "task")
         folder = Path(project["folderPath"]) if project.get("folderPath") else None
-        if folder and folder.exists():
+        if folder:
+            folder.mkdir(parents=True, exist_ok=True)
             from runtime import tools
 
-            tools._preview({"id": parent["id"], "projectId": project["id"]}, folder)
+            preview = tools._preview({"id": parent["id"], "projectId": project["id"]}, folder)
+            url = preview.get("previewUrl")
+            if url:
+                project["previewUrl"] = url
+                db.put("project", project["id"], project)
 
 
 def review_system(run: dict, folder: Path | None) -> str:

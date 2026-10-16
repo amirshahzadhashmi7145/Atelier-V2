@@ -12,7 +12,10 @@ def _drive(run_id: str) -> None:
     try:
         drive(run_id)
     except Exception as exc:
-        run = db.get("run", run_id)
+        try:
+            run = db.get("run", run_id)
+        except Exception:
+            return
         if run and run.get("status") == "running":
             from gateway.exceptions import ProviderError
             from gateway.openai_gateway import model_call_error_message
@@ -22,4 +25,7 @@ def _drive(run_id: str) -> None:
                 message = exc.message
             else:
                 message = model_call_error_message(exc, provider) or f"The run stopped because of an unexpected error ({type(exc).__name__}: {exc})"
-            _fail(run, "error", message, [])
+            try:
+                _fail(run, "error", message, [])
+            except Exception:
+                return

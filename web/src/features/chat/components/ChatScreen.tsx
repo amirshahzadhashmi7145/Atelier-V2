@@ -713,7 +713,7 @@ function RunFollow({
   onActivity?: () => void
 }) {
   const queryClient = useQueryClient()
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const [answer, setAnswer] = useState("")
   const runId = message.runId ?? ""
   const run = useQuery({

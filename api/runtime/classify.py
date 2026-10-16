@@ -241,7 +241,7 @@ def _stack_names(system: str) -> list[str]:
 
 
 def _heuristic(agent: dict, text: str, project_id: str | None) -> str:
-    low = text.lower().strip()
+    low = re.sub(r"^@[A-Za-z]+\s*", "", text, flags=re.I).lower().strip() or text.lower().strip()
     if is_preview_stop(low) or PREVIEW_QUESTION.search(low) or STACK_QUESTION.search(low):
         return "chat"
     words = low.split()

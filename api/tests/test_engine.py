@@ -24,8 +24,31 @@ os.environ.pop("GEMINI_API_KEY", None)
 os.environ.pop("GOOGLE_API_KEY", None)
 
 
+def _cancel_live_runs() -> None:
+    try:
+        from runtime.loop import wake
+        from runtime.project_runs import ACTIVE
+
+        for run in db.listing("run"):
+            if run.get("status") not in ACTIVE:
+                continue
+            run["status"] = "cancelled"
+            run["endedAt"] = db.now()
+            db.put("run", run["id"], run)
+            wake(run["id"])
+        deadline = time.time() + 1.5
+        while time.time() < deadline:
+            live = [item for item in db.listing("run") if item.get("status") in ("running", "waiting_client", "waiting_user")]
+            if not live:
+                return
+            time.sleep(0.05)
+    except Exception:
+        return
+
+
 @pytest.fixture(autouse=True)
 def fresh(tmp_path):
+    _cancel_live_runs()
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp_path}/test.db"
     os.environ["PROJECTS_DIR"] = str(tmp_path / "projects")
     os.environ["GATEWAY_MOCK"] = "1"
@@ -42,6 +65,7 @@ def fresh(tmp_path):
 
     live.reset()
     yield
+    _cancel_live_runs()
 
 
 @pytest.fixture
