@@ -20,7 +20,9 @@ _SECRET_PATTERNS = (
 
 def _redact(value):
     if isinstance(value, str):
-        text = value
+        from gateway import keys
+
+        text = keys.redact(value)
         for pattern in _SECRET_PATTERNS:
             text = pattern.sub(lambda m: m.group(0)[:8] + "…redacted", text)
         return text

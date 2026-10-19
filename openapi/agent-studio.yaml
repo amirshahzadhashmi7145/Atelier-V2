@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.10.0
+  version: 0.11.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -595,6 +595,21 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+  /providers/{id}/key:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    delete:
+      operationId: deleteProviderKey
+      tags: [providers]
+      responses:
+        "200":
+          description: Key removed. The key is not in the response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderStatus"
+        "404":
+          $ref: "#/components/responses/Error"
   /providers/{id}/test:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -631,6 +646,42 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+  /role-fits:
+    get:
+      operationId: listRoleFits
+      tags: [models]
+      responses:
+        "200":
+          description: Role-fit labels keyed by role id. Suggestion logic is not computed here.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoleFit"
+  /role-fits/{roleId}:
+    parameters:
+      - name: roleId
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: saveRoleFit
+      tags: [models]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleFitWrite"
+      responses:
+        "200":
+          description: Stored. No suggestion is computed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleFit"
   /library:
     get:
       operationId: listLibrary
@@ -2022,6 +2073,9 @@ components:
         keyRef:
           type: [string, "null"]
           description: Reference to the secret store. Never the key itself.
+        keyHint:
+          type: [string, "null"]
+          description: Masked hint of a saved key. Never enough to recover the key.
         connected:
           type: boolean
         modelsCachedAt:
@@ -2066,6 +2120,28 @@ components:
         apiKey:
           type: string
           minLength: 1
+    RoleFit:
+      type: object
+      additionalProperties: false
+      required: [roleId, labels]
+      properties:
+        id:
+          type: string
+        roleId:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+    RoleFitWrite:
+      type: object
+      additionalProperties: false
+      required: [labels]
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
     LibraryKind:
       type: string
       enum: [agent, skill, stack]

@@ -45,8 +45,19 @@ export const providerHandlers = [
     if (!provider) return error(404, "not_found", "Provider not found")
     const body = (await request.json()) as { apiKey?: string }
     if (!body.apiKey) return error(422, "invalid", "apiKey is required")
-    setProviderSecret(body.apiKey)
+    setProviderSecret(provider.id, body.apiKey)
     provider.keyRef = `secret:${provider.id}`
+    provider.keyHint = "••••"
+    provider.connected = false
+    remember()
+    return HttpResponse.json(provider)
+  }),
+  http.delete("/providers/:id/key", ({ params }) => {
+    const provider = providerOr404(String(params.id))
+    if (!provider) return error(404, "not_found", "Provider not found")
+    setProviderSecret(provider.id, null)
+    provider.keyRef = null
+    provider.keyHint = null
     provider.connected = false
     remember()
     return HttpResponse.json(provider)

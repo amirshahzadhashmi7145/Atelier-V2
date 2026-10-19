@@ -13,7 +13,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from app import bridge, models_catalog
-from gateway.openai_gateway import default_model_spec, gemini_api_key
+from gateway import keys
+from gateway.exceptions import ProviderError
+from gateway.llm import default_model_spec, has_api_key, list_model_ids, test_connection
 from store import db
 
 router = APIRouter()
@@ -327,7 +329,15 @@ def patch_stack(id: str, body: dict):
 
 def _models_from_caches() -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for provider in db.listing("provider"):
+        cached = db.get("model-cache", provider["id"])
+        if cached and cached.get("ids"):
+            rows.extend((name, provider["id"]) for name in cached["ids"])
+            seen.add(provider["id"])
     for key in ("openai", "gemini", "ollama"):
+        if key in seen:
+            continue
         cached = db.get("model-cache", key)
         if cached and cached.get("ids"):
             rows.extend((name, key) for name in cached["ids"])
@@ -391,28 +401,39 @@ def put_run_settings(body: dict):
     return current
 
 
-def _provider_row(provider_id: str, name: str, env_key: str) -> dict:
-    row = db.get("provider", provider_id) or {
-        "id": provider_id,
-        "name": name,
-        "connected": False,
-        "modelsCachedAt": None,
-    }
-    if env_key == "GEMINI_API_KEY":
-        has_key = bool(gemini_api_key()) or os.environ.get("GATEWAY_MOCK") == "1"
+def _public_provider(row: dict) -> dict:
+    pid = row["id"]
+    env_name = row.get("envVar")
+    stored = keys.has(pid)
+    env_val = keys.env_fallback(env_name)
+    if pid == "gemini" and not env_val:
+        env_val = keys.env_fallback("GOOGLE_API_KEY")
+    mocked = os.environ.get("GATEWAY_MOCK") == "1"
+    if stored:
+        key_ref = f"secret:{pid}"
+        hint = keys.hint(pid)
+    elif env_val:
+        key_ref = f"env:{env_name}" if env_name else "env"
+        hint = keys.mask(env_val)
+    elif mocked:
+        key_ref = f"env:{env_name}" if env_name else None
+        hint = None
     else:
-        has_key = bool(os.environ.get(env_key)) or os.environ.get("GATEWAY_MOCK") == "1"
-    row["keyRef"] = f"env:{env_key}" if has_key else None
-    db.put("provider", provider_id, row)
-    return row
+        key_ref = None
+        hint = None
+    return {
+        "id": pid,
+        "name": row.get("name") or pid,
+        "keyRef": key_ref,
+        "keyHint": hint,
+        "connected": bool(row.get("connected")) or mocked,
+        "modelsCachedAt": row.get("modelsCachedAt"),
+    }
 
 
 @router.get("/providers")
 def list_providers():
-    return [
-        _provider_row("openai", "OpenAI", "OPENAI_API_KEY"),
-        _provider_row("gemini", "Google Gemini", "GEMINI_API_KEY"),
-    ]
+    return [_public_provider(row) for row in db.listing("provider")]
 
 
 @router.put("/providers/{id}")
@@ -420,10 +441,24 @@ def put_provider(id: str, body: dict):
     provider = db.get("provider", id)
     if provider is None:
         return missing()
-    if body.get("name"):
-        provider["name"] = body["name"]
+    api_key = body.get("apiKey")
+    if not api_key or not str(api_key).strip():
+        return error(422, "invalid", "apiKey is required")
+    keys.save(id, str(api_key))
+    provider["connected"] = False
     db.put("provider", id, provider)
-    return provider
+    return _public_provider(provider)
+
+
+@router.delete("/providers/{id}/key")
+def delete_provider_key(id: str):
+    provider = db.get("provider", id)
+    if provider is None:
+        return missing()
+    keys.delete(id)
+    provider["connected"] = False
+    db.put("provider", id, provider)
+    return _public_provider(provider)
 
 
 @router.post("/providers/{id}/test")
@@ -431,35 +466,41 @@ def test_provider(id: str):
     provider = db.get("provider", id)
     if provider is None:
         return missing()
-    if id == "gemini":
-        if os.environ.get("GATEWAY_MOCK") != "1" and not gemini_api_key():
-            return error(422, "key_missing", "Set GEMINI_API_KEY (or GOOGLE_API_KEY) in api/.env")
-    elif id == "openai":
-        if os.environ.get("GATEWAY_MOCK") != "1" and not os.environ.get("OPENAI_API_KEY") and not os.environ.get("OLLAMA_BASE_URL"):
-            return error(422, "key_missing", "Set OPENAI_API_KEY or OLLAMA_BASE_URL in api/.env")
-    bridge.list_model_ids(id if id in ("openai", "gemini", "ollama") else None)
+    try:
+        test_connection(id)
+    except ProviderError as exc:
+        return error(422, "provider_error", keys.redact(str(exc)))
     provider["connected"] = True
-    env_key = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}.get(id, "OPENAI_API_KEY")
-    has_key = gemini_api_key() if env_key == "GEMINI_API_KEY" else os.environ.get(env_key)
-    provider["keyRef"] = f"env:{env_key}" if has_key or os.environ.get("GATEWAY_MOCK") == "1" else None
     db.put("provider", id, provider)
-    return provider
+    return _public_provider(provider)
 
 
 @router.post("/providers/{id}/refresh")
 def refresh_provider(id: str):
     if db.get("provider", id) is None:
         return missing()
-    cache_key = id if id in ("openai", "gemini", "ollama") else "openai"
-    if cache_key == "gemini" and os.environ.get("GATEWAY_MOCK") != "1" and not gemini_api_key():
-        return error(422, "key_missing", "Set GEMINI_API_KEY (or GOOGLE_API_KEY) in api/.env")
-    ids = [name for name in bridge.list_model_ids(cache_key) if models_catalog.is_chat(name)]
-    db.put("model-cache", cache_key, {"ids": ids})
+    if os.environ.get("GATEWAY_MOCK") != "1" and not has_api_key(id):
+        return error(422, "key_missing", "Add an API key in Settings > Providers")
+    ids = [name for name in list_model_ids(id) if models_catalog.is_chat(name)]
+    db.put("model-cache", id, {"ids": ids})
     provider = db.get("provider", id)
     provider["connected"] = True
     provider["modelsCachedAt"] = db.now()
     db.put("provider", id, provider)
     return list_models()
+
+
+@router.get("/role-fits")
+def list_role_fits():
+    return db.listing("role-fit")
+
+
+@router.put("/role-fits/{roleId}")
+def save_role_fit(roleId: str, body: dict):
+    labels = body.get("labels") if isinstance(body.get("labels"), list) else []
+    row = {"id": roleId, "roleId": roleId, "labels": [str(item) for item in labels]}
+    db.put("role-fit", roleId, row)
+    return row
 
 
 @router.get("/library")

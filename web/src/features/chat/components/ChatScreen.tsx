@@ -571,6 +571,10 @@ function LiveText({
   const seen = useRef(new Set<string>())
   const notify = useRef(onActivity)
   const waitHint = modelWaitHint(model)
+  const waitHintRef = useRef(waitHint)
+  useEffect(() => {
+    waitHintRef.current = waitHint
+  }, [waitHint])
   useEffect(() => {
     notify.current = onActivity
   }, [onActivity])
@@ -602,7 +606,7 @@ function LiveText({
         notify.current?.()
       }
       if (event.type === "MODEL_STARTED") {
-        setPhase(`Turn ${String(event.payload.iteration ?? "?")}: waiting for ${waitHint}…`)
+        setPhase(`Turn ${String(event.payload.iteration ?? "?")}: waiting for ${waitHintRef.current}…`)
         notify.current?.()
       }
       if (event.type === "TOOL_CALLED") {
@@ -667,12 +671,12 @@ function LiveText({
     }
     void pump()
     return () => controller.abort()
-  }, [runId, waitHint])
+  }, [runId])
 
   const finished = tools.filter((item) => item.done)
   const runningTools = tools.filter((item) => !item.done)
   return (
-    <div className="flex flex-col gap-1 text-sm" data-streaming={active ? "" : undefined}>
+    <div className="flex flex-col gap-1 text-sm" data-streaming={active || bubbles.length ? "" : undefined}>
       {active ? (
         <p data-thinking="" className="text-muted-foreground">
           {retrying ? "Retrying model" : phase} · <Elapsed since={started} />
