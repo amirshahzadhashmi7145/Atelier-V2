@@ -475,8 +475,6 @@ def _complete(run: dict, summary: dict) -> None:
                 db.put("task", task["id"], task)
                 if not leadlib.is_lead(agent):
                     board.write_handoff(run, task, summary)
-                if task.get("parentTaskId") and leadlib.lead_of(project or {}):
-                    leadlib.start_review(run, task)
     if project and run.get("kind") != "lead":
         reply = summary["description"]
         if git.get("prUrl"):

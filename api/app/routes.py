@@ -1035,9 +1035,9 @@ def _start_project_run(project: dict, agent: dict, task: dict, text: str, messag
     task["status"] = "queued" if queued else "running"
     db.put("task", task["id"], task)
     if not queued:
-        from app.worker import start_run
+        from app.worker import launch
 
-        start_run(run["id"])
+        launch(run)
     return message or {"runId": run["id"], "taskId": task["id"]}
 
 
@@ -1289,6 +1289,9 @@ def _project_view(project: dict) -> dict:
     from runtime import members as memberlib
 
     project["memberDetails"] = memberlib.member_details(project)
+    from runtime.supervisor.steps import steps_for_project
+
+    project["supervisorSteps"] = steps_for_project(project["id"])
     return project
 
 

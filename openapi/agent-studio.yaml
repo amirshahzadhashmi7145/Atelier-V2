@@ -2607,9 +2607,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProjectMember"
+        supervisorSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupervisorStep"
         createdAt:
           type: string
           format: date-time
+    SupervisorStep:
+      type: object
+      additionalProperties: false
+      required: [taskId, step]
+      properties:
+        taskId:
+          type: string
+        step:
+          type: string
+          enum: [planning, working, reviewing, escalated, done]
+        label:
+          type: [string, "null"]
     ProjectMember:
       type: object
       additionalProperties: false
