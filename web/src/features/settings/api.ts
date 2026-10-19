@@ -49,3 +49,20 @@ export async function compareEvalModels(id: string, version: number, models: str
 export async function listAgentVersions(id: string) {
   return unwrap(await api.GET("/agents/{id}/versions", { params: { path: { id } } }))
 }
+
+export async function listRoles() {
+  return unwrap(await api.GET("/roles"))
+}
+
+export async function createRole(body: components["schemas"]["RoleWrite"]) {
+  return unwrap(await api.POST("/roles", { body }))
+}
+
+export async function updateRole(id: string, body: components["schemas"]["RoleWrite"]) {
+  return unwrap(await api.PATCH("/roles/{id}", { params: { path: { id } }, body }))
+}
+
+export async function listRoleTags() {
+  const result = await unwrap(await api.GET("/tags"))
+  return result.tags
+}

@@ -1,6 +1,4 @@
-export const MODEL_TAGS = ["frontend", "backend", "qa", "review", "planning", "cheap", "fast"] as const
-
-export type ModelTag = (typeof MODEL_TAGS)[number]
+export type ModelTag = string
 
 export type TagRecord = { tags: ModelTag[]; note: string; heuristic: boolean }
 

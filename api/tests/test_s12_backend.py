@@ -151,7 +151,7 @@ def test_route_task_picks_by_scope_keyword_classifier_and_splits(client: TestCli
     assert keyword["routedBy"] == "rule"
 
     classified = {"text": "handle the persistence", "assignedAgentId": "", "routedBy": ""}
-    monkeypatch.setattr("runtime.route_task._classifier_choice", lambda agents, text: "backend")
+    monkeypatch.setattr("runtime.route_task._classifier_choice", lambda agents, text: back["id"])
     route_task(members, classified)
     assert classified["assignedAgentId"] == back["id"]
 

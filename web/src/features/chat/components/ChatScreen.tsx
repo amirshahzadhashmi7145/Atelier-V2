@@ -189,6 +189,11 @@ export function ChatScreen({
                       ) : null}
                     </p>
                     <p className="whitespace-pre-wrap text-sm">{message.text}</p>
+                    {message.taskId && projectId ? (
+                      <Link href={`/chat/${projectId}/tasks/${message.taskId}`} className="text-xs underline" data-task-link={message.taskId}>
+                        Task board
+                      </Link>
+                    ) : null}
                     {message.verdict ? (
                       <p className="text-xs font-medium" data-verdict={message.verdict}>
                         {message.verdict === "approve" ? "Approved" : "Changes requested"}
@@ -259,7 +264,12 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
     <div className="flex flex-col gap-2 rounded border p-2" data-plan={message.planId}>
       {items.map((item, index) => (
         <label key={item.taskId} className="flex flex-col gap-1 text-sm">
-          {`${index + 1}. ${item.agentName || "Agent"}`}
+          <span>
+            {`${index + 1}. ${item.agentName || "Agent"}`}{" "}
+            <Link href={`/chat/${projectId}/tasks/${item.taskId}`} className="text-xs underline">
+              board
+            </Link>
+          </span>
           <textarea
             className="min-h-16 rounded border px-2 py-1 text-sm"
             value={item.text}
@@ -312,7 +322,17 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
             <p style={{ color: member.color }} className="font-medium" data-member={member.name}>
               {member.name}
             </p>
-            <p className="text-xs text-muted-foreground">{member.lastTask ? `Last: ${member.lastTask}` : "No tasks yet"}</p>
+            <p className="text-xs text-muted-foreground">
+              {member.lastTask && member.lastTaskId ? (
+                <Link href={`/chat/${projectId}/tasks/${member.lastTaskId}`} className="underline">
+                  Last: {member.lastTask}
+                </Link>
+              ) : member.lastTask ? (
+                `Last: ${member.lastTask}`
+              ) : (
+                "No tasks yet"
+              )}
+            </p>
             <ul className="mt-1 flex flex-wrap gap-1">
               {member.zones.map((zone) => {
                 const clash = (member.overlapZones ?? []).some((item) => item.includes(zone))

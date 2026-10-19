@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { createAgent, createVersion, importLibraryItem, listEditorModels, listLibrary } from "@/features/agents/api"
+import { createAgent, createVersion, importLibraryItem, listEditorModels, listLibrary, listRoles } from "@/features/agents/api"
 import { asSchema, defaultsFromSchema } from "@/features/agents/config-schema"
 import { queryKeys } from "@/lib/api/query-keys"
 
@@ -30,6 +30,7 @@ export function NewAgent() {
   const queryClient = useQueryClient()
   const library = useQuery({ queryKey: queryKeys.library("agent"), queryFn: () => listLibrary("agent") })
   const models = useQuery({ queryKey: queryKeys.models, queryFn: listEditorModels })
+  const roles = useQuery({ queryKey: queryKeys.roles, queryFn: listRoles })
   const form = useForm<Blank>({ defaultValues: { name: "", roleKey: "", description: "", model: "" } })
   const imported = useMutation({
     mutationFn: (id: string) => importLibraryItem(id),
@@ -124,7 +125,14 @@ export function NewAgent() {
               </Field>
               <Field>
                 <FieldLabel htmlFor="blank-role">Role key</FieldLabel>
-                <Input id="blank-role" onChange={(event) => form.setValue("roleKey", event.target.value)} />
+                <Input id="blank-role" list="blank-role-options" onChange={(event) => form.setValue("roleKey", event.target.value)} />
+                <datalist id="blank-role-options">
+                  {(roles.data ?? []).map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </datalist>
               </Field>
               <Field>
                 <FieldLabel htmlFor="blank-description">Description</FieldLabel>
