@@ -24,6 +24,9 @@ test("providers page shows OpenAI and Gemini cards", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible()
   await expect(page.getByText("Google Gemini")).toBeVisible()
   await expect(page.getByText("OpenAI").first()).toBeVisible()
+  await expect(page.locator("#provider-key-openai")).toBeVisible()
+  await expect(page.locator("#provider-key-gemini")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Save key" }).first()).toBeVisible()
 })
 
 test("agent model picker groups providers", async ({ page }) => {

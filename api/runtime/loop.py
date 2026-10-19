@@ -122,6 +122,7 @@ def drive(run_id: str) -> None:
         run["tokensIn"] += cost["inputTokens"]
         run["tokensOut"] += cost["outputTokens"]
         run["costUsd"] = round(run["costUsd"] + cost["usd"], 6)
+        openai_gateway.record_turn_cost(run, cost["usd"])
         run["iterations"] += 1
         db.put("run", run_id, _public(run))
         if run["costUsd"] > cap:

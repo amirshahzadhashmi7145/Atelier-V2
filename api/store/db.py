@@ -174,15 +174,14 @@ def seed() -> None:
     for item in BUILTIN_TOOLS:
         record = tool_record(item)
         put("tool", record["id"], record)
-    from gateway.openai_gateway import gemini_api_key
-
     put(
         "provider",
         "openai",
         {
             "id": "openai",
             "name": "OpenAI",
-            "keyRef": "env:OPENAI_API_KEY" if os.environ.get("OPENAI_API_KEY") else None,
+            "litellmPrefix": "openai",
+            "envVar": "OPENAI_API_KEY",
             "connected": False,
             "modelsCachedAt": None,
         },
@@ -193,7 +192,8 @@ def seed() -> None:
         {
             "id": "gemini",
             "name": "Google Gemini",
-            "keyRef": "env:GEMINI_API_KEY" if gemini_api_key() else None,
+            "litellmPrefix": "gemini",
+            "envVar": "GEMINI_API_KEY",
             "connected": False,
             "modelsCachedAt": None,
         },

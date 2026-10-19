@@ -111,8 +111,8 @@ const emptyDb = (): Db => ({
   dataSources: [],
   models: [],
   providers: [
-    { id: "openai", name: "OpenAI", keyRef: null, connected: false, modelsCachedAt: null },
-    { id: "gemini", name: "Google Gemini", keyRef: null, connected: false, modelsCachedAt: null },
+    { id: "openai", name: "OpenAI", keyRef: null, keyHint: null, connected: false, modelsCachedAt: null },
+    { id: "gemini", name: "Google Gemini", keyRef: null, keyHint: null, connected: false, modelsCachedAt: null },
   ],
   runs: [],
   runSettings: {
@@ -193,24 +193,25 @@ function highestId(value: unknown) {
 
 export let db = createDb()
 let counter = highestId(db)
-let providerSecret: string | null = null
+let providerSecrets: Record<string, string> = {}
 
 export function resetDb() {
   rememberQueued = false
   if (typeof window !== "undefined") window.sessionStorage.removeItem(STORAGE_KEY)
   db = createDb()
   counter = highestId(db)
-  providerSecret = null
+  providerSecrets = {}
   for (const timer of liveTimers.values()) clearInterval(timer)
   liveTimers.clear()
 }
 
-export function setProviderSecret(value: string | null) {
-  providerSecret = value
+export function setProviderSecret(providerId: string, value: string | null) {
+  if (value) providerSecrets[providerId] = value
+  else delete providerSecrets[providerId]
 }
 
 export function hasProviderSecret() {
-  return Boolean(providerSecret)
+  return Object.keys(providerSecrets).length > 0
 }
 
 export function freshModels() {

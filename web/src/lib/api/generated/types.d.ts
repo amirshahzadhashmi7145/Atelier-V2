@@ -400,6 +400,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/{id}/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteProviderKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers/{id}/test": {
         parameters: {
             query?: never;
@@ -430,6 +448,40 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["refreshProviderModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/role-fits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRoleFits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/role-fits/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["saveRoleFit"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1196,6 +1248,8 @@ export interface components {
             name: string;
             /** @description Reference to the secret store. Never the key itself. */
             keyRef: string | null;
+            /** @description Masked hint of a saved key. Never enough to recover the key. */
+            keyHint?: string | null;
             connected: boolean;
             /** Format: date-time */
             modelsCachedAt: string | null;
@@ -1219,6 +1273,14 @@ export interface components {
         };
         ProviderKey: {
             apiKey: string;
+        };
+        RoleFit: {
+            id?: string;
+            roleId: string;
+            labels: string[];
+        };
+        RoleFitWrite: {
+            labels: string[];
         };
         /** @enum {string} */
         LibraryKind: "agent" | "skill" | "stack";
@@ -2321,6 +2383,29 @@ export interface operations {
             422: components["responses"]["Error"];
         };
     };
+    deleteProviderKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Key removed. The key is not in the response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderStatus"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
     testProvider: {
         parameters: {
             query?: never;
@@ -2367,6 +2452,52 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             422: components["responses"]["Error"];
+        };
+    };
+    listRoleFits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role-fit labels keyed by role id. Suggestion logic is not computed here. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleFit"][];
+                };
+            };
+        };
+    };
+    saveRoleFit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleFitWrite"];
+            };
+        };
+        responses: {
+            /** @description Stored. No suggestion is computed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleFit"];
+                };
+            };
         };
     };
     listLibrary: {

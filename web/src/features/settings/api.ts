@@ -9,6 +9,14 @@ export async function listModels() {
   return unwrap(await api.GET("/models"))
 }
 
+export async function saveProviderKey(id: string, apiKey: string) {
+  return unwrap(await api.PUT("/providers/{id}", { params: { path: { id } }, body: { apiKey } }))
+}
+
+export async function deleteProviderKey(id: string) {
+  return unwrap(await api.DELETE("/providers/{id}/key", { params: { path: { id } } }))
+}
+
 export async function testProviderConnection(id: string) {
   return unwrap(await api.POST("/providers/{id}/test", { params: { path: { id } } }))
 }

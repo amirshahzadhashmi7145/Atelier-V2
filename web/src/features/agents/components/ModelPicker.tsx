@@ -34,7 +34,7 @@ export function ModelPicker({
     acc[key].push(model)
     return acc
   }, {})
-  const providerLabel: Record<string, string> = { openai: "OpenAI", gemini: "Google Gemini", ollama: "Ollama" }
+  const providerLabel: Record<string, string> = { openai: "OpenAI", gemini: "Google Gemini" }
   const selected = tagsFor(value, value ? tags[value] : undefined)
   const stat = models.find((model) => model.name === value)?.ownStats?.find((item) => item.roleKey === roleKey)
   const best = value && bestForRole(models.map((model) => ({ name: model.name, ownStats: model.ownStats ?? [] })), roleKey).includes(value)
@@ -50,7 +50,7 @@ export function ModelPicker({
       >
         <option value="">Choose a model</option>
         {Object.entries(groups).map(([provider, items]) => (
-          <optgroup key={provider} label={providerLabel[provider] ?? provider}>
+          <optgroup key={provider} label={providerLabel[provider] ?? provider.replace(/\b\w/g, (char) => char.toUpperCase())}>
             {items.map((model) => {
               const record = tagsFor(model.name, tags[model.name])
               return (
