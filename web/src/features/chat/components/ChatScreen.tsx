@@ -572,7 +572,9 @@ function LiveText({
   const notify = useRef(onActivity)
   const waitHint = modelWaitHint(model)
   const waitHintRef = useRef(waitHint)
-  waitHintRef.current = waitHint
+  useEffect(() => {
+    waitHintRef.current = waitHint
+  }, [waitHint])
   useEffect(() => {
     notify.current = onActivity
   }, [onActivity])
