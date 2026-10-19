@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.11.0
+  version: 0.12.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -14,6 +14,7 @@ tags:
   - name: models
   - name: providers
   - name: settings
+  - name: roles
   - name: library
   - name: runs
 paths:
@@ -216,6 +217,93 @@ paths:
                 $ref: "#/components/schemas/PromptDiff"
         "404":
           $ref: "#/components/responses/Error"
+  /roles:
+    get:
+      operationId: listRoles
+      tags: [roles]
+      responses:
+        "200":
+          description: Role documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+    post:
+      operationId: createRole
+      tags: [roles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleWrite"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /roles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getRole
+      tags: [roles]
+      responses:
+        "200":
+          description: Role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateRole
+      tags: [roles]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleWrite"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteRole
+      tags: [roles]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/Error"
+  /tags:
+    get:
+      operationId: listTags
+      tags: [roles]
+      responses:
+        "200":
+          description: Tags collected from role data plus utility tags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
   /agents/{id}/compile-preview:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -1056,6 +1144,26 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
         "409":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/tasks/{taskId}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: taskId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getProjectTask
+      tags: [projects]
+      responses:
+        "200":
+          description: Task plus every handoff note and review feedback in order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskBoard"
+        "404":
           $ref: "#/components/responses/Error"
   /projects/{id}/plans/{planId}/approve:
     parameters:
@@ -2499,9 +2607,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ProjectMember"
+        supervisorSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupervisorStep"
         createdAt:
           type: string
           format: date-time
+    SupervisorStep:
+      type: object
+      additionalProperties: false
+      required: [taskId, step]
+      properties:
+        taskId:
+          type: string
+        step:
+          type: string
+          enum: [planning, working, reviewing, escalated, done]
+        label:
+          type: [string, "null"]
     ProjectMember:
       type: object
       additionalProperties: false
@@ -2524,6 +2648,8 @@ components:
           items:
             type: string
         lastTask:
+          type: [string, "null"]
+        lastTaskId:
           type: [string, "null"]
     PlanItem:
       type: object
@@ -2630,6 +2756,178 @@ components:
           type: string
           enum: [chat, task, out]
           description: Classifier label recorded when the task was created from chat.
+        acceptanceCriteria:
+          type: array
+          items:
+            type: string
+        reworkCount:
+          type: integer
+          minimum: 0
+        originTaskId:
+          type: string
+        previousTaskId:
+          type: string
+        reviewerAgentId:
+          type: string
+    Role:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, reportsTo, layer, zones, tags]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [worker, supervisor]
+        reportsTo:
+          type: [string, "null"]
+        layer:
+          type: integer
+        zones:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        colour:
+          type: [string, "null"]
+        contractFile:
+          type: [string, "null"]
+    RoleWrite:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [worker, supervisor]
+        reportsTo:
+          type: [string, "null"]
+        layer:
+          type: integer
+        zones:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        colour:
+          type: [string, "null"]
+        contractFile:
+          type: [string, "null"]
+    TagList:
+      type: object
+      additionalProperties: false
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+    HandoffNote:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, agentId, summary, filesChanged, evidence, openQuestions, createdAt]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        agentId:
+          type: string
+        summary:
+          type: string
+        filesChanged:
+          type: array
+          items:
+            type: string
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/HandoffEvidence"
+        openQuestions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    HandoffEvidence:
+      type: object
+      additionalProperties: false
+      required: [criterion, evidence]
+      properties:
+        criterion:
+          type: string
+        evidence:
+          type: string
+    ReviewFeedback:
+      type: object
+      additionalProperties: false
+      required: [id, taskId, reviewerAgentId, verdict, items, createdAt]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        reviewerAgentId:
+          type: string
+        verdict:
+          type: string
+          enum: [approve, changes_requested]
+        notes:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewFeedbackItem"
+        createdAt:
+          type: string
+          format: date-time
+    ReviewFeedbackItem:
+      type: object
+      additionalProperties: false
+      properties:
+        targetKind:
+          type: string
+          enum: [criterion, file]
+        target:
+          type: string
+        wrong:
+          type: string
+        expected:
+          type: string
+    TaskBoardEvent:
+      type: object
+      additionalProperties: true
+      required: [kind, createdAt]
+      properties:
+        kind:
+          type: string
+          enum: [handoff, feedback]
+        createdAt:
+          type: string
+          format: date-time
+    TaskBoard:
+      type: object
+      additionalProperties: false
+      required: [task, events]
+      properties:
+        task:
+          $ref: "#/components/schemas/Task"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskBoardEvent"
     TeachRequest:
       type: object
       additionalProperties: false

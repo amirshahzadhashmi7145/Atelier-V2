@@ -132,6 +132,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listRoles"];
+        put?: never;
+        post: operations["createRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["getRole"];
+        put?: never;
+        post?: never;
+        delete: operations["deleteRole"];
+        options?: never;
+        head?: never;
+        patch: operations["updateRole"];
+        trace?: never;
+    };
+    "/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents/{id}/compile-preview": {
         parameters: {
             query?: never;
@@ -794,6 +844,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/tasks/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getProjectTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/plans/{planId}/approve": {
         parameters: {
             query?: never;
@@ -1433,8 +1502,15 @@ export interface components {
             activeRunId?: string | null;
             summary?: string | null;
             memberDetails?: components["schemas"]["ProjectMember"][];
+            supervisorSteps?: components["schemas"]["SupervisorStep"][];
             /** Format: date-time */
             createdAt: string;
+        };
+        SupervisorStep: {
+            taskId: string;
+            /** @enum {string} */
+            step: "planning" | "working" | "reviewing" | "escalated" | "done";
+            label?: string | null;
         };
         ProjectMember: {
             agentId: string;
@@ -1444,6 +1520,7 @@ export interface components {
             zones: string[];
             overlapZones?: string[];
             lastTask?: string | null;
+            lastTaskId?: string | null;
         };
         PlanItem: {
             taskId: string;
@@ -1495,6 +1572,83 @@ export interface components {
              * @enum {string}
              */
             label?: "chat" | "task" | "out";
+            acceptanceCriteria?: string[];
+            reworkCount?: number;
+            originTaskId?: string;
+            previousTaskId?: string;
+            reviewerAgentId?: string;
+        };
+        Role: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            kind: "worker" | "supervisor";
+            reportsTo: string | null;
+            layer: number;
+            zones: string[];
+            tags: string[];
+            colour?: string | null;
+            contractFile?: string | null;
+        };
+        RoleWrite: {
+            id?: string;
+            name?: string;
+            /** @enum {string} */
+            kind?: "worker" | "supervisor";
+            reportsTo?: string | null;
+            layer?: number;
+            zones?: string[];
+            tags?: string[];
+            colour?: string | null;
+            contractFile?: string | null;
+        };
+        TagList: {
+            tags: string[];
+        };
+        HandoffNote: {
+            id: string;
+            taskId: string;
+            agentId: string;
+            summary: string;
+            filesChanged: string[];
+            evidence: components["schemas"]["HandoffEvidence"][];
+            openQuestions: string[];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        HandoffEvidence: {
+            criterion: string;
+            evidence: string;
+        };
+        ReviewFeedback: {
+            id: string;
+            taskId: string;
+            reviewerAgentId: string;
+            /** @enum {string} */
+            verdict: "approve" | "changes_requested";
+            notes?: string;
+            items: components["schemas"]["ReviewFeedbackItem"][];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ReviewFeedbackItem: {
+            /** @enum {string} */
+            targetKind?: "criterion" | "file";
+            target?: string;
+            wrong?: string;
+            expected?: string;
+        };
+        TaskBoardEvent: {
+            /** @enum {string} */
+            kind: "handoff" | "feedback";
+            /** Format: date-time */
+            createdAt: string;
+        } & {
+            [key: string]: unknown;
+        };
+        TaskBoard: {
+            task: components["schemas"]["Task"];
+            events: components["schemas"]["TaskBoardEvent"][];
         };
         TeachRequest: {
             name: string;
@@ -1849,6 +2003,144 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role documents */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"][];
+                };
+            };
+        };
+    };
+    createRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleWrite"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    getRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoleWrite"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    listTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tags collected from role data plus utility tags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagList"];
+                };
+            };
         };
     };
     compilePreview: {
@@ -2991,6 +3283,30 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    getProjectTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                taskId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Task plus every handoff note and review feedback in order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBoard"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     approveProjectPlan: {

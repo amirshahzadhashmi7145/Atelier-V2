@@ -9,7 +9,7 @@ from pathlib import Path
 from gateway import openai_gateway
 from gateway.tool_pairing import ToolPairingError
 from runtime import messages as msglib
-from runtime import contract_file, lead as leadlib, members as memberlib
+from runtime import board, contract_file, lead as leadlib, members as memberlib, roles as rolelib
 from runtime.scaffold import write_express_prisma, write_vite_react_ts
 from runtime.tool_results import format_tool_result
 from runtime import compile as compile_prompt
@@ -338,10 +338,14 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
     elif leadlib.is_lead(agent) and project:
         system += "\n\n" + leadlib.lead_system(project, folder)
     else:
-        contract = contract_file.read_contract(folder)
-        if contract and "backend" not in (agent.get("roleKey") or "").lower():
+        contract = contract_file.contracts_for_reader(folder, agent)
+        if contract:
             system += "\n\n# API contract\n" + contract
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
+    if task and int(task.get("reworkCount") or task.get("reviewAttempts") or 0) > 0:
+        packet = board.rework_packet(task)
+        if packet:
+            system += "\n\n" + packet
     prefix: list[dict] = []
     history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
     history.sort(key=lambda item: item["createdAt"])
@@ -438,10 +442,11 @@ def _complete(run: dict, summary: dict) -> None:
         "followUps": summary.get("followUps") or [],
         "endpoints": summary.get("endpoints") or [],
     }
-    if "backend" in (agent.get("roleKey") or "").lower() and folder is not None:
-        written = contract_file.write_contract(folder, summary)
-        if written and "api/CONTRACT.md" not in summary["filesChanged"]:
-            summary["filesChanged"] = [*summary["filesChanged"], "api/CONTRACT.md"]
+    produced = rolelib.contract_file_of(agent)
+    if produced and folder is not None:
+        written = contract_file.write_contract(folder, summary, produced)
+        if written and produced not in summary["filesChanged"]:
+            summary["filesChanged"] = [*summary["filesChanged"], produced]
     git = _publish(project, run) if project else {}
     if run.get("projectId") and run.get("folder") and not skip_preview:
         preview = tools._preview(run, Path(run["folder"]))
@@ -468,8 +473,8 @@ def _complete(run: dict, summary: dict) -> None:
                 shots = [item["id"] for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("kind") == "screenshot"]
                 task["screenshotRefs"] = shots
                 db.put("task", task["id"], task)
-                if task.get("parentTaskId") and leadlib.lead_of(project or {}):
-                    leadlib.start_review(run, task)
+                if not leadlib.is_lead(agent):
+                    board.write_handoff(run, task, summary)
     if project and run.get("kind") != "lead":
         reply = summary["description"]
         if git.get("prUrl"):

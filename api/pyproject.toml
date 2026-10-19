@@ -17,6 +17,8 @@ dependencies = [
   "python-dotenv>=1.0",
   "docker>=7",
   "tiktoken>=0.8",
+  "langgraph==1.2.12",
+  "langgraph-checkpoint-sqlite==3.1.1",
 ]
 
 [dependency-groups]

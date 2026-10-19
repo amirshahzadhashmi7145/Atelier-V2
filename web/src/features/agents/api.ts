@@ -101,6 +101,10 @@ export async function listEditorModels() {
   return unwrap(await api.GET("/models"))
 }
 
+export async function listRoles() {
+  return unwrap(await api.GET("/roles"))
+}
+
 export function activeBlockReason(
   evals: { id: string }[],
   version: { evalResults: { evalId: string; status: string }[] } | undefined,

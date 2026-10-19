@@ -30,6 +30,8 @@ export type Db = {
   artifacts: Record<string, Artifact[]>
   liveCursors: Record<string, number>
   modelTags: Record<string, { tags: string[]; note: string; heuristic: boolean }>
+  roles: components["schemas"]["Role"][]
+  taskBoards: Record<string, components["schemas"]["TaskBoard"]>
 }
 
 const emptySchema = { type: "object", additionalProperties: false }
@@ -102,6 +104,42 @@ function ordered<T extends { id: string }>(items: T[], ids: string[]): T[] {
   })
 }
 
+const seedRoles: components["schemas"]["Role"][] = [
+  {
+    id: "frontend-engineer",
+    name: "Frontend Engineer",
+    kind: "worker",
+    reportsTo: "team-lead",
+    layer: 0,
+    zones: ["src/**", "app/**", "public/**"],
+    tags: ["frontend"],
+    colour: "#2563eb",
+    contractFile: null,
+  },
+  {
+    id: "backend-engineer",
+    name: "Backend Engineer",
+    kind: "worker",
+    reportsTo: "team-lead",
+    layer: 0,
+    zones: ["api/**", "server/**"],
+    tags: ["backend"],
+    colour: "#d97706",
+    contractFile: "api/CONTRACT.md",
+  },
+  {
+    id: "team-lead",
+    name: "Team Lead",
+    kind: "supervisor",
+    reportsTo: null,
+    layer: 1,
+    zones: [],
+    tags: ["supervisor", "review", "planning"],
+    colour: "#7c3aed",
+    contractFile: null,
+  },
+]
+
 const emptyDb = (): Db => ({
   agents: [],
   versions: [],
@@ -130,6 +168,8 @@ const emptyDb = (): Db => ({
   artifacts: {},
   liveCursors: {},
   modelTags: {},
+  roles: structuredClone(seedRoles),
+  taskBoards: {},
 })
 
 const STORAGE_KEY = "atelier-mock-db"
@@ -149,6 +189,8 @@ function storedDb(): Db | null {
       tools: [...structuredClone(tools), ...extra],
       runSettings: saved.runSettings ?? base.runSettings,
       modelTags: saved.modelTags ?? {},
+      roles: saved.roles?.length ? saved.roles : structuredClone(seedRoles),
+      taskBoards: saved.taskBoards ?? {},
     }
   } catch {
     return null

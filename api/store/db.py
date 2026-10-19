@@ -35,6 +35,9 @@ def engine():
         seed()
         sync_builtin_tools()
         sync_stack_allow_lists()
+        from runtime.roles import sync_roles
+
+        sync_roles()
     return _engine
 
 
@@ -43,6 +46,12 @@ def reset_engine() -> None:
     if _engine is not None:
         _engine.dispose()
     _engine = None
+    try:
+        from runtime.supervisor.graph import reset_compiled
+
+        reset_compiled()
+    except Exception:
+        pass
 
 
 def session() -> Session:
@@ -146,7 +155,23 @@ BUILTIN_TOOLS = [
         "control",
         "write",
         "Record a review of a child task. verdict is approve or changes_requested.",
-        {"taskId": {"type": "string"}, "verdict": {"type": "string"}, "notes": {"type": "string"}},
+        {
+            "taskId": {"type": "string"},
+            "verdict": {"type": "string"},
+            "notes": {"type": "string"},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "targetKind": {"type": "string"},
+                        "target": {"type": "string"},
+                        "wrong": {"type": "string"},
+                        "expected": {"type": "string"},
+                    },
+                },
+            },
+        },
         ["verdict", "notes"],
         "control",
     ),

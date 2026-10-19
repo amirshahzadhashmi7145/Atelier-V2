@@ -1,29 +1,31 @@
-"""Team Lead planning, plan approval, and the review loop."""
+"""Supervisor planning, plan approval, and the review loop."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from runtime import contract_file, members as memberlib
+from runtime import board, contract_file, members as memberlib, roles as rolelib
 from store import db
 
 
 def is_lead(agent: dict | None) -> bool:
-    if not agent:
-        return False
-    tags = (agent.get("capabilities") or {}).get("tags") or []
-    blob = f"{agent.get('roleKey') or ''} {agent.get('name') or ''}".lower()
-    return "supervisor" in tags or "team-lead" in blob or blob.strip() == "lead"
+    return rolelib.is_supervisor(agent)
 
 
 def lead_of(project: dict | None) -> dict | None:
     if not project:
         return None
+    ranked: list[tuple[int, dict]] = []
     for agent_id in project.get("members") or []:
         agent = db.get("agent", agent_id)
-        if is_lead(agent):
-            return agent
-    return None
+        if not is_lead(agent):
+            continue
+        role = rolelib.of(agent)
+        ranked.append((role.get("layer") if role else 0, agent))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: (item[0], item[1].get("id") or ""))
+    return ranked[0][1]
 
 
 def settings() -> dict:
@@ -104,8 +106,6 @@ def publish_plan(run: dict) -> dict | None:
     parent["planId"] = plan_id
     db.put("task", parent["id"], parent)
     _stamp_message(run["projectId"], "\n".join(lines), parent["id"], lead, "plan", {"planId": plan_id, "planItems": plan_items})
-    if not settings().get("approvePlansBeforeRunning", True):
-        approve_plan(run["projectId"], plan_id)
     return plan
 
 
@@ -134,7 +134,7 @@ def _apply_item_edits(plan: dict, edits: list[dict] | None) -> None:
     plan["items"] = updated
 
 
-def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
+def mark_plan_approved(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
     plan = db.get("plan", plan_id)
     if plan is None or plan.get("projectId") != project_id:
         raise KeyError("plan")
@@ -145,7 +145,14 @@ def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None)
     if parent:
         parent["status"] = "running"
         db.put("task", parent["id"], parent)
-    start_next_child(plan["parentTaskId"])
+    return plan
+
+
+def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
+    plan = mark_plan_approved(project_id, plan_id, edits)
+    from runtime.supervisor.graph import resume_supervisor
+
+    resume_supervisor(plan["parentTaskId"], {"approved": True})
     return plan
 
 
@@ -158,49 +165,24 @@ def edit_plan(project_id: str, plan_id: str, edits: list[dict]) -> dict:
     return plan
 
 
-def start_next_child(parent_id: str) -> dict | None:
-    from runtime import classify as labeling
-
-    parent = db.get("task", parent_id)
-    if parent is None:
-        return None
-    project = db.get("project", parent["projectId"])
-    if project is None:
-        return None
-    for child in children_of(parent_id):
-        if child.get("supersededBy") or child.get("reviewStatus") == "approved":
-            continue
-        if child.get("status") in ("running", "waiting_review"):
-            return None
-        if child.get("status") == "failed":
-            return None
-        if child.get("status") == "completed" and child.get("reviewStatus") != "approved":
-            return None
-        if child.get("status") in ("planned", "queued", "changes_requested"):
-            agent = db.get("agent", child.get("assignedAgentId") or "") or {}
-            from app.routes import _start_project_run
-
-            child["status"] = "queued"
-            db.put("task", child["id"], child)
-            return _start_project_run(project, agent, child, child.get("text") or "", None, labeling.prior_context(project["id"]))
-    finish_parent(parent)
-    return None
-
-
-def start_review(author_run: dict, child: dict) -> dict | None:
+def start_review(author_run: dict, child: dict, reviewer: dict | None = None) -> dict | None:
     project = db.get("project", author_run.get("projectId") or "")
-    lead = lead_of(project) if project else None
+    worker = db.get("agent", child.get("assignedAgentId") or "") if child else None
+    lead = reviewer or rolelib.first_reviewer(project, worker) or (lead_of(project) if project else None)
     if project is None or lead is None:
         return None
     child["status"] = "waiting_review"
+    child["reviewerAgentId"] = lead["id"]
     db.put("task", child["id"], child)
     criteria = child.get("acceptanceCriteria") or []
+    packet = board.rework_packet(child)
     review_text = (
         f"Review this task for {child.get('assignedAgentId')}.\n"
         f"Task: {child.get('text') or ''}\n"
         f"Criteria: {'; '.join(criteria) or 'none'}\n"
         f"Author summary: {author_run.get('summary', {}).get('description') if isinstance(author_run.get('summary'), dict) else author_run.get('summary') or child.get('summary') or ''}\n"
-        "Call record_review(approve or changes_requested, notes). Do not write files."
+        + (f"{packet}\n" if packet else "")
+        + "Call record_review(approve or changes_requested, notes). Do not write files."
     )
     from app.routes import _start_project_run
 
@@ -216,7 +198,7 @@ def start_review(author_run: dict, child: dict) -> dict | None:
     return handle
 
 
-def apply_review(run: dict, verdict: str, notes: str) -> dict:
+def apply_review(run: dict, verdict: str, notes: str, items: list | None = None) -> dict:
     child = db.get("task", run.get("reviewOfTaskId") or run.get("taskId") or "")
     lead = db.get("agent", run.get("agentId")) or {}
     if child is None:
@@ -225,32 +207,24 @@ def apply_review(run: dict, verdict: str, notes: str) -> dict:
     if verdict not in ("approve", "changes_requested"):
         return {"refused": True, "reason": "verdict must be approve or changes_requested"}
     project_id = child["projectId"]
+    board.write_feedback(child, lead, verdict, notes, items)
     label = "Approved." if verdict == "approve" else "Changes requested."
     text = f"{label} {notes}".strip()
     _stamp_message(project_id, text, child["id"], lead, "review", {"verdict": verdict, "runId": run.get("id")})
     if verdict == "approve":
-        child["status"] = "completed"
-        child["reviewStatus"] = "approved"
         child["reviewNotes"] = notes
         db.put("task", child["id"], child)
-        start_next_child(child.get("parentTaskId") or "")
         return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
-    attempts = int(child.get("reviewAttempts") or 0) + 1
+    attempts = int(child.get("reviewAttempts") or child.get("reworkCount") or 0) + 1
     child["reviewAttempts"] = attempts
+    child["reworkCount"] = attempts
     child["reviewStatus"] = "changes_requested"
     child["status"] = "completed"
     parent_id = child.get("parentTaskId")
-    if attempts > 2:
+    if attempts > board.MAX_REWORKS:
         db.put("task", child["id"], child)
-        _stamp_message(
-            project_id,
-            "The Team Lead requested changes twice. Decide whether to retry or stop.",
-            parent_id,
-            lead,
-            "review",
-            {"verdict": "changes_requested"},
-        )
         return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
+    origin = child.get("originTaskId") or child["id"]
     retry = {
         "id": db.nid("task"),
         "projectId": project_id,
@@ -266,12 +240,14 @@ def apply_review(run: dict, verdict: str, notes: str) -> dict:
         "order": child.get("order") or 0,
         "acceptanceCriteria": child.get("acceptanceCriteria") or [],
         "reviewAttempts": attempts,
+        "reworkCount": attempts,
+        "originTaskId": origin,
+        "previousTaskId": child["id"],
         "createdAt": db.now(),
     }
     child["supersededBy"] = retry["id"]
     db.put("task", child["id"], child)
     db.put("task", retry["id"], retry)
-    start_next_child(parent_id)
     return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
 
 
@@ -326,7 +302,7 @@ def review_system(run: dict, folder: Path | None) -> str:
     ]
     for item in members:
         lines.append(f"- {item['name']} does zones {', '.join(item.get('zones') or [])}")
-    contract = contract_file.read_contract(folder)
+    contract = contract_file.contracts_for_reader(folder, db.get("agent", run.get("agentId") or ""))
     if contract:
         lines.extend(["# API contract", contract])
     for item in (diff.get("files") or [])[:20]:
@@ -340,14 +316,17 @@ def lead_system(project: dict, folder: Path | None) -> str:
     for item in memberlib.member_details(project):
         agent = db.get("agent", item["agentId"]) or {}
         scope = agent.get("scope") or {}
+        role = rolelib.of(agent)
+        kind = (role or {}).get("kind") or "worker"
+        tags = ", ".join((role or {}).get("tags") or [])
         lines.append(
-            f"- id={item['agentId']} name={item['name']} role={item.get('roleKey')} "
-            f"does={', '.join(scope.get('does') or [])} never={', '.join(scope.get('neverDoes') or [])} "
+            f"- id={item['agentId']} name={item['name']} role={item.get('roleKey')} kind={kind} "
+            f"tags={tags} does={', '.join(scope.get('does') or [])} never={', '.join(scope.get('neverDoes') or [])} "
             f"zones={', '.join(item.get('zones') or [])}"
         )
     if project.get("summary"):
         lines.extend(["# Project summary", project["summary"]])
-    contract = contract_file.read_contract(folder)
+    contract = contract_file.contracts_for_reader(folder, None)
     if contract:
         lines.extend(["# API contract", contract])
     lines.append("Create child tasks with create_task before any implementation. Do not write application files.")

@@ -16,8 +16,9 @@ SUPERVISOR = ["create_task", "record_review"]
 
 def allowed(agent: dict) -> set[str]:
     names = set(agent.get("toolIds") or []) | set(CONTROL)
-    tags = (agent.get("capabilities") or {}).get("tags") or []
-    if "supervisor" in tags:
+    from runtime import lead as leadlib
+
+    if leadlib.is_lead(agent):
         names |= set(SUPERVISOR)
     return names
 
@@ -57,13 +58,13 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
 
         command = arguments.get("command", "")
         if (run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)) and not _build_or_test_command(command):
-            return {"refused": True, "reason": "the Team Lead may only run build and test commands"}
+            return {"refused": True, "reason": "a supervisor may only run build and test commands"}
         return _shell(folder, command, should_stop)
     if name == "package_install":
         from runtime import lead as leadlib
 
         if run.get("kind") in ("lead", "review") or leadlib.is_lead(agent):
-            return {"refused": True, "reason": "the Team Lead cannot install packages"}
+            return {"refused": True, "reason": "a supervisor cannot install packages"}
         return _install(run, folder, arguments.get("name", ""), should_stop)
     if name == "build_test":
         return _build(run, folder, should_stop)
@@ -114,7 +115,7 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
 
     agent = db.get("agent", run.get("agentId") or "") or {}
     if op in write_ops and (run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)):
-        return {"refused": True, "reason": "the Team Lead cannot write files"}
+        return {"refused": True, "reason": "a supervisor cannot write files"}
     if op in write_ops and zones and not _in_zones(path, zones):
         return {"refused": True, "reason": f"path outside your zones: {path}"}
     from runtime import members as memberlib
@@ -503,7 +504,7 @@ def _create_task(run: dict, arguments: dict) -> dict:
 def _review(run: dict, arguments: dict) -> dict:
     from runtime import lead as leadlib
 
-    return leadlib.apply_review(run, arguments.get("verdict") or "", arguments.get("notes") or "")
+    return leadlib.apply_review(run, arguments.get("verdict") or "", arguments.get("notes") or "", arguments.get("items"))
 
 
 def call_hash(name: str, arguments: dict) -> str:

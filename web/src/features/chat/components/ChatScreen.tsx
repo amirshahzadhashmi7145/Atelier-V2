@@ -144,6 +144,7 @@ export function ChatScreen({
           </div>
           {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
           {projectId ? <MemberPanel projectId={projectId} project={project.data} /> : null}
+          <SupervisorSteps steps={project.data.supervisorSteps} />
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
@@ -189,6 +190,11 @@ export function ChatScreen({
                       ) : null}
                     </p>
                     <p className="whitespace-pre-wrap text-sm">{message.text}</p>
+                    {message.taskId && projectId ? (
+                      <Link href={`/chat/${projectId}/tasks/${message.taskId}`} className="text-xs underline" data-task-link={message.taskId}>
+                        Task board
+                      </Link>
+                    ) : null}
                     {message.verdict ? (
                       <p className="text-xs font-medium" data-verdict={message.verdict}>
                         {message.verdict === "approve" ? "Approved" : "Changes requested"}
@@ -259,7 +265,12 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
     <div className="flex flex-col gap-2 rounded border p-2" data-plan={message.planId}>
       {items.map((item, index) => (
         <label key={item.taskId} className="flex flex-col gap-1 text-sm">
-          {`${index + 1}. ${item.agentName || "Agent"}`}
+          <span>
+            {`${index + 1}. ${item.agentName || "Agent"}`}{" "}
+            <Link href={`/chat/${projectId}/tasks/${item.taskId}`} className="text-xs underline">
+              board
+            </Link>
+          </span>
           <textarea
             className="min-h-16 rounded border px-2 py-1 text-sm"
             value={item.text}
@@ -279,6 +290,31 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
           {approve.isPending ? "Starting…" : "Approve"}
         </Button>
       </div>
+    </div>
+  )
+}
+
+const STEP_LABEL: Record<string, string> = {
+  planning: "planning",
+  working: "working",
+  reviewing: "reviewing",
+  escalated: "escalated",
+  done: "done",
+}
+
+function SupervisorSteps({ steps }: { steps?: Project["supervisorSteps"] }) {
+  if (!steps?.length) return null
+  return (
+    <div className="rounded border p-2 text-sm" data-supervisor-steps>
+      <p className="mb-1 font-medium">Supervisor steps</p>
+      <ul className="flex flex-col gap-1">
+        {steps.map((item) => (
+          <li key={item.taskId} data-supervisor-step={item.step} data-task-id={item.taskId}>
+            <span className="font-medium">{STEP_LABEL[item.step] ?? item.step}</span>
+            {item.label ? <span className="text-muted-foreground"> — {item.label}</span> : null}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -312,7 +348,17 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
             <p style={{ color: member.color }} className="font-medium" data-member={member.name}>
               {member.name}
             </p>
-            <p className="text-xs text-muted-foreground">{member.lastTask ? `Last: ${member.lastTask}` : "No tasks yet"}</p>
+            <p className="text-xs text-muted-foreground">
+              {member.lastTask && member.lastTaskId ? (
+                <Link href={`/chat/${projectId}/tasks/${member.lastTaskId}`} className="underline">
+                  Last: {member.lastTask}
+                </Link>
+              ) : member.lastTask ? (
+                `Last: ${member.lastTask}`
+              ) : (
+                "No tasks yet"
+              )}
+            </p>
             <ul className="mt-1 flex flex-wrap gap-1">
               {member.zones.map((zone) => {
                 const clash = (member.overlapZones ?? []).some((item) => item.includes(zone))

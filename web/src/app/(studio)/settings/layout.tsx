@@ -6,6 +6,7 @@ const links = [
   ["/settings/providers", "Providers"],
   ["/settings/runs", "Runs"],
   ["/settings/models", "Models"],
+  ["/settings/roles", "Roles"],
 ] as const
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
