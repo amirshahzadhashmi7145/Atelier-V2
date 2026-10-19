@@ -1441,6 +1441,9 @@ components:
             $ref: "#/components/schemas/Eval"
         reportsTo:
           type: [string, "null"]
+        workerEngine:
+          type: string
+          enum: [loop, openhands]
         capabilities:
           $ref: "#/components/schemas/Capabilities"
         createdAt:
@@ -1482,6 +1485,9 @@ components:
           $ref: "#/components/schemas/Scope"
         reportsTo:
           type: [string, "null"]
+        workerEngine:
+          type: string
+          enum: [loop, openhands]
         capabilities:
           $ref: "#/components/schemas/Capabilities"
     AgentPatch:
@@ -1514,6 +1520,9 @@ components:
             type: string
         scope:
           $ref: "#/components/schemas/Scope"
+        workerEngine:
+          type: string
+          enum: [loop, openhands]
     Scope:
       type: object
       additionalProperties: false
@@ -2928,6 +2937,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TaskBoardEvent"
+        sessionLogs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionLog"
+    SessionLog:
+      type: object
+      additionalProperties: false
+      required: [runId, url]
+      properties:
+        runId:
+          type: string
+        artifactId:
+          type: string
+        url:
+          type: string
     TeachRequest:
       type: object
       additionalProperties: false

@@ -23,6 +23,7 @@ def write_handoff(run: dict, task: dict, summary: dict) -> dict:
         "filesChanged": list(summary.get("filesChanged") or []),
         "evidence": evidence,
         "openQuestions": questions,
+        "commitSha": summary.get("commitSha") or None,
         "createdAt": db.now(),
     }
     db.put("handoff", note["id"], note)
@@ -116,4 +117,6 @@ def detail(project_id: str, task_id: str) -> dict | None:
     if task is None or task.get("projectId") != project_id:
         return None
     origin = db.get("task", task.get("originTaskId") or task["id"]) or task
-    return {"task": origin, "events": timeline(task)}
+    from runtime.openhands.runner import session_logs
+
+    return {"task": origin, "events": timeline(task), "sessionLogs": session_logs(task)}

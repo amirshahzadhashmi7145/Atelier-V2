@@ -20,6 +20,7 @@ LOGIC = [
     ROOT / "api" / "runtime" / "loop.py",
     ROOT / "api" / "runtime" / "members.py",
     *sorted((ROOT / "api" / "runtime" / "supervisor").glob("*.py")),
+    *sorted((ROOT / "api" / "runtime" / "openhands").glob("*.py")),
 ]
 FORBIDDEN = re.compile(r"\b(frontend|backend|team[ -]lead|qa)\b", re.I)
 

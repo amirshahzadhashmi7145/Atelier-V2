@@ -8,7 +8,7 @@ Roles stay data. The human stays out of the loop unless automatic checks fail.
 User request (one prompt)
         |
         v
-  Worker agents          ← do the work (OpenHands later)
+  Worker agents          ← OpenHands (or the loop engine) behind WorkerRunner
         |
         v
   Supervisor: reviewer   ← record_review, max two reworks, spend cap
@@ -61,15 +61,17 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Pin / security:** In March 2026, PyPI copies of `litellm` **1.82.7** and **1.82.8** were compromised (supply-chain). Those versions must never be installed. **1.83.0** is the first release after LiteLLM's CI/CD v2 rebuild and is the version we pin. Do not loosen the pin to a range that could pull 1.82.7 or 1.82.8.
 
-### 2. OpenHands for every worker (later)
+### 2. OpenHands for every worker (this session)
 
-**Chose:** OpenHands as the engine for worker agents, whatever their role.
+**Chose:** OpenHands as the engine for worker agents, whatever their role. Supervisors still call workers only through `WorkerRunner`. The supervisor graph is unchanged.
 
 **Why:** Coding, tools, and workspace loops are a commodity. We should not keep a second worker runtime per role.
 
-**Rejected:** A custom worker loop per role, or OpenHands only for Frontend.
+**Rejected:** A custom worker loop per role, or OpenHands only for one seed role. Importing `openhands-sdk` into the API process.
 
-**Trade-off:** We will wrap our data sources and skills as MCP so OpenHands can use them. Until that session, the existing worker loop stays.
+**Trade-off:** The Python SDK does not fit this repo's LiteLLM pin (`openhands-sdk==1.51.0` wants `litellm>=1.93.0`; we stay on `litellm==1.83.0` after the March 2026 supply-chain incident). Runs therefore use the SDK in an isolated `uv` process plus a Docker sandbox. `search_data` and `load_skill` are not wrapped as MCP yet (session 18). Seed agents stay on the loop engine until the real Docker test passes.
+
+**Pins:** `openhands-sdk`, `openhands-tools`, `openhands-workspace`, and `openhands-agent-server` all **1.51.0** (published 2026-10-03 — 16 days old as of 2026-10-19; 1.54.0+ are newer than the two-week floor). Docker image `ghcr.io/openhands/agent-server:1.51.0-python`. The four packages live in `api/runtime/openhands/requirements.txt`, not `api/pyproject.toml`.
 
 ### 3. LangGraph for every supervisor (this session)
 
@@ -87,7 +89,7 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **State:** The graph state is the supervisor's memory: plan id, task ids, status per task (`planning` / `working` / `reviewing` / `escalated` / `done`), decision ids, handoff ids, and current layer. It stores board ids, not copies of tasks, handoffs, or feedback. The SQLite checkpointer saves after every node so a run continues after an API restart.
 
-**WorkerRunner:** Workers are behind a one-method interface (`run(task_input) → ids when the handoff note is written`). `LoopWorkerRunner` is today's loop. Session 17 adds OpenHands behind the same interface. Graph nodes must not import how a worker runs.
+**WorkerRunner:** Workers are behind a one-method interface (`run(task_input) → ids when the handoff note is written`). `LoopWorkerRunner` still runs the in-process loop. An agent with `workerEngine: openhands` is handed to `OpenHandsWorkerRunner`. Graph nodes must not import how a worker runs.
 
 **Model calls:** Every model call inside a graph node goes through `gateway/llm.py` (via the existing run loop). No LangChain chat wrappers and no direct provider clients in graph code.
 
@@ -99,7 +101,7 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Rejected:** Reimplementing data/skill tools inside OpenHands, or a large MCP surface.
 
-**Trade-off:** A thin adapter to maintain. Agent MCPs stay the user's responsibility.
+**Trade-off:** This session forwards only tools with `kind: mcp` on the agent. `search_data` and `load_skill` stay Studio-only until the MCP wrapper session.
 
 ### 5. Memory (later)
 
@@ -147,6 +149,20 @@ A rework run is fed the task, the last handoff note, and the latest feedback. Af
 
 **Rejected:** Routing or review that matches role names. A second message bus besides the board. Building a QA role in this session.
 
+## OpenHands worker runner (this session)
+
+**Chose:** `OpenHandsWorkerRunner` implements `WorkerRunner`. Each task run copies the project repo onto the task branch, starts a Docker sandbox (`DockerWorkspace` with `mount_dir`), and gives OpenHands the compiled prompt plus the board packet (task, acceptance criteria, last handoff, latest feedback). After the process exits we always tear the sandbox down.
+
+**Checks around it:** Files changed come from `git diff`, not from the model. A path outside the role zones, a new package off the stack allow-list, or a failing `build_test` (run by us) rejects the run. A rejection is a rework: automatic feedback, `reworkCount` incremented, and the worker retries with that note. OpenHands questions or "blocked" become handoff open questions for the supervisor, not a user prompt.
+
+**Keys:** The decrypted provider key is passed only as `LLM_API_KEY` on the isolated process. It is never written to disk, sandbox files, logs, or API responses. Event logs are redacted with `gateway.keys.redact` before save.
+
+**Costs:** OpenHands reports cost per call (`llm.metrics.accumulated_cost`). We add it to the run, `agent-spend`, and `role-spend` the same way the gateway does. Hitting `maxSpendPerRunUsd` stops the run.
+
+**Engine per agent:** `workerEngine` is data (`loop` | `openhands`), default `loop`. Seed agents stay on `loop` until the real Docker test in this session passes.
+
+**Git origin:** S15–S17 repeatedly found `origin` missing at push time. Nothing in this repo runs `git remote remove`. `.git/config` was empty (no remotes, no `core` section). Project `git init` only runs under `PROJECTS_DIR`, and tests point that at a temp dir. The writer is outside the repo: Cursor's `git_write` sandbox can persist a stripped `.git/config` after an agent commit. `scripts/ensure_origin.sh` plus a pytest autouse restore `https://github.com/amirshahzadhashmi7145/Atelier-V2.git` when the remote is missing.
+
 ## What this session does not change
 
-OpenHands, the MCP wrapper, the project notes file and long-term memory, a QA role, suggestion badges, fallback models, and automation defaults. Those are later sessions. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.
+The MCP wrapper for `search_data` and `load_skill`, the project notes file and long-term memory, a QA role, suggestion badges, fallback models, automation defaults, and the supervisor graph. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.

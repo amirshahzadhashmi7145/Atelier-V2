@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from runtime import board, project_runs, roles as rolelib
 from store import db
@@ -11,6 +11,7 @@ from store import db
 ACTIVE = project_runs.ACTIVE
 
 
+@runtime_checkable
 class WorkerRunner(Protocol):
     def run(self, task_input: dict) -> dict:
         """Run a worker until a handoff note is written.
@@ -21,7 +22,7 @@ class WorkerRunner(Protocol):
 
 
 class LoopWorkerRunner:
-    """Current worker loop behind WorkerRunner. Session 17 adds OpenHands here."""
+    """Worker loop behind WorkerRunner. OpenHands is selected per agent via workerEngine."""
 
     def run(self, task_input: dict) -> dict:
         task_id = task_input["task_id"]
@@ -41,6 +42,21 @@ class LoopWorkerRunner:
                 "handoffId": existing["id"],
                 "status": "completed",
             }
+        agent = db.get("agent", task.get("assignedAgentId") or "")
+        if agent is None or rolelib.is_supervisor(agent):
+            from runtime.route_task import route_task
+
+            project = db.get("project", project_id)
+            if project is not None:
+                route_task(project, task)
+                task = db.get("task", task_id) or task
+                agent = db.get("agent", task.get("assignedAgentId") or "")
+        from runtime.openhands.packet import engine_value
+
+        if agent and engine_value(agent) == "openhands" and not live:
+            from runtime.openhands.runner import OpenHandsWorkerRunner
+
+            return OpenHandsWorkerRunner().run(task_input)
         run_id = (live or {}).get("id") if live else _start_worker(project_id, task)
         status = _wait_run(run_id) if run_id else "failed"
         task = db.get("task", task_id) or task

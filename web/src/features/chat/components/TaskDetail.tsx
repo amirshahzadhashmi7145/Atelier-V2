@@ -37,6 +37,17 @@ export function TaskDetail({ projectId, taskId }: { projectId: string; taskId: s
                   ))}
                 </ul>
               ) : null}
+              {(board.sessionLogs ?? []).length ? (
+                <ul className="mt-3 flex flex-col gap-1 text-sm">
+                  {board.sessionLogs?.map((log) => (
+                    <li key={log.runId}>
+                      <a href={log.url} className="underline" data-session-log={log.runId}>
+                        OpenHands event log
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </section>
             {board.events.map((event, index) => (
               <article key={`${event.kind}-${index}`} className="rounded border p-3" data-board-kind={event.kind}>
