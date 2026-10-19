@@ -1,4 +1,5 @@
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -46,6 +47,20 @@ def _cancel_live_runs() -> None:
         return
 
 
+def _restore_github_origin() -> None:
+    root = ROOT
+    script = root / "scripts" / "ensure_origin.sh"
+    if script.is_file():
+        subprocess.run(["bash", str(script)], cwd=root, capture_output=True, check=False)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def keep_github_origin():
+    _restore_github_origin()
+    yield
+    _restore_github_origin()
+
+
 @pytest.fixture(autouse=True)
 def fresh(tmp_path):
     _cancel_live_runs()
@@ -64,7 +79,11 @@ def fresh(tmp_path):
     from store import live
 
     live.reset()
+    from runtime.openhands.client import set_client_factory
+
+    set_client_factory(None)
     yield
+    set_client_factory(None)
     _cancel_live_runs()
 
 

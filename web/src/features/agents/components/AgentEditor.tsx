@@ -59,6 +59,7 @@ type Draft = {
   does: string[]
   neverDoes: string[]
   zones: string[]
+  workerEngine: "loop" | "openhands"
   sections: Sections
 }
 
@@ -126,6 +127,7 @@ function draftFrom(agent: Agent, sections: Sections | undefined): Draft {
     does: agent.scope?.does ?? [],
     neverDoes: agent.scope?.neverDoes ?? [],
     zones: agent.scope?.zones ?? agent.zones,
+    workerEngine: agent.workerEngine === "openhands" ? "openhands" : "loop",
     sections: sections ?? emptySections,
   }
 }
@@ -205,6 +207,7 @@ export function AgentEditor({ id }: { id: string }) {
         stackIds: current.stackIds,
         zones: current.zones,
         scope: { does: current.does, neverDoes: current.neverDoes, zones: current.zones },
+        workerEngine: current.workerEngine,
       })
       return createVersion(id, current.sections)
     },
@@ -315,6 +318,18 @@ export function AgentEditor({ id }: { id: string }) {
             <Field>
               <FieldLabel htmlFor="description">Description</FieldLabel>
               <Input id="description" value={current.description} onChange={(event) => patch({ description: event.target.value })} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="workerEngine">Worker engine</FieldLabel>
+              <select
+                id="workerEngine"
+                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                value={current.workerEngine}
+                onChange={(event) => patch({ workerEngine: event.target.value === "openhands" ? "openhands" : "loop" })}
+              >
+                <option value="loop">Loop</option>
+                <option value="openhands">OpenHands</option>
+              </select>
             </Field>
           </FieldGroup>
         </CardContent>

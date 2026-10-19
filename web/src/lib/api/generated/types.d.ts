@@ -1002,6 +1002,8 @@ export interface components {
             scope: components["schemas"]["Scope"];
             evals: components["schemas"]["Eval"][];
             reportsTo: string | null;
+            /** @enum {string} */
+            workerEngine?: "loop" | "openhands";
             capabilities: components["schemas"]["Capabilities"];
             /** Format: date-time */
             createdAt: string;
@@ -1019,6 +1021,8 @@ export interface components {
             zones?: string[];
             scope?: components["schemas"]["Scope"];
             reportsTo?: string | null;
+            /** @enum {string} */
+            workerEngine?: "loop" | "openhands";
             capabilities?: components["schemas"]["Capabilities"];
         };
         AgentPatch: {
@@ -1031,6 +1035,8 @@ export interface components {
             stackIds?: string[];
             zones?: string[];
             scope?: components["schemas"]["Scope"];
+            /** @enum {string} */
+            workerEngine?: "loop" | "openhands";
         };
         Scope: {
             does: string[];
@@ -1649,6 +1655,12 @@ export interface components {
         TaskBoard: {
             task: components["schemas"]["Task"];
             events: components["schemas"]["TaskBoardEvent"][];
+            sessionLogs?: components["schemas"]["SessionLog"][];
+        };
+        SessionLog: {
+            runId: string;
+            artifactId?: string;
+            url: string;
         };
         TeachRequest: {
             name: string;

@@ -1,0 +1,11 @@
+# Isolated sidecar for the OpenHands worker. Do not add these to api/pyproject.toml:
+# openhands-sdk 1.51.0 requires litellm>=1.93.0, and this API pins litellm==1.83.0
+# after the March 2026 supply-chain incident on 1.82.7/1.82.8.
+#
+# Pin: 1.51.0, published 2026-10-03. Floor for this session is 2026-10-05
+# (two weeks before 2026-10-19). 1.51.0 is 16 days old. 1.54.0+ are newer than
+# the floor. All four packages are a matched set.
+openhands-sdk==1.51.0
+openhands-tools==1.51.0
+openhands-workspace==1.51.0
+openhands-agent-server==1.51.0

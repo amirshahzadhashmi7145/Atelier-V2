@@ -56,7 +56,7 @@ def patch_agent(id: str, body: dict):
     agent = db.get("agent", id)
     if agent is None:
         return missing()
-    for key in ("name", "roleKey", "description", "model", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities"):
+    for key in ("name", "roleKey", "description", "model", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities", "workerEngine"):
         if key in body:
             agent[key] = body[key]
     agent["updatedAt"] = db.now()
@@ -1118,6 +1118,7 @@ def _agent(body: dict) -> dict:
         "scope": body.get("scope") or {"does": [], "neverDoes": [], "zones": body.get("zones") or []},
         "evals": body.get("evals") or [],
         "reportsTo": body.get("reportsTo"),
+        "workerEngine": body.get("workerEngine") or "loop",
         "capabilities": {
             "stacks": (body.get("capabilities") or {}).get("stacks") or stacks,
             "skills": (body.get("capabilities") or {}).get("skills") or skills,
