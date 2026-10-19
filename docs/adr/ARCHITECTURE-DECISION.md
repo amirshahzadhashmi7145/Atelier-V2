@@ -35,7 +35,7 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Rejected:** A separate engine, graph, or review protocol per role.
 
-**Trade-off:** Role-specific skill lives in prompts, tools, zones, and evals — not in Python. Routing that still names frontend/backend/team-lead is leftover and should become data-driven later.
+**Trade-off:** Role-specific skill lives in prompts, tools, zones, and evals — not in Python. Routing, review, and colour must read role documents; they must not name a role.
 
 ### B. Minimal human input
 
@@ -120,6 +120,22 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 **Rejected:** Keeping mandatory plan approval as the long-term default.
 
 **Trade-off:** More autonomy means a sharper need for spend caps and rework limits — those stay automatic.
+
+## Role model and the task board (this session)
+
+**Chose:** Every role is a document: id, name, kind (`worker` or `supervisor`), `reportsTo`, layer order, zones, tags, colour, and an optional contract file the role writes for others to read. Seeded roles (Frontend Engineer, Backend Engineer, Team Lead) are rows, not branches in code. Adding a role is a UI/API write.
+
+The task board is the only channel between agents. Three record types live in the app database:
+
+- **Task** — id, parent, assigned agent, acceptance criteria, status, rework count
+- **Handoff note** — written when a worker calls `complete` (summary, files, evidence per criterion, open questions)
+- **Review feedback** — written when a supervisor calls `record_review` (verdict plus itemised wrong/expected)
+
+A rework run is fed the task, the last handoff note, and the latest feedback. After two reworks the task moves to the next supervisor layer (`reportsTo` / layer order). If none remains, it reaches the user. An approval walks the same chain upward until the top, then the task is done.
+
+**Why:** Principle A (roles are data) and principle B (agents talk to each other; a person is last). QA later is another supervisor row on this chain.
+
+**Rejected:** Routing or review that matches role names. A second message bus besides the board. Building a QA role in this session.
 
 ## What this session does not change
 

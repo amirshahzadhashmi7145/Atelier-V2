@@ -116,6 +116,66 @@ def diff_versions(id: str, v: int, against: int):
     return {"againstVersion": against, "sections": sections}
 
 
+@router.get("/roles")
+def list_roles():
+    from runtime import roles as rolelib
+
+    rolelib.sync_roles()
+    rows = db.listing("role")
+    rows.sort(key=lambda item: (item.get("layer") or 0, item.get("name") or item["id"]))
+    return rows
+
+
+@router.post("/roles", status_code=201)
+def create_role(body: dict):
+    from runtime import roles as rolelib
+
+    try:
+        role = rolelib.normalize(body)
+    except ValueError as exc:
+        return error(422, "invalid", str(exc))
+    if db.get("role", role["id"]):
+        return error(409, "exists", "A role with that id already exists")
+    db.put("role", role["id"], role)
+    return role
+
+
+@router.get("/roles/{id}")
+def get_role(id: str):
+    return db.get("role", id) or missing()
+
+
+@router.patch("/roles/{id}")
+def patch_role(id: str, body: dict):
+    from runtime import roles as rolelib
+
+    existing = db.get("role", id)
+    if existing is None:
+        return missing()
+    try:
+        role = rolelib.normalize({**body, "id": id}, existing)
+    except ValueError as exc:
+        return error(422, "invalid", str(exc))
+    db.put("role", id, role)
+    return role
+
+
+@router.delete("/roles/{id}", status_code=204)
+def delete_role(id: str):
+    if db.get("role", id) is None:
+        return missing()
+    db.delete("role", id)
+    return JSONResponse(status_code=204, content=None)
+
+
+@router.get("/tags")
+def list_available_tags():
+    from runtime import roles as rolelib
+
+    rolelib.sync_roles()
+    return {"tags": rolelib.tags_catalog()}
+
+
 @router.post("/agents/{id}/compile-preview")
 def compile_preview(id: str, body: dict):
     if db.get("agent", id) is None:
@@ -784,6 +844,10 @@ def delete_project(id: str):
         db.delete("run", run_id)
     for task in db.listing("task"):
         if task.get("projectId") == id:
+            for kind in ("handoff", "review-feedback"):
+                for item in db.listing(kind):
+                    if item.get("taskId") == task["id"]:
+                        db.delete(kind, item["id"])
             db.delete("task", task["id"])
     for message in db.listing("message"):
         if message.get("projectId") == id:
@@ -867,7 +931,7 @@ def post_message(id: str, body: dict):
                 first_run = run_message
         if first_run:
             user["runId"] = first_run.get("runId")
-            user["statusNote"] = "Backend first, then Frontend"
+            user["statusNote"] = "Split into member tasks"
             db.put("message", user["id"], user)
         return user
     agent = db.get("agent", task["assignedAgentId"]) or {}
@@ -902,6 +966,16 @@ def post_message(id: str, body: dict):
         return error(429, "budget", "The daily spend cap for this project was reached.")
     kind = "lead" if leadlib.is_lead(agent) else None
     return _start_project_run(project, agent, task, work_text, message_id, labeling.prior_context(id), kind=kind)
+
+
+@router.get("/projects/{id}/tasks/{taskId}")
+def get_task_board(id: str, taskId: str):
+    from runtime import board as boardlib
+
+    if db.get("project", id) is None:
+        return missing()
+    detail = boardlib.detail(id, taskId)
+    return detail if detail else missing()
 
 
 @router.post("/projects/{id}/plans/{planId}/approve")

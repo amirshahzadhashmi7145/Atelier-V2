@@ -3,30 +3,15 @@
 from __future__ import annotations
 
 from fnmatch import fnmatch
-from hashlib import sha1
 
+from runtime import roles as rolelib
 from store import db
 
 SHARED_ZONES = ("package.json", "tsconfig.json", "tsconfig*.json")
-COLORS = {
-    "frontend": "#2563eb",
-    "frontend-engineer": "#2563eb",
-    "backend": "#d97706",
-    "backend-engineer": "#d97706",
-    "team-lead": "#7c3aed",
-    "lead": "#7c3aed",
-}
 
 
 def color_for(agent: dict | None) -> str:
-    if not agent:
-        return "#64748b"
-    key = (agent.get("roleKey") or agent.get("name") or "").lower()
-    for needle, color in COLORS.items():
-        if needle in key:
-            return color
-    digest = sha1((agent.get("id") or key).encode()).hexdigest()
-    return f"#{digest[:6]}"
+    return rolelib.colour_of(agent)
 
 
 def zones_of(agent: dict | None) -> list[str]:
@@ -95,17 +80,17 @@ def other_member_busy(run: dict) -> bool:
     return live.get("agentId") != run.get("agentId") and live.get("id") != run.get("id")
 
 
-def last_task_for(project_id: str, agent_id: str) -> str | None:
+def last_task_for(project_id: str, agent_id: str) -> tuple[str | None, str | None]:
     rows = [
         item
         for item in db.listing("task")
         if item.get("projectId") == project_id and item.get("assignedAgentId") == agent_id and item.get("text")
     ]
     if not rows:
-        return None
+        return None, None
     rows.sort(key=lambda item: item.get("id") or "")
     text = (rows[-1].get("text") or "").strip()
-    return text[:120] if text else None
+    return (text[:120] if text else None), rows[-1].get("id")
 
 
 def member_details(project: dict) -> list[dict]:
@@ -117,6 +102,7 @@ def member_details(project: dict) -> list[dict]:
         overlap: list[str] = []
         for other in others:
             overlap.extend(overlapping_zones(zones_of(agent), other))
+        last_text, last_id = last_task_for(project["id"], agent["id"])
         details.append(
             {
                 "agentId": agent["id"],
@@ -125,7 +111,8 @@ def member_details(project: dict) -> list[dict]:
                 "color": color_for(agent),
                 "zones": zones_of(agent),
                 "overlapZones": overlap,
-                "lastTask": last_task_for(project["id"], agent["id"]),
+                "lastTask": last_text,
+                "lastTaskId": last_id,
             }
         )
     return details

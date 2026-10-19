@@ -56,40 +56,52 @@ def _done_turns(description: str, endpoints=None) -> list[dict]:
 def _lead_turns(blob: str) -> list[dict]:
     members = []
     for line in blob.splitlines():
-        match = re.search(r"id=(\S+)\s+name=(.*?)\s+role=(\S+)", line)
+        match = re.search(r"id=(\S+)\s+name=(.*?)\s+role=(\S+)(?:\s+kind=(\S+))?", line)
         if match:
-            members.append({"id": match.group(1), "name": match.group(2), "role": match.group(3).lower()})
-    back = next((item for item in members if "backend" in item["role"] or "backend" in item["name"].lower()), None)
-    front = next((item for item in members if "frontend" in item["role"] or "frontend" in item["name"].lower()), None)
+            members.append(
+                {
+                    "id": match.group(1),
+                    "name": match.group(2),
+                    "role": match.group(3).lower(),
+                    "kind": (match.group(4) or "worker").lower(),
+                }
+            )
+    workers = [item for item in members if item["kind"] != "supervisor"]
+    try:
+        from store import db
+
+        ranked = []
+        for item in workers:
+            role = db.get("role", item["role"])
+            rank = 0 if role and role.get("contractFile") else 1
+            ranked.append((rank, item, role))
+        ranked.sort(key=lambda row: (row[0], row[1].get("name") or ""))
+        workers = [row[1] for row in ranked]
+        roles = {row[1]["id"]: row[2] for row in ranked}
+    except Exception:
+        roles = {}
     calls = []
-    if back:
+    for index, item in enumerate(workers, start=1):
+        role = roles.get(item["id"]) or {}
+        contract = role.get("contractFile")
+        if contract:
+            text = f"Implement the HTTP API, database, and auth. Produce {contract}."
+        else:
+            text = "Build the React UI against the contract"
         calls.append(
             {
-                "id": "task_back",
+                "id": f"task_{index}",
                 "name": "create_task",
                 "arguments": {
-                    "text": "Implement the HTTP API, database, and auth",
-                    "assignToAgentId": back["id"],
-                    "acceptanceCriteria": ["login works", "CONTRACT.md lists endpoints"],
-                    "order": 1,
-                },
-            }
-        )
-    if front:
-        calls.append(
-            {
-                "id": "task_front",
-                "name": "create_task",
-                "arguments": {
-                    "text": "Build the React UI against the contract",
-                    "assignToAgentId": front["id"],
-                    "acceptanceCriteria": ["form against contract"],
-                    "order": 2,
+                    "text": text,
+                    "assignToAgentId": item["id"],
+                    "acceptanceCriteria": ["criteria met"],
+                    "order": index,
                 },
             }
         )
     if not calls:
-        return _done_turns("Need Backend and Frontend members before I can split the work.")
+        return _done_turns("Need worker members before I can split the work.")
     calls.append({"id": "done", "name": "complete", "arguments": {"summary": {"description": "Plan ready."}}})
     return [{"content": "Splitting the work.", "tool_calls": calls, "usage": {"input_tokens": 1, "output_tokens": 1}}]
 
@@ -122,12 +134,12 @@ def _plan(messages: list[dict]) -> list[dict]:
         return _lead_turns(blob)
     if "omits delete" in blob.lower() or "omit delete" in blob.lower():
         return _done_turns("Notes can be listed and created.")
-    if "Implement the HTTP API" in blob:
+    if "Implement the HTTP API" in blob or "Produce api/CONTRACT.md" in blob:
         return _done_turns(
             "API ready.",
             endpoints=[{"method": "POST", "path": "/login", "request": "{email}", "response": "{token}"}],
         )
-    if "Build the React UI" in blob:
+    if "Build the React UI" in blob or "Do: user interfaces" in blob:
         return _done_turns("UI against the contract.")
     if "interleave-bubbles" in blob:
         return [

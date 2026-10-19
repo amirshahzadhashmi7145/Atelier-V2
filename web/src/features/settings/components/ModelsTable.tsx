@@ -8,17 +8,19 @@ import { QueryBody } from "@/components/shared/QueryBody"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { compareEvalModels, listAgentVersions, listModels, listSettingsAgents } from "@/features/settings/api"
+import { compareEvalModels, listAgentVersions, listModels, listRoleTags, listSettingsAgents } from "@/features/settings/api"
 import { listModelTags, saveModelTag } from "@/lib/api/model-tags"
 import { queryKeys } from "@/lib/api/query-keys"
-import { MODEL_TAGS, tagsFor, type ModelTag } from "@/lib/models/tags"
+import { tagsFor, type ModelTag } from "@/lib/models/tags"
 
 function TagRow({
   name,
   initial,
+  catalog,
 }: {
   name: string
   initial: { tags: ModelTag[]; note: string; heuristic: boolean }
+  catalog: string[]
 }) {
   const queryClient = useQueryClient()
   const [tags, setTags] = useState(initial.tags)
@@ -36,7 +38,7 @@ function TagRow({
       <td className="py-2 pr-3 align-top">{name}</td>
       <td className="py-2 pr-3">
         <div className="flex flex-wrap gap-2">
-          {MODEL_TAGS.map((tag) => (
+          {catalog.map((tag) => (
             <label key={tag} className="flex items-center gap-1 text-sm">
               <input
                 type="checkbox"
@@ -67,6 +69,7 @@ function TagRow({
 export function ModelsTable() {
   const models = useQuery({ queryKey: queryKeys.models, queryFn: listModels })
   const tags = useQuery({ queryKey: queryKeys.modelTags, queryFn: listModelTags })
+  const catalog = useQuery({ queryKey: queryKeys.roleTags, queryFn: listRoleTags })
 
   return (
     <div className="flex flex-col gap-6">
@@ -86,7 +89,12 @@ export function ModelsTable() {
                 </thead>
                 <tbody>
                   {items.map((model) => (
-                    <TagRow key={model.name} name={model.name} initial={tagsFor(model.name, saved[model.name])} />
+                    <TagRow
+                      key={model.name}
+                      name={model.name}
+                      catalog={catalog.data ?? []}
+                      initial={tagsFor(model.name, saved[model.name])}
+                    />
                   ))}
                 </tbody>
               </table>
