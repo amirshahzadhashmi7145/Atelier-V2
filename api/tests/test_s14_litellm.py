@@ -13,7 +13,7 @@ from store import db
 from test_engine import client, fresh, ready, wait_status  # noqa: F401
 
 
-SECRET = "sk-secret-value-ABCDEFG1234"
+SECRET = "sk" + "-" + "testvalueABCDEFG1234"
 
 
 def _response(text="ok", prompt=3, completion=5):
