@@ -73,12 +73,16 @@ class OpenAIProvider:
             yield self._done(turn, usage)
             return
         text = turn.get("content") or ""
+        pace = float(os.environ.get("STREAM_PACE_MS") or 0) / 1000
         if stream and text:
-            for index, word in enumerate(text.split(" ")):
+            words = text.split(" ")
+            for index, word in enumerate(words):
                 if not word:
                     continue
-                piece = word if index == len(text.split(" ")) - 1 else word + " "
+                piece = word if index == len(words) - 1 else word + " "
                 yield {"kind": "delta", "text": piece}
+                if pace:
+                    time.sleep(pace)
         yield self._done(turn, usage)
 
     def _done(self, turn: dict, usage: dict) -> dict:

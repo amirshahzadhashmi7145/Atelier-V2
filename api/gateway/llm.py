@@ -355,6 +355,8 @@ def iter_live_events(
     import litellm
     from litellm.exceptions import APIConnectionError, APIError, AuthenticationError, RateLimitError, Timeout
 
+    if not resolve_api_key(provider) and provider != "ollama":
+        raise ProviderError("No API key saved for this provider.")
     kwargs = _litellm_kwargs(provider, model, messages, tools, config, stream, tool_choice)
     try:
         response = litellm.completion(**kwargs)

@@ -124,7 +124,8 @@ def drive(run_id: str) -> None:
         run["costUsd"] = round(run["costUsd"] + cost["usd"], 6)
         openai_gateway.record_turn_cost(run, cost["usd"])
         run["iterations"] += 1
-        db.put("run", run_id, _public(run))
+        if not _persist_run(run):
+            return
         if run["costUsd"] > cap:
             message = "The review exceeded its spend cap." if run.get("kind") == "review" else "The run exceeded the spend cap."
             _fail(run, "budget", message, recent)
@@ -665,9 +666,21 @@ def _say(run: dict, text: str) -> None:
     )
 
 
+def _persist_run(run: dict) -> bool:
+    """Keep a user stop from being overwritten by the worker's in-memory copy."""
+    fresh = db.get("run", run["id"]) or {}
+    if fresh.get("status") == "cancelled" and run.get("status") != "cancelled":
+        run["status"] = "cancelled"
+        run["endedAt"] = fresh.get("endedAt") or run.get("endedAt")
+        return False
+    db.put("run", run["id"], _public(run))
+    return True
+
+
 def _status(run: dict, status: str) -> None:
     run["status"] = status
-    db.put("run", run["id"], _public(run))
+    if not _persist_run(run):
+        return
     db.append_event(run["id"], "STATE_CHANGED", {"status": status})
 
 
