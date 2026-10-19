@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
 from runtime import board
 from runtime.compile import compile_prompt
 from store import db
 
 OWN_TOOLS = {"search_data", "load_skill"}
+API_ROOT = Path(__file__).resolve().parents[2]
+STUDIO_MCP = "atelier"
 
 
 def engine_value(agent: dict | None) -> str:
@@ -30,7 +36,22 @@ def compiled_prompt(agent: dict) -> str:
     return compiled["compiled"]
 
 
-def mcp_config(agent: dict) -> dict:
+def studio_mcp_server(token: str) -> dict:
+    env = {
+        "ATELIER_MCP_TOKEN": token,
+        "PYTHONPATH": str(API_ROOT),
+    }
+    for key in ("DATABASE_URL", "PROJECTS_DIR"):
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return {
+        "command": sys.executable,
+        "args": ["-m", "runtime.mcp.stdio"],
+        "env": env,
+    }
+
+
+def mcp_config(agent: dict, token: str | None = None) -> dict:
     servers: dict[str, dict] = {}
     catalog = {item["id"]: item for item in db.listing("tool")}
     by_name = {item["name"]: item for item in db.listing("tool")}
@@ -50,6 +71,8 @@ def mcp_config(agent: dict) -> dict:
                 entry["args"] = cfg["args"]
         if entry:
             servers[tool.get("name") or tool_id] = entry
+    if token:
+        servers[STUDIO_MCP] = studio_mcp_server(token)
     return {"mcpServers": servers}
 
 

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.routes import router
+from runtime.mcp.http import router as mcp_router
 from store import db
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -41,6 +42,7 @@ app.add_middleware(
     allow_private_network=True,
 )
 app.include_router(router)
+app.include_router(mcp_router)
 
 
 def _bootstrap_gemini() -> None:

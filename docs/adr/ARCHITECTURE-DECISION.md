@@ -69,7 +69,7 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Rejected:** A custom worker loop per role, or OpenHands only for one seed role. Importing `openhands-sdk` into the API process.
 
-**Trade-off:** The Python SDK does not fit this repo's LiteLLM pin (`openhands-sdk==1.51.0` wants `litellm>=1.93.0`; we stay on `litellm==1.83.0` after the March 2026 supply-chain incident). Runs therefore use the SDK in an isolated `uv` process plus a Docker sandbox. `search_data` and `load_skill` are not wrapped as MCP yet (session 18). Seed agents stay on the loop engine until the real Docker test passes.
+**Trade-off:** The Python SDK does not fit this repo's LiteLLM pin (`openhands-sdk==1.51.0` wants `litellm>=1.93.0`; we stay on `litellm==1.83.0` after the March 2026 supply-chain incident). Runs therefore use the SDK in an isolated `uv` process plus a Docker sandbox. Seed agents stay on the loop engine until a real Docker test with a Settings-stored key passes.
 
 **Pins:** `openhands-sdk`, `openhands-tools`, `openhands-workspace`, and `openhands-agent-server` all **1.51.0** (published 2026-10-03 — 16 days old as of 2026-10-19; 1.54.0+ are newer than the two-week floor). Docker image `ghcr.io/openhands/agent-server:1.51.0-python`. The four packages live in `api/runtime/openhands/requirements.txt`, not `api/pyproject.toml`.
 
@@ -93,15 +93,15 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Model calls:** Every model call inside a graph node goes through `gateway/llm.py` (via the existing run loop). No LangChain chat wrappers and no direct provider clients in graph code.
 
-### 4. One MCP server for our tools (later)
+### 4. One MCP server for our tools (this session)
 
-**Chose:** Wrap `search_data` and `load_skill` as a small MCP server. Pass agent-configured MCPs straight through.
+**Chose:** Wrap `search_data` and `load_skill` as a small MCP server inside the API. Pass that server to every OpenHands run alongside the agent's own MCP servers. Loop workers and supervisors keep calling the tools directly.
 
 **Why:** OpenHands already speaks MCP. We should not invent a second tool bus.
 
 **Rejected:** Reimplementing data/skill tools inside OpenHands, or a large MCP surface.
 
-**Trade-off:** This session forwards only tools with `kind: mcp` on the agent. `search_data` and `load_skill` stay Studio-only until the MCP wrapper session.
+**Trade-off:** The OpenHands sandbox never holds a provider key for our tools. It holds a short-lived run token instead.
 
 ### 5. Memory (later)
 
@@ -159,10 +159,20 @@ A rework run is fed the task, the last handoff note, and the latest feedback. Af
 
 **Costs:** OpenHands reports cost per call (`llm.metrics.accumulated_cost`). We add it to the run, `agent-spend`, and `role-spend` the same way the gateway does. Hitting `maxSpendPerRunUsd` stops the run.
 
-**Engine per agent:** `workerEngine` is data (`loop` | `openhands`), default `loop`. Seed agents stay on `loop` until the real Docker test in this session passes.
+**Engine per agent:** `workerEngine` is data (`loop` | `openhands`), default `loop`. Seed agents stay on `loop` until a real Docker test with a Settings-stored key passes 2 of 3 times.
+
+## MCP wrapper and run tokens (this session)
+
+**Chose:** One JSON-RPC MCP server (`POST /mcp` and a host-side stdio process) exposing `search_data` and `load_skill` through the same Python as the loop tools. Each OpenHands run gets an `atk_…` token at start; the token is hashed in the database, passed only in the MCP child environment (never argv, disk, or logs), and revoked when the run ends. Requests without a valid token are refused. An agent only searches its own data sources and only loads skills on its `skillIds`. Each call is recorded on the run as `MCP_TOOL_CALLED` with the tool name and result size, not the result body.
+
+**Why:** OpenHands needs our tools, but it must not see decrypted provider keys or another agent's skills and sources.
+
+**Rejected:** A shared long-lived MCP API key. Putting `search_data` / `load_skill` in the Docker sandbox as local functions.
+
+**Trade-off:** The stdio server runs in the API process environment so it can read the same SQLite database. The Docker sandbox still cannot reach our DB except through MCP.
 
 **Git origin:** S15–S17 repeatedly found `origin` missing at push time. Nothing in this repo runs `git remote remove`. `.git/config` was empty (no remotes, no `core` section). Project `git init` only runs under `PROJECTS_DIR`, and tests point that at a temp dir. The writer is outside the repo: Cursor's `git_write` sandbox can persist a stripped `.git/config` after an agent commit. `scripts/ensure_origin.sh` plus a pytest autouse restore `https://github.com/amirshahzadhashmi7145/Atelier-V2.git` when the remote is missing.
 
 ## What this session does not change
 
-The MCP wrapper for `search_data` and `load_skill`, the project notes file and long-term memory, a QA role, suggestion badges, fallback models, automation defaults, and the supervisor graph. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.
+The project notes file and long-term memory, a QA role, suggestion badges, fallback models, automation defaults, the supervisor graph, and the main `litellm==1.83.0` pin. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.
