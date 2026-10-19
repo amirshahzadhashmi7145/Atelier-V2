@@ -35,9 +35,9 @@ def drain(project_id: str) -> None:
         if task:
             task["status"] = "running"
             db.put("task", task["id"], task)
-    from app.worker import start_run
+    from app.worker import launch
 
-    start_run(run["id"])
+    launch(run)
 
 
 def stop_all(project_id: str) -> None:

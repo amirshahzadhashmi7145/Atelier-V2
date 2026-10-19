@@ -1,6 +1,15 @@
 import threading
 
 
+def launch(run: dict) -> None:
+    if run.get("kind") == "lead":
+        from runtime.supervisor.graph import start_supervisor
+
+        start_supervisor(run)
+        return
+    start_run(run["id"])
+
+
 def start_run(run_id: str) -> None:
     threading.Thread(target=_drive, args=(run_id,), daemon=True).start()
 

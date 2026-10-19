@@ -46,6 +46,12 @@ def reset_engine() -> None:
     if _engine is not None:
         _engine.dispose()
     _engine = None
+    try:
+        from runtime.supervisor.graph import reset_compiled
+
+        reset_compiled()
+    except Exception:
+        pass
 
 
 def session() -> Session:

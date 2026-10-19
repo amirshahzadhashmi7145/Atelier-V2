@@ -106,8 +106,6 @@ def publish_plan(run: dict) -> dict | None:
     parent["planId"] = plan_id
     db.put("task", parent["id"], parent)
     _stamp_message(run["projectId"], "\n".join(lines), parent["id"], lead, "plan", {"planId": plan_id, "planItems": plan_items})
-    if not settings().get("approvePlansBeforeRunning", True):
-        approve_plan(run["projectId"], plan_id)
     return plan
 
 
@@ -136,7 +134,7 @@ def _apply_item_edits(plan: dict, edits: list[dict] | None) -> None:
     plan["items"] = updated
 
 
-def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
+def mark_plan_approved(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
     plan = db.get("plan", plan_id)
     if plan is None or plan.get("projectId") != project_id:
         raise KeyError("plan")
@@ -147,7 +145,14 @@ def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None)
     if parent:
         parent["status"] = "running"
         db.put("task", parent["id"], parent)
-    start_next_child(plan["parentTaskId"])
+    return plan
+
+
+def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
+    plan = mark_plan_approved(project_id, plan_id, edits)
+    from runtime.supervisor.graph import resume_supervisor
+
+    resume_supervisor(plan["parentTaskId"], {"approved": True})
     return plan
 
 
@@ -158,35 +163,6 @@ def edit_plan(project_id: str, plan_id: str, edits: list[dict]) -> dict:
     _apply_item_edits(plan, edits)
     db.put("plan", plan_id, plan)
     return plan
-
-
-def start_next_child(parent_id: str) -> dict | None:
-    from runtime import classify as labeling
-
-    parent = db.get("task", parent_id)
-    if parent is None:
-        return None
-    project = db.get("project", parent["projectId"])
-    if project is None:
-        return None
-    for child in children_of(parent_id):
-        if child.get("supersededBy") or child.get("reviewStatus") == "approved":
-            continue
-        if child.get("status") in ("running", "waiting_review"):
-            return None
-        if child.get("status") == "failed":
-            return None
-        if child.get("status") == "completed" and child.get("reviewStatus") != "approved":
-            return None
-        if child.get("status") in ("planned", "queued", "changes_requested"):
-            agent = db.get("agent", child.get("assignedAgentId") or "") or {}
-            from app.routes import _start_project_run
-
-            child["status"] = "queued"
-            db.put("task", child["id"], child)
-            return _start_project_run(project, agent, child, child.get("text") or "", None, labeling.prior_context(project["id"]))
-    finish_parent(parent)
-    return None
 
 
 def start_review(author_run: dict, child: dict, reviewer: dict | None = None) -> dict | None:
@@ -235,19 +211,9 @@ def apply_review(run: dict, verdict: str, notes: str, items: list | None = None)
     label = "Approved." if verdict == "approve" else "Changes requested."
     text = f"{label} {notes}".strip()
     _stamp_message(project_id, text, child["id"], lead, "review", {"verdict": verdict, "runId": run.get("id")})
-    project = db.get("project", project_id)
-    worker = db.get("agent", child.get("assignedAgentId") or "")
     if verdict == "approve":
-        nxt = rolelib.next_reviewer(project, worker, lead)
-        if nxt:
-            author = db.get("run", run.get("authorRunId") or child.get("diffRef") or "") or run
-            start_review(author, child, nxt)
-            return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
-        child["status"] = "completed"
-        child["reviewStatus"] = "approved"
         child["reviewNotes"] = notes
         db.put("task", child["id"], child)
-        start_next_child(child.get("parentTaskId") or "")
         return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
     attempts = int(child.get("reviewAttempts") or child.get("reworkCount") or 0) + 1
     child["reviewAttempts"] = attempts
@@ -257,22 +223,6 @@ def apply_review(run: dict, verdict: str, notes: str, items: list | None = None)
     parent_id = child.get("parentTaskId")
     if attempts > board.MAX_REWORKS:
         db.put("task", child["id"], child)
-        nxt = rolelib.next_reviewer(project, worker, lead)
-        if nxt:
-            child["reviewAttempts"] = 0
-            child["reworkCount"] = 0
-            db.put("task", child["id"], child)
-            author = db.get("run", run.get("authorRunId") or child.get("diffRef") or "") or run
-            start_review(author, child, nxt)
-            return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
-        _stamp_message(
-            project_id,
-            "A supervisor requested changes twice. Decide whether to retry or stop.",
-            parent_id,
-            lead,
-            "review",
-            {"verdict": "changes_requested"},
-        )
         return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
     origin = child.get("originTaskId") or child["id"]
     retry = {
@@ -298,7 +248,6 @@ def apply_review(run: dict, verdict: str, notes: str, items: list | None = None)
     child["supersededBy"] = retry["id"]
     db.put("task", child["id"], child)
     db.put("task", retry["id"], retry)
-    start_next_child(parent_id)
     return {"done": True, "summary": {"description": text, "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
 
 

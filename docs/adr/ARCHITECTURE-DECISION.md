@@ -71,7 +71,7 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Trade-off:** We will wrap our data sources and skills as MCP so OpenHands can use them. Until that session, the existing worker loop stays.
 
-### 3. LangGraph for every supervisor (later)
+### 3. LangGraph for every supervisor (this session)
 
 **Chose:** LangGraph for supervisor agents. Keep `record_review`, max two reworks, and the review spend cap. Stack reviewer, then QA, then PM on the same generic logic.
 
@@ -80,6 +80,16 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 **Rejected:** A new review implementation per supervisor role. Putting supervisors on OpenHands.
 
 **Trade-off:** Two engines (OpenHands workers, LangGraph supervisors) instead of one. The split matches the worker vs supervisor tag.
+
+**Pins:** `langgraph==1.2.12` (published 2026-09-21 — newest 1.2.x at least two weeks old as of 2026-10-19; 1.2.13–1.2.16 are newer than that floor). `langgraph-checkpoint-sqlite==3.1.1` (published 2026-07-30) matches our SQLAlchemy SQLite app database; 3.1.2 (2026-10-12) is too new. The checkpointer writes LangGraph tables into the same SQLite file as `documents`.
+
+**Graph:** One generic graph for every supervisor role: `plan` → `dispatch` → `wait` → `review` → `advance` → `wrap-up`. What a supervisor does is role data and prompt, never a Python branch on a role name. A role added in Settings runs on this same graph.
+
+**State:** The graph state is the supervisor's memory: plan id, task ids, status per task (`planning` / `working` / `reviewing` / `escalated` / `done`), decision ids, handoff ids, and current layer. It stores board ids, not copies of tasks, handoffs, or feedback. The SQLite checkpointer saves after every node so a run continues after an API restart.
+
+**WorkerRunner:** Workers are behind a one-method interface (`run(task_input) → ids when the handoff note is written`). `LoopWorkerRunner` is today's loop. Session 17 adds OpenHands behind the same interface. Graph nodes must not import how a worker runs.
+
+**Model calls:** Every model call inside a graph node goes through `gateway/llm.py` (via the existing run loop). No LangChain chat wrappers and no direct provider clients in graph code.
 
 ### 4. One MCP server for our tools (later)
 
@@ -139,4 +149,4 @@ A rework run is fed the task, the last handoff note, and the latest feedback. Af
 
 ## What this session does not change
 
-OpenHands, LangGraph, QA, MCP wrapper, memory, suggestion badges, fallback models, and the automation switch. Those are later sessions. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.
+OpenHands, the MCP wrapper, the project notes file and long-term memory, a QA role, suggestion badges, fallback models, and automation defaults. Those are later sessions. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.

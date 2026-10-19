@@ -1502,8 +1502,15 @@ export interface components {
             activeRunId?: string | null;
             summary?: string | null;
             memberDetails?: components["schemas"]["ProjectMember"][];
+            supervisorSteps?: components["schemas"]["SupervisorStep"][];
             /** Format: date-time */
             createdAt: string;
+        };
+        SupervisorStep: {
+            taskId: string;
+            /** @enum {string} */
+            step: "planning" | "working" | "reviewing" | "escalated" | "done";
+            label?: string | null;
         };
         ProjectMember: {
             agentId: string;

@@ -144,6 +144,7 @@ export function ChatScreen({
           </div>
           {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
           {projectId ? <MemberPanel projectId={projectId} project={project.data} /> : null}
+          <SupervisorSteps steps={project.data.supervisorSteps} />
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
@@ -289,6 +290,31 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
           {approve.isPending ? "Starting…" : "Approve"}
         </Button>
       </div>
+    </div>
+  )
+}
+
+const STEP_LABEL: Record<string, string> = {
+  planning: "planning",
+  working: "working",
+  reviewing: "reviewing",
+  escalated: "escalated",
+  done: "done",
+}
+
+function SupervisorSteps({ steps }: { steps?: Project["supervisorSteps"] }) {
+  if (!steps?.length) return null
+  return (
+    <div className="rounded border p-2 text-sm" data-supervisor-steps>
+      <p className="mb-1 font-medium">Supervisor steps</p>
+      <ul className="flex flex-col gap-1">
+        {steps.map((item) => (
+          <li key={item.taskId} data-supervisor-step={item.step} data-task-id={item.taskId}>
+            <span className="font-medium">{STEP_LABEL[item.step] ?? item.step}</span>
+            {item.label ? <span className="text-muted-foreground"> — {item.label}</span> : null}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
