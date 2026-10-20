@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { modelId } from "@/lib/models/schema"
 import { suggestedForRole, type OwnStat } from "@/lib/models/stats"
 import { tagsFor, type TagRecord } from "@/lib/models/tags"
 
@@ -33,21 +34,25 @@ export function ModelPicker({
 }) {
   const [query, setQuery] = useState("")
   const needle = query.trim().toLowerCase()
-  const shown = models.filter((model) => !needle || model.name.toLowerCase().includes(needle) || model.name === value)
+  const current = modelId(value)
+  const shown = models.filter((model) => {
+    const ident = modelId(model.name)
+    return !needle || ident.toLowerCase().includes(needle) || ident === current
+  })
   const groups = shown.reduce<Record<string, Model[]>>((acc, model) => {
-    const key = model.provider || "openai"
+    const key = model.provider || (/^gemini/i.test(modelId(model.name)) ? "gemini" : "openai")
     acc[key] = acc[key] ?? []
     acc[key].push(model)
     return acc
   }, {})
   const providerLabel: Record<string, string> = { openai: "OpenAI", gemini: "Google Gemini" }
-  const selected = tagsFor(value, value ? tags[value] : undefined)
-  const stat = models.find((model) => model.name === value)?.ownStats?.find((item) => item.roleKey === roleKey)
+  const selected = tagsFor(current, current ? tags[current] : undefined)
+  const stat = models.find((model) => modelId(model.name) === current)?.ownStats?.find((item) => item.roleKey === roleKey)
   const pick = suggestedForRole(
-    models.map((model) => ({ name: model.name, ownStats: model.ownStats ?? [] })),
+    models.map((model) => ({ name: modelId(model.name), ownStats: model.ownStats ?? [] })),
     roleKey,
   )
-  const suggested = Boolean(pick && pick.name === value)
+  const suggested = Boolean(pick && pick.name === current)
   const reason = stat?.reason || (stat && stat.runs < 5 ? "not enough data yet" : pick?.reason)
   return (
     <div className="flex flex-col gap-2">
@@ -61,24 +66,25 @@ export function ModelPicker({
         aria-label={label}
         className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground"
         title={selected.note}
-        value={value}
+        value={current}
         onChange={(event) => onChange(event.target.value)}
       >
         <option value="">{emptyLabel}</option>
         {Object.entries(groups).map(([provider, items]) => (
           <optgroup key={provider} label={providerLabel[provider] ?? provider.replace(/\b\w/g, (char) => char.toUpperCase())}>
             {items.map((model) => {
-              const record = tagsFor(model.name, tags[model.name])
-              const mark = pick?.name === model.name
+              const ident = modelId(model.name)
+              const record = tagsFor(ident, tags[ident])
+              const mark = pick?.name === ident
               return (
-                <option key={model.name} value={model.name} title={record.note}>
-                  {mark ? `${model.name} (Suggested)` : model.name}
+                <option key={`${provider}-${ident}`} value={ident} title={record.note}>
+                  {mark ? `${ident} (Suggested)` : ident}
                 </option>
               )
             })}
           </optgroup>
         ))}
-        {value && !shown.some((model) => model.name === value) ? <option value={value}>{value}</option> : null}
+        {current && !shown.some((model) => modelId(model.name) === current) ? <option value={current}>{current}</option> : null}
       </select>
       {value ? (
         <div className="flex flex-wrap gap-1" title={selected.note}>

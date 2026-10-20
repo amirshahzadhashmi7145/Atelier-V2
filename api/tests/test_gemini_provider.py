@@ -268,12 +268,15 @@ def test_list_models_live_pattern_filter(monkeypatch):
                     FakeModel("models/gemini-2.0-flash", ["generateContent"]),
                     FakeModel("models/text-embedding-004", ["embedContent"]),
                     FakeModel("models/gemini-2.5-pro", ["generateContent"]),
+                    FakeModel("models/gemini-3.1-pro-preview", ["generateContent"]),
                 ]
 
     monkeypatch.delenv("GATEWAY_MOCK", raising=False)
     with patch.object(gemini_mod.GeminiProvider, "_client", return_value=FakeClient()):
         ids = gemini_mod.GeminiProvider().list_models()
     assert "gemini-2.0-flash" in ids
+    assert "gemini-3.1-pro-preview" in ids
+    assert all(not item.startswith("models/") for item in ids)
     assert "text-embedding-004" not in ids
 
 

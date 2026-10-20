@@ -1,3 +1,5 @@
+import { modelId } from "@/lib/models/schema"
+
 export type StatRun = {
   agentId: string
   model: { name: string }
@@ -23,7 +25,7 @@ export function ownStatsFor(
 ) {
   return [...new Set(agents.map((agent) => agent.roleKey))].flatMap((roleKey) => {
     const agentIds = new Set(agents.filter((agent) => agent.roleKey === roleKey).map((agent) => agent.id))
-    const matched = runs.filter((run) => run.model.name === modelName && agentIds.has(run.agentId))
+    const matched = runs.filter((run) => modelId(run.model.name) === modelId(modelName) && agentIds.has(run.agentId))
     if (matched.length === 0) return []
     const passed = matched.filter((run) => run.status === "completed" && run.summary)
     const avgCostUsd = passed.reduce((sum, run) => sum + run.costUsd, 0) / (passed.length || 1)

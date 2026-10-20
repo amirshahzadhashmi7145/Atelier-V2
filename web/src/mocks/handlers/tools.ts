@@ -145,7 +145,7 @@ export const toolHandlers = [
     const found = await discoveredModelIds()
     const provider = db.providers.find((item) => item.id === "openai")
     if (found) {
-      db.models = found.ids.filter((id) => isChatModel(id) && !isRetiredModel(id)).map((id) => modelInfoFromId(id))
+      db.models = found.ids.filter((id) => isChatModel(id) && !isRetiredModel(id)).map((id) => modelInfoFromId(id, provider?.id))
       if (provider) {
         provider.modelsCachedAt = now()
         provider.connected = found.fromProvider

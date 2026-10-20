@@ -39,6 +39,8 @@ def engine():
         Base.metadata.create_all(_engine)
         seed()
         sync_builtin_tools()
+        sync_providers()
+        sync_stored_model_ids()
         sync_stack_allow_lists()
         from runtime.roles import sync_roles
 
@@ -209,30 +211,7 @@ def seed() -> None:
     for item in BUILTIN_TOOLS:
         record = tool_record(item)
         put("tool", record["id"], record)
-    put(
-        "provider",
-        "openai",
-        {
-            "id": "openai",
-            "name": "OpenAI",
-            "litellmPrefix": "openai",
-            "envVar": "OPENAI_API_KEY",
-            "connected": False,
-            "modelsCachedAt": None,
-        },
-    )
-    put(
-        "provider",
-        "gemini",
-        {
-            "id": "gemini",
-            "name": "Google Gemini",
-            "litellmPrefix": "gemini",
-            "envVar": "GEMINI_API_KEY",
-            "connected": False,
-            "modelsCachedAt": None,
-        },
-    )
+    sync_providers()
     put(
         "settings",
         "runs",
@@ -250,6 +229,53 @@ def seed() -> None:
     )
     put("meta", "seeded", {"ok": True})
     sync_builtin_tools()
+
+
+SEED_PROVIDERS = (
+    {"id": "openai", "name": "OpenAI", "litellmPrefix": "openai/", "envVar": "OPENAI_API_KEY"},
+    {"id": "gemini", "name": "Google Gemini", "litellmPrefix": "gemini/", "envVar": "GEMINI_API_KEY"},
+)
+
+
+def sync_providers() -> None:
+    known = {spec["id"]: spec for spec in SEED_PROVIDERS}
+    for spec in SEED_PROVIDERS:
+        row = get("provider", spec["id"]) or {
+            "id": spec["id"],
+            "connected": False,
+            "modelsCachedAt": None,
+        }
+        row["name"] = row.get("name") or spec["name"]
+        row["litellmPrefix"] = spec["litellmPrefix"]
+        row["envVar"] = row.get("envVar") or spec["envVar"]
+        put("provider", spec["id"], row)
+    for row in listing("provider"):
+        if row["id"] in known or row.get("litellmPrefix"):
+            continue
+        row["litellmPrefix"] = f"{row['id']}/"
+        put("provider", row["id"], row)
+
+
+def sync_stored_model_ids() -> None:
+    from app.models_catalog import model_id, normalize_spec
+
+    for agent in listing("agent"):
+        changed = False
+        for key in ("model", "backupModel"):
+            spec = normalize_spec(agent.get(key) if isinstance(agent.get(key), dict) else None)
+            if spec is not None and spec != agent.get(key):
+                agent[key] = spec
+                changed = True
+        if changed:
+            put("agent", agent["id"], agent)
+    with LOCK, session() as sess:
+        cache_rows = [(row.id, json.loads(row.data)) for row in sess.scalars(select(Document).where(Document.kind == "model-cache")).all()]
+    for cache_id, cached in cache_rows:
+        ids = cached.get("ids") or []
+        cleaned = [model_id(str(name)) for name in ids]
+        if cleaned != ids:
+            cached["ids"] = cleaned
+            put("model-cache", cache_id, cached)
 
 
 def sync_builtin_tools() -> None:

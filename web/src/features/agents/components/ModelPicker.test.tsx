@@ -11,4 +11,23 @@ describe("ModelPicker", () => {
     const options = screen.getAllByRole("option").map((option) => option.textContent)
     expect(options).toEqual(["Choose a model", "gpt-4.1", "gpt-4.1-mini"])
   })
+
+  it("shows clean Gemini names grouped by provider", () => {
+    render(
+      <ModelPicker
+        models={[
+          { name: "gpt-4.1-mini", provider: "openai" },
+          { name: "models/gemini-3.1-pro-preview", provider: "gemini" },
+        ]}
+        value="models/gemini-3.1-pro-preview"
+        onChange={vi.fn()}
+      />,
+    )
+    const picker = screen.getByLabelText("Model")
+    expect(picker).toHaveValue("gemini-3.1-pro-preview")
+    expect(screen.getByRole("option", { name: "gemini-3.1-pro-preview" })).toBeTruthy()
+    expect(screen.queryByRole("option", { name: "models/gemini-3.1-pro-preview" })).toBeNull()
+    const groups = picker.querySelectorAll("optgroup")
+    expect([...groups].map((group) => group.getAttribute("label"))).toEqual(["OpenAI", "Google Gemini"])
+  })
 })
