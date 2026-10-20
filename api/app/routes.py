@@ -780,25 +780,47 @@ def create_project(body: dict):
     folder.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init"], cwd=folder, capture_output=True)
     token_ref = _store_token(project_id, body.get("githubToken"), body.get("repoUrl"))
-    project = {
-        "id": project_id,
-        "name": body["name"],
-        "folderPath": str(folder),
-        "repoUrl": body.get("repoUrl") or None,
-        "tokenRef": token_ref,
-        "members": [body["agentId"]],
-        "localMode": bridge.local_mode(),
-        "previewUrl": None,
-        "createdAt": db.now(),
-    }
+    from runtime import notes
+
+    project = notes.defaults(
+        {
+            "id": project_id,
+            "name": body["name"],
+            "folderPath": str(folder),
+            "repoUrl": body.get("repoUrl") or None,
+            "tokenRef": token_ref,
+            "members": [body["agentId"]],
+            "localMode": bridge.local_mode(),
+            "previewUrl": None,
+            "createdAt": db.now(),
+            "notesPath": body.get("notesPath"),
+            "notesMaxBytes": body.get("notesMaxBytes"),
+        }
+    )
     db.put("project", project_id, project)
-    return project
+    return _project_view(project)
 
 
 @router.get("/projects/{id}")
 def get_project(id: str):
     project = db.get("project", id)
     return _project_view(project) if project else missing()
+
+
+@router.patch("/projects/{id}")
+def patch_project(id: str, body: dict):
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    if "notesPath" in body and body.get("notesPath"):
+        project["notesPath"] = str(body["notesPath"]).replace("\\", "/").lstrip("/")
+    if "notesMaxBytes" in body:
+        try:
+            project["notesMaxBytes"] = int(body["notesMaxBytes"])
+        except (TypeError, ValueError):
+            return error(422, "invalid", "notesMaxBytes must be an integer")
+    db.put("project", id, project)
+    return _project_view(project)
 
 
 @router.post("/projects/{id}/members")
@@ -1279,9 +1301,9 @@ def _zip(run_id: str):
 
 
 def _project_view(project: dict) -> dict:
-    from runtime import project_runs
+    from runtime import notes, project_runs
 
-    project = {**project, "localMode": bridge.local_mode()}
+    project = notes.defaults({**project, "localMode": bridge.local_mode()})
     preview = db.get("preview", project["id"])
     if preview:
         project["previewUrl"] = preview["url"]

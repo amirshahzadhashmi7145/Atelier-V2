@@ -51,12 +51,15 @@ def prepare(project: dict, task: dict) -> Worktree:
     if not (folder / ".git").exists():
         git(folder, ["init"])
     git(folder, ["add", "-A"])
+    from runtime import notes
+
+    git(folder, ["add", "-f", "--", notes.path_for(project)])
     git(folder, ["commit", "-m", "baseline", "--allow-empty"])
     git(folder, ["checkout", "-B", f"task/{task['id']}"])
     return Worktree(folder, source)
 
 
-def changed_files(folder: Path) -> list[str]:
+def changed_files(folder: Path, project: dict | None = None) -> list[str]:
     names = git(folder, ["diff", "--name-only", "HEAD"]).splitlines()
     extra = git(folder, ["ls-files", "--others", "--exclude-standard"]).splitlines()
     seen: list[str] = []
@@ -65,6 +68,14 @@ def changed_files(folder: Path) -> list[str]:
         if not path or path.startswith(".git/") or path in seen:
             continue
         seen.append(path)
+    if project:
+        from runtime import notes
+
+        rel = notes.path_for(project)
+        if rel and rel not in seen:
+            status = git(folder, ["status", "--porcelain", "--ignored", "--", rel]).strip()
+            if status:
+                seen.append(rel)
     return seen
 
 

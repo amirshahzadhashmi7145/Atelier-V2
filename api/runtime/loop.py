@@ -341,6 +341,10 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
         contract = contract_file.contracts_for_reader(folder, agent)
         if contract:
             system += "\n\n# API contract\n" + contract
+        if project:
+            from runtime import notes
+
+            system += "\n\n" + notes.for_prompt(project)
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
     if task and int(task.get("reworkCount") or task.get("reviewAttempts") or 0) > 0:
         packet = board.rework_packet(task)

@@ -17,6 +17,10 @@ export async function getProject(id: string) {
   return unwrap(await api.GET("/projects/{id}", { params: { path: { id } } }))
 }
 
+export async function patchProject(id: string, body: { notesPath?: string; notesMaxBytes?: number }) {
+  return unwrap(await api.PATCH("/projects/{id}", { params: { path: { id } }, body }))
+}
+
 export async function addProjectMember(id: string, agentId: string) {
   return unwrap(await api.POST("/projects/{id}/members", { params: { path: { id } }, body: { agentId } }))
 }

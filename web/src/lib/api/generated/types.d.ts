@@ -823,7 +823,7 @@ export interface paths {
         delete: operations["deleteProject"];
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["updateProject"];
         trace?: never;
     };
     "/projects/{id}/members": {
@@ -1509,6 +1509,16 @@ export interface components {
             summary?: string | null;
             memberDetails?: components["schemas"]["ProjectMember"][];
             supervisorSteps?: components["schemas"]["SupervisorStep"][];
+            /**
+             * @description Path of the project notes file inside the repo. Workers read it and must not edit it.
+             * @default .atelier/NOTES.md
+             */
+            notesPath: string;
+            /**
+             * @description Size cap for the notes file. Near the cap, the supervisor rewrites it shorter.
+             * @default 8192
+             */
+            notesMaxBytes: number;
             /** Format: date-time */
             createdAt: string;
         };
@@ -1557,6 +1567,12 @@ export interface components {
             repoUrl?: string | null;
             /** @description Write-only. Stored by reference, never returned. */
             githubToken?: string;
+            notesPath?: string;
+            notesMaxBytes?: number;
+        };
+        ProjectPatch: {
+            notesPath?: string;
+            notesMaxBytes?: number;
         };
         /** @enum {string} */
         TaskStatus: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
@@ -1646,7 +1662,7 @@ export interface components {
         };
         TaskBoardEvent: {
             /** @enum {string} */
-            kind: "handoff" | "feedback";
+            kind: "handoff" | "feedback" | "notes";
             /** Format: date-time */
             createdAt: string;
         } & {
@@ -3267,6 +3283,34 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["Error"];
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectPatch"];
+            };
+        };
+        responses: {
+            /** @description Project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
         };
     };
     addProjectMember: {

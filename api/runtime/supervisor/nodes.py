@@ -141,7 +141,17 @@ def wait(state: SupervisorState) -> dict:
         out = {"phase": "wrap_up", "last_worker_status": None}
         steplib.publish({**state, **out})
         return out
-    result = get_runner().run({"project_id": state["project_id"], "task_id": task_id, "text": ""})
+    from runtime import notes
+
+    project = db.get("project", state["project_id"]) or {}
+    result = get_runner().run(
+        {
+            "project_id": state["project_id"],
+            "task_id": task_id,
+            "text": "",
+            "notes": notes.for_prompt(project),
+        }
+    )
     handoff_ids = list(state.get("handoff_ids") or [])
     if result.get("handoffId") and result["handoffId"] not in handoff_ids:
         handoff_ids.append(result["handoffId"])
@@ -235,6 +245,9 @@ def advance(state: SupervisorState) -> dict:
     reviewer = db.get("agent", state.get("current_reviewer_id") or "")
     status = dict(state.get("status_by_task") or {})
     if verdict == "approve":
+        from runtime import notes
+
+        notes.update_after_approval(project, live)
         nxt = rolelib.next_reviewer(project, worker, reviewer)
         if nxt:
             status[live["id"]] = "reviewing"

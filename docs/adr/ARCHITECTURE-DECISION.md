@@ -69,9 +69,11 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Rejected:** A custom worker loop per role, or OpenHands only for one seed role. Importing `openhands-sdk` into the API process.
 
-**Trade-off:** The Python SDK does not fit this repo's LiteLLM pin (`openhands-sdk==1.51.0` wants `litellm>=1.93.0`; we stay on `litellm==1.83.0` after the March 2026 supply-chain incident). Runs therefore use the SDK in an isolated `uv` process plus a Docker sandbox. Seed agents stay on the loop engine until a real Docker test with a Settings-stored key passes.
+**Trade-off:** The Python SDK does not fit this repo's LiteLLM pin (`openhands-sdk==1.51.0` wants `litellm>=1.93.0`; we stay on `litellm==1.83.0` after the March 2026 supply-chain incident). Runs therefore use the SDK in an isolated `uv` process plus a Docker sandbox. Seed agents stay on the loop engine until a real Docker test with a Settings-stored key passes 2 of 3 times.
 
-**Pins:** `openhands-sdk`, `openhands-tools`, `openhands-workspace`, and `openhands-agent-server` all **1.51.0** (published 2026-10-03 — 16 days old as of 2026-10-19; 1.54.0+ are newer than the two-week floor). Docker image `ghcr.io/openhands/agent-server:1.51.0-python`. The four packages live in `api/runtime/openhands/requirements.txt`, not `api/pyproject.toml`.
+**Pins:** `openhands-sdk`, `openhands-tools`, `openhands-workspace`, and `openhands-agent-server` all **1.51.0** (published 2026-10-03 — 17 days old as of 2026-10-20; 1.54.0+ are newer than the two-week floor). Docker image `ghcr.io/openhands/agent-server:1.51.0-python`. The four packages live in `api/runtime/openhands/requirements.txt`, not `api/pyproject.toml`.
+
+**Isolated litellm:** The sidecar is pinned to **litellm==1.96.2** (published 2026-08-11). [GHSA-3cv6-jpf6-8222](https://github.com/BerriAI/litellm/security/advisories/GHSA-3cv6-jpf6-8222) is authenticated SSRF / credential exfiltration. Affected: main line below 1.94.0, plus 1.93.0–1.93.1, 1.94.0–1.94.2, 1.95.0, and 1.96.0–1.96.1. Patched: 1.93.2 (1.93 backport), 1.94.3, 1.95.1, 1.96.2. `openhands-sdk==1.51.0` accepts `litellm>=1.93.0`; 1.93.0 itself is not safe, so we do not use the SDK's lower bound. 1.96.2 is the mainline patched release and is older than the two-week floor (2026-10-06). Transitive pins are locked in `requirements.lock`. A startup check refuses to start an OpenHands run if the isolated environment's `litellm` is not exactly 1.96.2. The API process stays on `litellm==1.83.0`.
 
 ### 3. LangGraph for every supervisor (this session)
 
@@ -103,15 +105,17 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Trade-off:** The OpenHands sandbox never holds a provider key for our tools. It holds a short-lived run token instead.
 
-### 5. Memory (later)
+### 5. Memory (this session)
 
-**Chose:** LangGraph state for supervisors. A project notes file in the repo for workers.
+**Chose:** Supervisors use LangGraph state. Workers use OpenHands session history plus one project notes file. Long-term cross-project memory comes later.
 
-**Why:** Supervisors need in-run graph state. Workers need something the next worker (and the user) can read in the repo.
+**Notes file:** Each project repo has one file at a path set in project settings (default `.atelier/NOTES.md`, size cap default 8192 bytes). It holds short, stable facts: stack, folder layout, conventions, API locations, decisions. Every worker run (loop or OpenHands) receives the current file as task input. OpenHands also gets it as an always-loaded skill, the same role `AGENTS.md` plays in current OpenHands docs. Workers cannot edit it: the path is on a protected list the zone check rejects even when the path sits inside the role zones. After a supervisor approves a task, the existing `advance` step proposes notes updates from the handoff (new stable facts only; task progress is dropped), applies them, commits on the task branch, and records the update on the task board. Near the size cap it rewrites the file shorter instead of appending.
 
-**Rejected:** A shared vector store as the first memory. Role-specific memory services.
+**Why:** Supervisors already have in-run graph state. Workers need something the next worker (and the user) can read in the repo without a vector store.
 
-**Trade-off:** Notes files can go stale; graph state dies with the run. Good enough until we have evidence we need more.
+**Rejected:** A shared vector store as the first memory. Role-specific memory services. Letting workers edit the notes file.
+
+**Trade-off:** Notes files can go stale; graph state dies with the run; OpenHands session history does not survive a new conversation. Good enough until we have evidence we need long-term memory.
 
 ### 6. Model suggestions from run stats (later)
 
@@ -175,4 +179,4 @@ A rework run is fed the task, the last handoff note, and the latest feedback. Af
 
 ## What this session does not change
 
-The project notes file and long-term memory, a QA role, suggestion badges, fallback models, automation defaults, the supervisor graph, and the main `litellm==1.83.0` pin. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.
+Long-term cross-project memory, a QA role, suggestion badges, fallback models, automation defaults, upgrading the API's `litellm==1.83.0` pin, and any change to supervisor graph structure beyond the notes update inside the existing `advance` step. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.

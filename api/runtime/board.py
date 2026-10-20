@@ -81,6 +81,9 @@ def timeline(task: dict | None) -> list[dict]:
     for item in db.listing("review-feedback"):
         if item.get("taskId") in ids:
             events.append({**item, "kind": "feedback"})
+    for item in db.listing("notes"):
+        if item.get("taskId") in ids:
+            events.append({**item, "kind": "notes"})
     events.sort(key=lambda item: item.get("createdAt") or "")
     return events
 

@@ -6,7 +6,7 @@ import json
 from urllib.parse import quote
 
 from gateway import keys, llm
-from runtime import board
+from runtime import board, notes
 from runtime.openhands import checks, packet, sandbox
 from runtime.openhands.client import RunSpec, get_client
 from store import db
@@ -57,7 +57,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         settings = db.get("settings", "runs") or {}
         minutes = int(settings.get("maxMinutes") or 45)
         token = tokens.issue(run["id"], ttl_sec=max(60, minutes * 60))
-        prompt = packet.task_packet(task, agent)
+        prompt = packet.task_packet(task, agent, project=project, notes_text=task_input.get("notes"))
         work = sandbox.prepare(project, task)
         before = checks.snapshot_packages(work.folder)
         cap = float(5 if settings.get("maxSpendPerRunUsd") is None else settings.get("maxSpendPerRunUsd"))
@@ -83,12 +83,13 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 mcp=packet.mcp_config(agent, token=token),
                 timeout_sec=max(30, minutes * 60),
                 on_cost=on_cost,
+                repo_instructions=notes.read_text(project).strip(),
             )
         )
         if result.cost_usd and recorded[0] == 0:
             on_cost(result.cost_usd)
         _save_log(run, result.events, task)
-        files = sandbox.changed_files(work.folder)
+        files = sandbox.changed_files(work.folder, project)
         reason = checks.reject_reason(agent, run, work.folder, files, before)
         if reason:
             checks.auto_feedback(task, reason)

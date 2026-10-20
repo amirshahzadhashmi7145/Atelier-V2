@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from runtime import board
+from runtime import board, notes
 from runtime.compile import compile_prompt
 from store import db
 
@@ -76,13 +76,16 @@ def mcp_config(agent: dict, token: str | None = None) -> dict:
     return {"mcpServers": servers}
 
 
-def task_packet(task: dict, agent: dict) -> str:
+def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text: str | None = None) -> str:
     lines = [compiled_prompt(agent), "", board.rework_packet(task) or f"# Task\n{task.get('text') or ''}"]
     criteria = task.get("acceptanceCriteria") or []
     if criteria and "Acceptance:" not in "\n".join(lines):
         lines.append("Acceptance: " + "; ".join(str(item) for item in criteria))
+    block = notes_text if notes_text is not None else (notes.for_prompt(project) if project else "")
+    if block:
+        lines.append(block)
     lines.append(
         "Commit your work on this branch. If you are blocked or need a decision, "
-        "state the open question; do not ask the user."
+        "state the open question; do not ask the user. Do not edit the project notes file."
     )
     return "\n".join(lines).strip()

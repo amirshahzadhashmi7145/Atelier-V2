@@ -116,6 +116,12 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
     agent = db.get("agent", run.get("agentId") or "") or {}
     if op in write_ops and (run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)):
         return {"refused": True, "reason": "a supervisor cannot write files"}
+    if op in write_ops:
+        from runtime import notes
+
+        project = db.get("project", run.get("projectId") or "") or {}
+        if notes.is_protected(path, project):
+            return {"refused": True, "reason": f"workers cannot edit the notes file: {path}"}
     if op in write_ops and zones and not _in_zones(path, zones):
         return {"refused": True, "reason": f"path outside your zones: {path}"}
     from runtime import members as memberlib
