@@ -80,10 +80,20 @@ def _questions(events: list[dict], last_text: str) -> list[str]:
     return found[:5]
 
 
+def _provider_fail(exc: BaseException) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        token in text
+        for token in ("timeout", "rate limit", "rate_limit", "429", "503", "502", "overloaded", "connection", "unavailable")
+    )
+
+
 def main() -> int:
     spec = json.loads(sys.stdin.read())
     key = os.environ.get("LLM_API_KEY")
     model = spec.get("model") or os.environ.get("LLM_MODEL") or "openai/gpt-4.1-mini"
+    backup_model = os.environ.get("LLM_BACKUP_MODEL") or ""
+    backup_key = os.environ.get("LLM_BACKUP_API_KEY") or key
     workspace = Path(spec["workspace"])
     timeout = int(spec.get("timeout_sec") or 2700)
     image = spec.get("server_image") or os.environ.get("OPENHANDS_SERVER_IMAGE")
@@ -94,7 +104,8 @@ def main() -> int:
     from openhands.tools.terminal import TerminalTool
     from openhands.workspace import DockerWorkspace
 
-    llm = LLM(model=model, api_key=_secret(key), base_url=os.environ.get("LLM_BASE_URL") or None)
+    base_url = os.environ.get("LLM_BASE_URL") or None
+    llm = LLM(model=model, api_key=_secret(key), base_url=base_url)
     kwargs = {
         "llm": llm,
         "tools": [
@@ -112,33 +123,56 @@ def main() -> int:
     agent = Agent(**kwargs)
     error = None
     conversation = None
+    used_backup = False
+    actual = model
+
+    def _talk(agent_obj) -> object:
+        conv = Conversation(agent=agent_obj, workspace=ws)
+        conv.send_message(spec.get("prompt") or "")
+        done = threading.Event()
+        holder: list[BaseException] = []
+
+        def _run() -> None:
+            try:
+                conv.run()
+            except BaseException as exc:  # noqa: BLE001
+                holder.append(exc)
+            finally:
+                done.set()
+
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        if not done.wait(timeout):
+            stop = getattr(conv, "stop", None)
+            if callable(stop):
+                try:
+                    stop()
+                except Exception:
+                    pass
+            raise TimeoutError("OpenHands exceeded the run time limit")
+        if holder:
+            raise holder[0]
+        return conv
+
     try:
         with DockerWorkspace(server_image=image, mount_dir=str(workspace)) as ws:
-            conversation = Conversation(agent=agent, workspace=ws)
-            conversation.send_message(spec.get("prompt") or "")
-            done = threading.Event()
-            holder: list[BaseException] = []
-
-            def _run() -> None:
+            try:
+                conversation = _talk(agent)
+            except BaseException as exc:
+                if not _provider_fail(exc):
+                    raise
                 try:
-                    conversation.run()
-                except BaseException as exc:  # noqa: BLE001
-                    holder.append(exc)
-                finally:
-                    done.set()
-
-            thread = threading.Thread(target=_run, daemon=True)
-            thread.start()
-            if not done.wait(timeout):
-                stop = getattr(conversation, "stop", None)
-                if callable(stop):
-                    try:
-                        stop()
-                    except Exception:
-                        pass
-                raise TimeoutError("OpenHands exceeded the run time limit")
-            if holder:
-                raise holder[0]
+                    conversation = _talk(agent)
+                except BaseException as exc2:
+                    if backup_model and _provider_fail(exc2):
+                        llm = LLM(model=backup_model, api_key=_secret(backup_key), base_url=base_url)
+                        kwargs["llm"] = llm
+                        agent = Agent(**kwargs)
+                        used_backup = True
+                        actual = backup_model
+                        conversation = _talk(agent)
+                    else:
+                        raise
     except BaseException as exc:  # noqa: BLE001
         error = f"{type(exc).__name__}: {exc}"
 
@@ -157,6 +191,9 @@ def main() -> int:
         "questions": questions,
         "blocked": bool(questions) or bool(error),
         "error": error,
+        "backupUsed": used_backup,
+        "actualModel": actual,
+        "costSource": "openhands",
     }
     sys.stdout.write(json.dumps(result, default=str) + "\n")
     sys.stdout.flush()

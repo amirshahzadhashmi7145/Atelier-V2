@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { createAgent, createVersion, importLibraryItem, listEditorModels, listLibrary, listRoles } from "@/features/agents/api"
+import { createAgent, createVersion, getRoleSuggestion, importLibraryItem, listEditorModels, listLibrary, listRoles } from "@/features/agents/api"
 import { asSchema, defaultsFromSchema } from "@/features/agents/config-schema"
 import { queryKeys } from "@/lib/api/query-keys"
 
@@ -32,6 +33,16 @@ export function NewAgent() {
   const models = useQuery({ queryKey: queryKeys.models, queryFn: listEditorModels })
   const roles = useQuery({ queryKey: queryKeys.roles, queryFn: listRoles })
   const form = useForm<Blank>({ defaultValues: { name: "", roleKey: "", description: "", model: "" } })
+  const roleKey = form.watch("roleKey")
+  const suggestion = useQuery({
+    queryKey: queryKeys.suggestion(roleKey),
+    queryFn: () => getRoleSuggestion(roleKey),
+    enabled: Boolean(roleKey),
+  })
+  useEffect(() => {
+    const name = suggestion.data?.name
+    if (name && !form.getValues("model")) form.setValue("model", name)
+  }, [form, suggestion.data])
   const imported = useMutation({
     mutationFn: (id: string) => importLibraryItem(id),
     onSuccess: (result) => {
@@ -146,16 +157,17 @@ export function NewAgent() {
                 <select
                   id="blank-model"
                   className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                  defaultValue=""
+                  value={form.watch("model")}
                   onChange={(event) => form.setValue("model", event.target.value)}
                 >
                   <option value="">Choose a model</option>
                   {(models.data ?? []).map((model) => (
                     <option key={model.name} value={model.name}>
-                      {model.name}
+                      {suggestion.data?.name === model.name ? `${model.name} (Suggested)` : model.name}
                     </option>
                   ))}
                 </select>
+                {suggestion.data?.reason ? <p className="text-sm text-muted-foreground">{suggestion.data.reason}</p> : null}
               </Field>
             </FieldGroup>
             <Button type="submit" disabled={created.isPending || (models.data ?? []).length === 0}>

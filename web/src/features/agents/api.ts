@@ -105,6 +105,10 @@ export async function listRoles() {
   return unwrap(await api.GET("/roles"))
 }
 
+export async function getRoleSuggestion(id: string) {
+  return unwrap(await api.GET("/roles/{id}/suggestion", { params: { path: { id } } }))
+}
+
 export function activeBlockReason(
   evals: { id: string }[],
   version: { evalResults: { evalId: string; status: string }[] } | undefined,

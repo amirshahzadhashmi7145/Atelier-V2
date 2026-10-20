@@ -233,7 +233,8 @@ def seed() -> None:
             "maxMinutes": 45,
             "loopDetection": True,
             "recordModelRequests": False,
-            "approvePlansBeforeRunning": True,
+            "approvePlansBeforeRunning": False,
+            "maxLessonsPerRole": 20,
             "maxSpendPerReviewUsd": 1,
         },
     )

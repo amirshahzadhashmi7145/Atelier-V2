@@ -43,11 +43,22 @@ SEED_ROLES = [
         "id": "team-lead",
         "name": "Team Lead",
         "kind": "supervisor",
-        "reportsTo": None,
+        "reportsTo": "qa-engineer",
         "layer": 1,
         "zones": [],
         "tags": ["supervisor", "review", "planning"],
         "colour": "#7c3aed",
+        "contractFile": None,
+    },
+    {
+        "id": "qa-engineer",
+        "name": "QA Engineer",
+        "kind": "supervisor",
+        "reportsTo": None,
+        "layer": 2,
+        "zones": [],
+        "tags": ["supervisor", "review"],
+        "colour": "#0f766e",
         "contractFile": None,
     },
 ]
@@ -59,6 +70,14 @@ def sync_roles() -> None:
     for role in SEED_ROLES:
         if db.get("role", role["id"]) is None:
             db.put("role", role["id"], dict(role))
+    if db.get("meta", "seed-parent-link"):
+        return
+    for role in SEED_ROLES:
+        existing = db.get("role", role["id"])
+        if existing and not existing.get("reportsTo") and role.get("reportsTo"):
+            layer = existing.get("layer") if existing.get("layer") is not None else role["layer"]
+            db.put("role", role["id"], {**existing, "reportsTo": role["reportsTo"], "layer": layer})
+    db.put("meta", "seed-parent-link", {"applied": True})
 
 
 def normalize(body: dict, existing: dict | None = None) -> dict:

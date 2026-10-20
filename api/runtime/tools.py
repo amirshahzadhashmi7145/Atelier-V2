@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
@@ -339,19 +340,21 @@ def _browser(run: dict, url: str) -> dict:
         const {{ chromium }} = require({json.dumps(str(script))});
         (async () => {{
           const browser = await chromium.launch();
-          const page = await browser.newPage();
+          const context = await browser.newContext({{ deviceScaleFactor: 1 }});
+          const page = await context.newPage();
           const errors = [];
           page.on('pageerror', (error) => errors.push(String(error)));
           for (const [name, width, height] of {json.dumps(viewports)}) {{
             await page.setViewportSize({{ width, height }});
             await page.goto({json.dumps(target)});
-            await page.screenshot({{ path: {json.dumps(str(shots))} + '/' + name + '.png' }});
+            await page.screenshot({{ path: {json.dumps(str(shots))} + '/' + name + '.png', scale: 'css' }});
           }}
           console.log(JSON.stringify(errors));
+          await context.close();
           await browser.close();
         }})();
         """
-        result = subprocess.run(["node", "-e", node], capture_output=True, text=True)
+        result = subprocess.run(["node", "-e", node], capture_output=True, text=True, env=_playwright_env())
         errors = result.stdout
         launched = result.returncode == 0
     console: list = []
@@ -386,6 +389,17 @@ def _browser(run: dict, url: str) -> dict:
     return {"output": errors or "captured", "screenshots": artifacts}
 
 
+def _playwright_env() -> dict[str, str]:
+    env = os.environ.copy()
+    root = env.get("PLAYWRIGHT_BROWSERS_PATH")
+    if not root:
+        return env
+    chrome = list(Path(root).glob("chromium*/**/chrome-headless-shell")) + list(Path(root).glob("chromium*/**/chrome"))
+    if not chrome:
+        env.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+    return env
+
+
 def _playwright_package() -> Path | None:
     direct = db.ROOT / "web" / "node_modules" / "playwright"
     if (direct / "package.json").exists():
@@ -398,14 +412,14 @@ def _playwright_package() -> Path | None:
 
 
 def _png_matches(path: Path, width: int, height: int) -> bool:
-    if not path.exists() or path.stat().st_size < 24:
+    if not path.exists() or path.stat().st_size < 100:
         return False
     data = path.read_bytes()
     if data[:8] != b"\x89PNG\r\n\x1a\n" or len(data) < 24:
         return False
     got_w = int.from_bytes(data[16:20], "big")
     got_h = int.from_bytes(data[20:24], "big")
-    return got_w == width and got_h == height
+    return (got_w, got_h) in {(width, height), (width * 2, height * 2)}
 
 
 def _preview(run: dict, folder: Path | None) -> dict:

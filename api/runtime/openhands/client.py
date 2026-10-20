@@ -28,6 +28,8 @@ class RunSpec:
     timeout_sec: int
     on_cost: Callable[[float], None] | None = None
     repo_instructions: str = ""
+    backup_model: str = ""
+    backup_api_key: str | None = None
 
 
 @dataclass
@@ -37,6 +39,8 @@ class RunResult:
     summary: str = ""
     questions: list[str] = field(default_factory=list)
     blocked: bool = False
+    backup_used: bool = False
+    actual_model: str = ""
 
 
 class OpenHandsClient(Protocol):
@@ -162,6 +166,12 @@ class ProcessOpenHandsClient:
         if spec.api_key:
             env["LLM_API_KEY"] = spec.api_key
         env["LLM_MODEL"] = spec.model
+        if spec.backup_model:
+            env["LLM_BACKUP_MODEL"] = spec.backup_model
+        if spec.backup_api_key:
+            env["LLM_BACKUP_API_KEY"] = spec.backup_api_key
+        elif "LLM_BACKUP_API_KEY" in env:
+            del env["LLM_BACKUP_API_KEY"]
         cmd = [
             "uv",
             "run",
@@ -186,9 +196,10 @@ class ProcessOpenHandsClient:
         except subprocess.TimeoutExpired:
             self.cleanup()
             raise TimeoutError("OpenHands exceeded the run time limit")
-        if spec.api_key:
-            stdout = keys.redact(stdout.replace(spec.api_key, keys.mask(spec.api_key) or "••••"))
-            stderr = keys.redact(stderr.replace(spec.api_key, keys.mask(spec.api_key) or "••••"))
+        for secret in (spec.api_key, spec.backup_api_key):
+            if secret:
+                stdout = keys.redact(stdout.replace(secret, keys.mask(secret) or "••••"))
+                stderr = keys.redact(stderr.replace(secret, keys.mask(secret) or "••••"))
         events, result = _parse_jsonl(stdout)
         if self._proc.returncode not in (0, None) and not result:
             raise RuntimeError(keys.redact(stderr.strip() or stdout.strip() or "OpenHands process failed"))
@@ -202,6 +213,8 @@ class ProcessOpenHandsClient:
             summary=str(result.get("summary") or ""),
             questions=questions,
             blocked=bool(result.get("blocked") or questions),
+            backup_used=bool(result.get("backupUsed")),
+            actual_model=str(result.get("actualModel") or spec.model),
         )
 
     def cleanup(self) -> None:

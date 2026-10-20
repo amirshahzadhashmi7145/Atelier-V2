@@ -61,6 +61,7 @@ export function StatusCard({
         </div>
         <p className="text-sm text-muted-foreground">
           ${run.costUsd.toFixed(2)} of ${capUsd.toFixed(2)}
+          {run.costSource === "openhands" ? " · cost from the OpenHands process" : ""}
         </p>
         {isTerminal(run.status) ? null : confirming ? (
           <div className="flex flex-wrap gap-2">
@@ -170,6 +171,17 @@ export function ResultCard({
         {run.terminalCause ? <CardDescription>Cause: {run.terminalCause}</CardDescription> : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-3 text-sm">
+        {run.costSource === "openhands" ? (
+          <p className="text-muted-foreground">Cost (from OpenHands process): ${run.costUsd.toFixed(4)}</p>
+        ) : (
+          <p className="text-muted-foreground">Cost: ${run.costUsd.toFixed(4)}</p>
+        )}
+        {run.actualModel?.name ? (
+          <p className="text-muted-foreground">
+            Model that ran: {run.actualModel.name}
+            {run.backupUsed ? " (backup)" : ""}
+          </p>
+        ) : null}
         {failed && typeof failed.payload.text === "string" ? <p>{failed.payload.text}</p> : null}
         {summary ? (
           <>

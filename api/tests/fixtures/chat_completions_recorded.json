@@ -71,7 +71,12 @@
         "input_tokens": 1,
         "output_tokens": 1
       },
-      "usd": 1.3e-05
+      "usd": 1.3e-05,
+      "actualModel": {
+        "provider": "openai",
+        "name": "gpt-4.1-mini"
+      },
+      "backupUsed": false
     }
   }
 }

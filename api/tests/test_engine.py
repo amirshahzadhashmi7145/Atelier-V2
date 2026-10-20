@@ -616,7 +616,15 @@ def test_empty_screenshot_fails(tmp_path):
     assert tools._png_matches(tmp_path / "missing.png", 1280, 800) is False
     real = tmp_path / "desktop.png"
     real.write_bytes(png)
+    assert tools._png_matches(real, 1280, 800) is False
+    real.write_bytes(bytes(png) + b"\x00" * 80)
     assert tools._png_matches(real, 1280, 800) is True
+    hidpi = bytearray(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    hidpi[16:20] = (2560).to_bytes(4, "big")
+    hidpi[20:24] = (1600).to_bytes(4, "big")
+    two = tmp_path / "hidpi.png"
+    two.write_bytes(bytes(hidpi) + b"\x00" * 80)
+    assert tools._png_matches(two, 1280, 800) is True
     db.put("artifact", "art_1", {"id": "art_1", "runId": "run_x", "kind": "screenshot", "viewport": "desktop", "ok": False, "consoleErrors": []})
     status, evidence = evals.judge(
         {"id": "run_x", "status": "completed", "summary": {"description": "Done.", "criteria": [{"text": "Hero", "evidence": "shown"}]}},

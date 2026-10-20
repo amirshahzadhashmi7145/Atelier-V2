@@ -56,7 +56,7 @@ def patch_agent(id: str, body: dict):
     agent = db.get("agent", id)
     if agent is None:
         return missing()
-    for key in ("name", "roleKey", "description", "model", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities", "workerEngine"):
+    for key in ("name", "roleKey", "description", "model", "backupModel", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities", "workerEngine"):
         if key in body:
             agent[key] = body[key]
     agent["updatedAt"] = db.now()
@@ -166,6 +166,60 @@ def delete_role(id: str):
         return missing()
     db.delete("role", id)
     return JSONResponse(status_code=204, content=None)
+
+
+@router.get("/roles/{id}/lessons")
+def list_lessons(id: str):
+    from runtime import lessons
+
+    if db.get("role", id) is None:
+        return missing()
+    return lessons.for_role(id)
+
+
+@router.delete("/roles/{id}/lessons/{lessonId}", status_code=204)
+def delete_lesson(id: str, lessonId: str):
+    from runtime import lessons
+
+    if db.get("role", id) is None:
+        return missing()
+    if not lessons.delete(id, lessonId):
+        return missing()
+    return JSONResponse(status_code=204, content=None)
+
+
+@router.get("/roles/{id}/suggestion")
+def role_suggestion(id: str):
+    from runtime import fit
+
+    if db.get("role", id) is None:
+        return missing()
+    found = fit.suggestion(id)
+    if found is None:
+        return {"roleKey": id, "name": None, "provider": None, "reason": "not enough data yet", "tasks": 0}
+    return found
+
+
+@router.get("/projects/{id}/needs")
+def list_needs(id: str):
+    from runtime import needs
+
+    if db.get("project", id) is None:
+        return missing()
+    return needs.listing(id)
+
+
+@router.post("/needs/{id}/answer")
+def answer_need(id: str, body: dict):
+    from runtime import needs
+
+    text = (body.get("text") or "").strip()
+    if not text:
+        return error(422, "invalid", "text is required")
+    row = needs.resolve(id, text)
+    if row is None:
+        return missing()
+    return row
 
 
 @router.get("/tags")
@@ -1126,12 +1180,18 @@ def _agent(body: dict) -> dict:
     timestamp = db.now()
     stacks = body.get("stackIds") or []
     skills = body.get("skillIds") or []
+    model = body.get("model")
+    if not model:
+        from runtime import fit
+
+        model = fit.default_model(body.get("roleKey")) or default_model_spec()
     return {
         "id": db.nid("agt"),
         "name": body.get("name"),
         "roleKey": body.get("roleKey"),
         "description": body.get("description") or "",
-        "model": body.get("model") or default_model_spec(),
+        "model": model,
+        "backupModel": body.get("backupModel"),
         "activePromptVersionId": None,
         "toolIds": body.get("toolIds") or [],
         "skillIds": skills,
@@ -1254,16 +1314,33 @@ def _workspace(project: dict) -> dict:
 
 
 def _stats(name: str, agents: list[dict], runs: list[dict]) -> list[dict]:
+    from runtime import fit
+
     stats = []
     roles = {agent["roleKey"] for agent in agents}
     for role in roles:
+        overlay = fit.overlay(name, role)
+        if overlay:
+            stats.append(
+                {
+                    "roleKey": role,
+                    "runs": overlay["runs"],
+                    "passed": overlay["passed"],
+                    "avgCostUsd": overlay["avgCostUsd"],
+                    "avgRework": overlay["avgRework"],
+                    "firstTryRate": overlay["firstTryRate"],
+                    "suggested": overlay["suggested"],
+                    "reason": overlay["reason"],
+                }
+            )
+            continue
         ids = {agent["id"] for agent in agents if agent["roleKey"] == role}
-        matched = [run for run in runs if run["model"]["name"] == name and run["agentId"] in ids]
+        matched = [run for run in runs if (run.get("model") or {}).get("name") == name and run.get("agentId") in ids]
         if not matched:
             continue
         passed = [run for run in matched if run["status"] == "completed" and run.get("summary")]
         average = sum(run["costUsd"] for run in passed) / (len(passed) or 1)
-        stats.append({"roleKey": role, "runs": len(matched), "passed": len(passed), "avgCostUsd": average})
+        stats.append({"roleKey": role, "runs": len(matched), "passed": len(passed), "avgCostUsd": average, "reason": "not enough data yet"})
     return stats
 
 

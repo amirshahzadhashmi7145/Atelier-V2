@@ -70,3 +70,11 @@ export async function getChatRun(id: string) {
 export async function answerChat(id: string, text: string) {
   return unwrap(await api.POST("/runs/{id}/answer", { params: { path: { id } }, body: { text } }))
 }
+
+export async function listProjectNeeds(id: string) {
+  return unwrap(await api.GET("/projects/{id}/needs", { params: { path: { id } } }))
+}
+
+export async function answerNeed(id: string, text: string) {
+  return unwrap(await api.POST("/needs/{id}/answer", { params: { path: { id } }, body: { text } }))
+}

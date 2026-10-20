@@ -117,29 +117,45 @@ Worker and supervisor agents share one shape: a role, a "reports to", and a work
 
 **Trade-off:** Notes files can go stale; graph state dies with the run; OpenHands session history does not survive a new conversation. Good enough until we have evidence we need long-term memory.
 
-### 6. Model suggestions from run stats (later)
+### 6. Model suggestions from run stats (this session)
 
-**Chose:** Suggest a model per role from first-try approval rate, rework count, and cost per task. Show a "Suggested" badge. Under 5 runs, show "not enough data yet". Storage for role-fit labels is keyed by role id (data), not a fixed role list.
+**Chose:** Suggest a model per role from real runs only: first-try approval rate, average rework count, average cost per task, and task count. The dropdown marks the best model with a "Suggested" badge and a short reason. Best means highest first-try approval rate; if two are within 10 points, the cheaper wins. Below 5 tasks, show "not enough data yet". New agents default to the suggestion when one exists. Existing agents never switch on their own.
 
 **Why:** Fit should come from this studio's runs, not a hardcoded ranking.
 
-**Rejected:** Shipping a canned "best model for Frontend" list. Building the suggestion engine in this session.
+**Rejected:** Shipping a canned "best model for Frontend" list. Auto-switching models on agents the user already configured.
 
 **Trade-off:** Early users see no badge. That is honest.
 
-### 7. Automation: escalation only (later)
+### 7. Automation: escalation only (this session)
 
-**Chose:** Plan approval and "user decides after two reworks" become escalation-only. Agents resolve among themselves first.
+**Chose:** "Approve plans before running" defaults to off. A person is asked only when a task escalates past the top supervisor, a spend cap is hit, or no agent can resolve an open question. Those three cases share one "Needs you" list. An answer is written to the task board and the waiting run continues.
 
 **Why:** Principle B. The user asked for a team, not a click-through wizard.
 
-**Rejected:** Keeping mandatory plan approval as the long-term default.
+**Rejected:** Keeping mandatory plan approval as the default path.
 
 **Trade-off:** More autonomy means a sharper need for spend caps and rework limits — those stay automatic.
 
+### 8. Backup models (this session)
+
+**Chose:** Each agent may name a backup model. On provider error, timeout, or rate-limit the call retries once, then LiteLLM switches to the backup. A normal bad answer never switches. The run records which model actually ran and counts backup use separately. OpenHands gets the backup the same way (`LLM_BACKUP_MODEL` / `LLM_BACKUP_API_KEY` on the isolated process).
+
+**Why:** Provider blips should not stop a run. A weak completion is a review problem, not a failover.
+
+**Rejected:** Switching models because the answer looked wrong.
+
+### 9. Lessons per role (this session)
+
+**Chose:** A lessons table (role id, short text, source task id, created date). After rework then approval, the supervisor may write at most one short lesson for that worker's role when the feedback shows a mistake likely to repeat. No task details or project facts (those stay in the notes file). Every worker run receives its role's lessons in the task input. OpenHands also gets `get_lessons` on the studio MCP server. Cap per role (setting, default 20); when full, similar lessons merge. Settings > Roles shows lessons with delete.
+
+**Why:** Repeatable process mistakes belong with the role, not the project.
+
+**Rejected:** Embedding project facts in lessons. A vector store.
+
 ## Role model and the task board (this session)
 
-**Chose:** Every role is a document: id, name, kind (`worker` or `supervisor`), `reportsTo`, layer order, zones, tags, colour, and an optional contract file the role writes for others to read. Seeded roles (Frontend Engineer, Backend Engineer, Team Lead) are rows, not branches in code. Adding a role is a UI/API write.
+**Chose:** Every role is a document: id, name, kind (`worker` or `supervisor`), `reportsTo`, layer order, zones, tags, colour, and an optional contract file the role writes for others to read. Seeded roles (Frontend Engineer, Backend Engineer, Team Lead, QA Engineer) are rows, not branches in code. Adding a role is a UI/API write. QA sits one layer above Team Lead (`reportsTo` / layer from data) and runs on the same supervisor graph. It reviews work the Team Lead approved, may run `build_test` and `headless_browser`, cannot write files, and sends bugs back through the normal rework loop.
 
 The task board is the only channel between agents. Three record types live in the app database:
 
@@ -149,9 +165,9 @@ The task board is the only channel between agents. Three record types live in th
 
 A rework run is fed the task, the last handoff note, and the latest feedback. After two reworks the task moves to the next supervisor layer (`reportsTo` / layer order). If none remains, it reaches the user. An approval walks the same chain upward until the top, then the task is done.
 
-**Why:** Principle A (roles are data) and principle B (agents talk to each other; a person is last). QA later is another supervisor row on this chain.
+**Why:** Principle A (roles are data) and principle B (agents talk to each other; a person is last). QA is another supervisor row on this chain.
 
-**Rejected:** Routing or review that matches role names. A second message bus besides the board. Building a QA role in this session.
+**Rejected:** Routing or review that matches role names. A second message bus besides the board. A separate QA graph.
 
 ## OpenHands worker runner (this session)
 
@@ -161,13 +177,13 @@ A rework run is fed the task, the last handoff note, and the latest feedback. Af
 
 **Keys:** The decrypted provider key is passed only as `LLM_API_KEY` on the isolated process. It is never written to disk, sandbox files, logs, or API responses. Event logs are redacted with `gateway.keys.redact` before save.
 
-**Costs:** OpenHands reports cost per call (`llm.metrics.accumulated_cost`). We add it to the run, `agent-spend`, and `role-spend` the same way the gateway does. Hitting `maxSpendPerRunUsd` stops the run.
+**Costs:** The cost reported by the isolated OpenHands process (`llm.metrics.accumulated_cost`) is the source of truth for that run. Run details label it as such. We add it to the run, `agent-spend`, and `role-spend` the same way the gateway does. Hitting `maxSpendPerRunUsd` stops the run. Gateway-estimated prices are not mixed in, because the sidecar's LiteLLM pin and the API pin are different.
 
 **Engine per agent:** `workerEngine` is data (`loop` | `openhands`), default `loop`. Seed agents stay on `loop` until a real Docker test with a Settings-stored key passes 2 of 3 times.
 
 ## MCP wrapper and run tokens (this session)
 
-**Chose:** One JSON-RPC MCP server (`POST /mcp` and a host-side stdio process) exposing `search_data` and `load_skill` through the same Python as the loop tools. Each OpenHands run gets an `atk_…` token at start; the token is hashed in the database, passed only in the MCP child environment (never argv, disk, or logs), and revoked when the run ends. Requests without a valid token are refused. An agent only searches its own data sources and only loads skills on its `skillIds`. Each call is recorded on the run as `MCP_TOOL_CALLED` with the tool name and result size, not the result body.
+**Chose:** One JSON-RPC MCP server (`POST /mcp` and a host-side stdio process) exposing `search_data`, `load_skill`, and `get_lessons` through the same Python as the loop tools. Each OpenHands run gets an `atk_…` token at start; the token is hashed in the database, passed only in the MCP child environment (never argv, disk, or logs), and revoked when the run ends. Requests without a valid token are refused. An agent only searches its own data sources and only loads skills on its `skillIds`. Each call is recorded on the run as `MCP_TOOL_CALLED` with the tool name and result size, not the result body.
 
 **Why:** OpenHands needs our tools, but it must not see decrypted provider keys or another agent's skills and sources.
 
@@ -179,4 +195,4 @@ A rework run is fed the task, the last handoff note, and the latest feedback. Af
 
 ## What this session does not change
 
-Long-term cross-project memory, a QA role, suggestion badges, fallback models, automation defaults, upgrading the API's `litellm==1.83.0` pin, and any change to supervisor graph structure beyond the notes update inside the existing `advance` step. Models come only from provider API keys (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.
+A PM role, upgrading the API's `litellm==1.83.0` pin, and any change to supervisor graph structure. New behaviour comes from role data, settings, and small additions to existing nodes. Models come only from provider API keys stored in Settings (OpenAI and Gemini now; others later). Nothing about roles, providers, or models is hardcoded as the product surface: the UI writes data, the gateway takes a model name.

@@ -30,7 +30,8 @@ def lead_of(project: dict | None) -> dict | None:
 
 def settings() -> dict:
     current = db.get("settings", "runs") or {}
-    current.setdefault("approvePlansBeforeRunning", True)
+    current.setdefault("approvePlansBeforeRunning", False)
+    current.setdefault("maxLessonsPerRole", 20)
     current.setdefault("maxSpendPerReviewUsd", 1)
     current.setdefault("maxSpendPerRunUsd", 5)
     current.setdefault("maxSpendPerDayUsd", 20)

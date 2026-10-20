@@ -23,6 +23,7 @@ export function RunsForm() {
   const [daily, setDaily] = useState<string | null>(null)
   const [reviewSpend, setReviewSpend] = useState<string | null>(null)
   const [approvePlans, setApprovePlans] = useState<boolean | null>(null)
+  const [lessonCap, setLessonCap] = useState<string | null>(null)
   const save = useMutation({
     mutationFn: saveRunSettings,
     onSuccess: async () => {
@@ -44,7 +45,8 @@ export function RunsForm() {
           const recordModelRequests = recordRequests ?? current.recordModelRequests ?? false
           const maxSpendPerDayUsd = Number(daily ?? current.maxSpendPerDayUsd ?? 20)
           const maxSpendPerReviewUsd = Number(reviewSpend ?? current.maxSpendPerReviewUsd ?? 1)
-          const approvePlansBeforeRunning = approvePlans ?? current.approvePlansBeforeRunning ?? true
+          const approvePlansBeforeRunning = approvePlans ?? current.approvePlansBeforeRunning ?? false
+          const maxLessonsPerRole = Number(lessonCap ?? current.maxLessonsPerRole ?? 20)
           return (
             <Card>
               <CardHeader>
@@ -71,6 +73,16 @@ export function RunsForm() {
                     onChange={(event) => setApprovePlans(event.target.checked)}
                   />
                   <FieldLabel htmlFor="approve-plans">Approve plans before running</FieldLabel>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="max-lessons">Max lessons per role</FieldLabel>
+                  <Input
+                    id="max-lessons"
+                    type="number"
+                    min={1}
+                    value={lessonCap ?? String(current.maxLessonsPerRole ?? 20)}
+                    onChange={(event) => setLessonCap(event.target.value)}
+                  />
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="max-spend-review">Max spend per review</FieldLabel>
@@ -149,6 +161,7 @@ export function RunsForm() {
                       loopDetection,
                       recordModelRequests,
                       approvePlansBeforeRunning,
+                      maxLessonsPerRole,
                       maxSpendPerReviewUsd,
                     })
                   }

@@ -82,6 +82,7 @@ def drive(run_id: str) -> None:
                 run_id=run_id,
                 call_index=model_call_index,
                 provider=run["model"].get("provider"),
+                backup_model=agent.get("backupModel") or run.get("backupModel"),
             )
             for item in stream:
                 if item.get("kind") == "retry":
@@ -98,6 +99,11 @@ def drive(run_id: str) -> None:
                     live.delta(run_id, cid, index, item["text"])
                 else:
                     turn = item
+                    if item.get("actualModel"):
+                        run["actualModel"] = item["actualModel"]
+                    if item.get("backupUsed"):
+                        run["backupUsed"] = True
+                        run["backupUseCount"] = int(run.get("backupUseCount") or 0) + 1
         except ToolPairingError as exc:
             _fail(run, "error", str(exc), recent)
             return
@@ -342,9 +348,10 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
         if contract:
             system += "\n\n# API contract\n" + contract
         if project:
-            from runtime import notes
+            from runtime import lessons, notes
 
             system += "\n\n" + notes.for_prompt(project)
+            system += "\n\n" + lessons.for_prompt(agent.get("roleKey") or "")
     task = db.get("task", run.get("taskId") or "") if run.get("taskId") else None
     if task and int(task.get("reworkCount") or task.get("reviewAttempts") or 0) > 0:
         packet = board.rework_packet(task)
@@ -386,6 +393,15 @@ def _pause(run: dict, status: str, event_type: str, payload: dict) -> bool:
     _status(run, status)
     db.append_event(run["id"], event_type, payload)
     if event_type == "CLARIFICATION_RAISED" and run.get("projectId"):
+        from runtime import needs
+
+        needs.write(
+            run["projectId"],
+            run.get("taskId"),
+            "question",
+            payload.get("question") or "No agent can resolve this question.",
+            run["id"],
+        )
         message_id = db.nid("msg")
         db.put(
             "message",
@@ -636,6 +652,10 @@ def _fail(run: dict, cause: str, text: str, recent: list[str] | None = None) -> 
             task["status"] = "failed"
             db.put("task", task["id"], task)
     if run.get("projectId"):
+        if cause == "budget":
+            from runtime import needs
+
+            needs.write(run["projectId"], run.get("taskId"), "budget", text, run["id"])
         refresh_summary(run["projectId"], (run.get("model") or {}).get("name") or "gpt-4o")
     _finish_run(run)
 
