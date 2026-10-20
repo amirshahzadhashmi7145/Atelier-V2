@@ -270,9 +270,11 @@ export function AgentEditor({ id }: { id: string }) {
   const tools = useMemo(() => (toolsQuery.data ?? []).filter((tool) => tool.kind !== "control"), [toolsQuery.data])
   const allTools = toolsQuery.data ?? []
   const role = (rolesQuery.data ?? []).find((item) => item.id === current?.roleKey)
+  const reportsToRole = (rolesQuery.data ?? []).find((item) => item.id === role?.reportsTo)
   const supervisor = role?.kind === "supervisor"
   const openhands = current?.workerEngine === "openhands"
   const missingKey = (() => {
+    if (providersQuery.isPending) return null
     const providers = providersQuery.data ?? []
     const needed = [current?.model.provider, current?.backupModel?.provider].filter(Boolean) as string[]
     const missing = [...new Set(needed)].filter((pid) => {
@@ -334,7 +336,7 @@ export function AgentEditor({ id }: { id: string }) {
             </Field>
             <Field>
               <p className="text-sm">Reports to</p>
-              <p className="text-sm text-muted-foreground">{agent.reportsTo ?? "no one"}</p>
+              <p className="text-sm text-muted-foreground">{reportsToRole?.name ?? "no one"}</p>
             </Field>
             <Field>
               <FieldLabel htmlFor="description">Description</FieldLabel>

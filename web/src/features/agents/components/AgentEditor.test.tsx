@@ -74,6 +74,13 @@ describe("AgentEditor", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Add an API key for openai")
   })
 
+  it("shows the role's supervisor, not the agent's empty reportsTo", async () => {
+    seedAgent({ reportsTo: null })
+    renderEditor("agt_test")
+    expect(await screen.findByText("Team Lead")).toBeInTheDocument()
+    expect(screen.queryByText("no one")).not.toBeInTheDocument()
+  })
+
   it("shows OpenHands tools on the Access page", async () => {
     seedAgent({ workerEngine: "openhands" })
     renderEditor("agt_test")

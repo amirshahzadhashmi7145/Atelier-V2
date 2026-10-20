@@ -42,6 +42,18 @@ describe("mock contract", () => {
     const refused = await fetch("http://localhost/providers/openai/refresh", { method: "POST" })
     expect(refused.status).toBe(422)
     expect(await (await fetch("http://localhost/models")).json()).toEqual([])
+
+    const tested = await fetch("http://localhost/providers/openai/test", { method: "POST" })
+    const connected = (await tested.json()) as { keyRef: string | null; connected: boolean }
+    expect(connected.connected).toBe(true)
+    expect(connected.keyRef).toBe("secret:openai")
+  })
+
+  it("lets a mock test connection stand in for a key so runs can start", async () => {
+    const tested = await fetch("http://localhost/providers/openai/test", { method: "POST" })
+    const connected = (await tested.json()) as { keyRef: string | null; connected: boolean }
+    expect(connected.connected).toBe(true)
+    expect(connected.keyRef).toBe("env:openai")
   })
 
   it("discovers four mcp tools and five api operations", async () => {

@@ -42,6 +42,7 @@ export function NewRun() {
   const chosenTemplate = template || enabled[0]?.scaffoldTemplate || ""
   const missingKey = (() => {
     if (!agent) return ""
+    if (providers.isPending) return "Checking providers…"
     const needed = [agent.model.provider, agent.backupModel?.provider].filter(Boolean) as string[]
     const missing = [...new Set(needed)].filter((pid) => {
       const provider = (providers.data ?? []).find((item) => item.id === pid)
