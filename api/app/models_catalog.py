@@ -36,7 +36,19 @@ def is_chat(name: str) -> bool:
     return bool(ident) and BLOCKED.search(ident) is None
 
 
-def _shutdown_date(name: str) -> str | None:
+def normalize_spec(spec: dict | None) -> dict | None:
+    if not spec:
+        return spec
+    name = spec.get("name")
+    if not name:
+        return spec
+    ident = model_id(str(name))
+    if ident == name:
+        return spec
+    return {**spec, "name": ident}
+
+
+def _shutdown_date(name: str, provider: str | None = None) -> str | None:
     ident = model_id(name)
     try:
         import litellm
@@ -44,7 +56,22 @@ def _shutdown_date(name: str) -> str | None:
         cost = getattr(litellm, "model_cost", None) or {}
     except Exception:
         return None
-    for key in (ident, f"openai/{ident}", f"gemini/{ident}", name):
+    keys = [ident, name]
+    try:
+        from gateway.llm import routed_model
+        from store import db
+
+        providers = [provider] if provider else [row.get("id") for row in db.listing("provider")]
+        for pid in providers:
+            if pid:
+                keys.append(routed_model(pid, ident))
+    except Exception:
+        pass
+    seen: set[str] = set()
+    for key in keys:
+        if not key or key in seen:
+            continue
+        seen.add(key)
         row = cost.get(key) if isinstance(cost, dict) else None
         if not isinstance(row, dict):
             continue
@@ -100,10 +127,11 @@ def seed_tags(name: str) -> dict:
 def info(name: str, provider: str | None = None) -> dict:
     from gateway.providers import registry
 
-    pid = provider or ("gemini" if name.lower().startswith("gemini") else "openai")
+    ident = model_id(name)
+    pid = provider or ("gemini" if ident.lower().startswith("gemini") else "openai")
     impl = registry.get(pid)
-    schema = impl.config_schema(name)
-    pricing = impl.pricing(name) or {}
+    schema = impl.config_schema(ident)
+    pricing = impl.pricing(ident) or {}
     price_in = pricing.get("priceInPerM")
     price_out = pricing.get("priceOutPerM")
     benchmarks = pricing.get("benchmarks") or []
@@ -111,11 +139,11 @@ def info(name: str, provider: str | None = None) -> dict:
         benchmarks = []
     return {
         "provider": pid,
-        "name": name,
+        "name": ident,
         "contextWindow": pricing.get("contextWindow") or 128000,
         "priceInPerM": price_in if pricing.get("sourceUrl") else None,
         "priceOutPerM": price_out if pricing.get("sourceUrl") else None,
-        "speedTier": speed(name),
+        "speedTier": speed(ident),
         "fitLine": pricing.get("fitLine"),
         "configSchema": schema,
         "benchmarks": benchmarks,

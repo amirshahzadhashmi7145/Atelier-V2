@@ -72,7 +72,7 @@ def _bootstrap_gemini() -> None:
     if spec.get("provider") != "gemini":
         return
     for agent in db.listing("agent"):
-        agent["model"] = {**spec, "config": (agent.get("model") or {}).get("config") or {}}
+        agent["model"] = {**(models_catalog.normalize_spec(spec) or spec), "config": (agent.get("model") or {}).get("config") or {}}
         agent["updatedAt"] = db.now()
         db.put("agent", agent["id"], agent)
     db.put("meta", "gemini_agents", {"ok": True})

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { configSchemaFor, isChatModel, isRetiredModel } from "@/lib/models/schema"
+import { configSchemaFor, isChatModel, isRetiredModel, modelId, modelInfoFromId } from "@/lib/models/schema"
 
 describe("model id filter", () => {
   it("drops non-chat families and keeps chat ids", () => {
@@ -19,6 +19,9 @@ describe("model id filter", () => {
   })
 
   it("strips the Gemini models/ prefix and hides non-chat plus retired ids", () => {
+    expect(modelId("models/gemini-3.1-pro-preview")).toBe("gemini-3.1-pro-preview")
+    expect(modelInfoFromId("models/gemini-3.1-pro-preview").name).toBe("gemini-3.1-pro-preview")
+    expect(modelInfoFromId("models/gemini-3.1-pro-preview").provider).toBe("gemini")
     expect(isChatModel("models/gemini-2.5-flash")).toBe(true)
     expect(isChatModel("models/gemini-2.0-flash-preview-image-generation")).toBe(false)
     expect(isChatModel("gemini-2.5-computer-use-preview-10-2025")).toBe(false)

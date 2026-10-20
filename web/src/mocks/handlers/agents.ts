@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw"
 import { compilePrompt } from "@/features/agents/compile"
 import { asSchema, validateConfig } from "@/features/agents/config-schema"
-import { isChatModel, isRetiredModel, modelInfoFromId } from "@/lib/models/schema"
+import { isChatModel, isRetiredModel, modelId, modelInfoFromId } from "@/lib/models/schema"
 import { db, nid, now, orderedById } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
@@ -66,7 +66,7 @@ export const agentHandlers = [
       name: body.name,
       roleKey: body.roleKey,
       description: body.description,
-      model: body.model,
+      model: { ...body.model, name: modelId(body.model.name) },
       activePromptVersionId: null,
       toolIds: body.toolIds ?? [],
       skillIds: body.skillIds ?? [],
@@ -180,6 +180,7 @@ export const agentHandlers = [
     if (!agent) return error(404, "not_found", "Agent not found")
     const body = (await request.json()) as Partial<typeof agent>
     if (body.model) {
+      body.model = { ...body.model, name: modelId(body.model.name) }
       const invalid = modelError(body.model)
       if (invalid) return error(422, "invalid_config", invalid)
     }

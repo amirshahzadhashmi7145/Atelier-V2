@@ -67,18 +67,19 @@ function speedFor(id: string): "fast" | "balanced" | "slow" {
   return "balanced"
 }
 
-export function modelInfoFromId(id: string) {
-  const provider = /^gemini/i.test(id) ? ("gemini" as const) : ("openai" as const)
+export function modelInfoFromId(id: string, provider?: string) {
+  const ident = modelId(id)
+  const pid = provider || (/^gemini/i.test(ident) ? "gemini" : "openai")
   return {
-    provider,
-    name: id,
+    provider: pid,
+    name: ident,
     // ponytail: the models list has no context window or price
     contextWindow: 128000,
     priceInPerM: null,
     priceOutPerM: null,
-    speedTier: speedFor(id),
+    speedTier: speedFor(ident),
     fitLine: null,
-    configSchema: configSchemaFor(id),
+    configSchema: configSchemaFor(ident),
     benchmarks: [] as [],
   }
 }

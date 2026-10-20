@@ -13,6 +13,16 @@ describe("ownStatsFor", () => {
       { agentId: "a1", model: { name: "gpt-5" }, status: "failed", costUsd: 2 },
       { agentId: "a2", model: { name: "gpt-4.1" }, status: "completed", summary: {}, costUsd: 3 },
     ])
+    const gemini = ownStatsFor("gemini-3.1-pro-preview", agents, [
+      {
+        agentId: "a1",
+        model: { name: "models/gemini-3.1-pro-preview" },
+        status: "completed",
+        summary: { ok: true },
+        costUsd: 1,
+      },
+    ])
+    expect(gemini).toEqual([{ roleKey: "frontend-engineer", runs: 1, passed: 1, avgCostUsd: 1, reason: "not enough data yet" }])
     expect(stats).toEqual([{ roleKey: "frontend-engineer", runs: 2, passed: 1, avgCostUsd: 1, reason: "not enough data yet" }])
   })
 })

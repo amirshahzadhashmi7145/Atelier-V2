@@ -47,8 +47,16 @@ def _provider_row(provider_id: str | None) -> dict:
 
 
 def litellm_prefix(provider: str | None) -> str:
-    row = _provider_row(provider)
-    return (row.get("litellmPrefix") or provider or "openai").strip()
+    """LiteLLM model-string prefix from provider seed data (e.g. 'gemini/' or 'openai/')."""
+    pid = registry.resolve_provider(provider)
+    row = _provider_row(pid)
+    if row and "litellmPrefix" in row:
+        return str(row.get("litellmPrefix") or "").strip()
+    return (pid or "").strip()
+
+
+def litellm_provider_key(provider: str | None) -> str:
+    return litellm_prefix(provider).strip("/")
 
 
 def env_var_for(provider: str | None) -> str:
@@ -111,14 +119,23 @@ def gemini_api_key() -> str:
     return resolve_api_key("gemini") or gemini_mod.api_key() or ""
 
 
+def stored_model_id(name: str | None) -> str:
+    from app.models_catalog import model_id
+
+    return model_id(name or "")
+
+
 def routed_model(provider: str | None, name: str) -> str:
-    """LiteLLM model id. Gateway does not know roles."""
-    pid = registry.resolve_provider(provider)
-    if not name:
-        return litellm_prefix(pid)
-    if "/" in name:
-        return name
-    return f"{litellm_prefix(pid)}/{name}"
+    """LiteLLM model id from provider prefix + stored id. Gateway does not know roles."""
+    ident = stored_model_id(name)
+    prefix = litellm_prefix(provider)
+    if not ident:
+        return prefix.rstrip("/")
+    if not prefix:
+        return ident
+    if prefix.endswith("/"):
+        return f"{prefix}{ident}"
+    return f"{prefix}/{ident}"
 
 
 def default_model_spec() -> dict:
@@ -220,7 +237,7 @@ def supports_tool_calling(provider: str | None, name: str) -> bool:
         check = getattr(litellm, "supports_function_calling", None)
         if check is None:
             from litellm.utils import supports_function_calling as check
-        return bool(check(model=routed_model(provider, name), custom_llm_provider=litellm_prefix(provider)))
+        return bool(check(model=routed_model(provider, name), custom_llm_provider=litellm_provider_key(provider)))
     except Exception:
         return False
 
@@ -232,9 +249,8 @@ def list_live_models(provider: str | None) -> list[str]:
     import litellm
 
     key = resolve_api_key(pid)
-    prefix = litellm_prefix(pid)
     try:
-        raw = litellm.get_valid_models(custom_llm_provider=prefix, api_key=key) or []
+        raw = litellm.get_valid_models(custom_llm_provider=litellm_provider_key(pid), api_key=key) or []
     except Exception:
         raw = []
     from app.models_catalog import is_chat, is_retired, model_id
@@ -420,7 +436,7 @@ def _provider_failure(exc: Exception) -> bool:
 def _backup_spec(backup_model: dict | None) -> tuple[str, str | None] | None:
     if not backup_model or not backup_model.get("name"):
         return None
-    return backup_model["name"], backup_model.get("provider")
+    return stored_model_id(backup_model["name"]), backup_model.get("provider")
 
 
 def _raise_failover(exc: Exception | None, provider: str | None, model: str):
@@ -441,7 +457,7 @@ def _stream_with_backup(
     tool_choice: str | None,
     backup_model: dict | None,
 ):
-    used = {"name": model, "provider": provider, "backupUsed": False}
+    used = {"name": stored_model_id(model), "provider": provider, "backupUsed": False}
     backup = _backup_spec(backup_model)
     last: Exception | None = None
     timeout_tries = 2 if backup else 3
@@ -495,7 +511,7 @@ def complete(
         "provider": registry.resolve_provider(provider),
     }
     turn: dict | None = None
-    used = {"name": model, "provider": provider, "backupUsed": False}
+    used = {"name": stored_model_id(model), "provider": provider, "backupUsed": False}
     events = _stream_with_backup(model, provider, messages, tools, config, False, None, backup_model)
     try:
         while True:
@@ -508,7 +524,7 @@ def complete(
     if turn is None:
         raise RuntimeError("provider returned no completion")
     actual_provider = used.get("provider") or provider
-    actual_name = used.get("name") or model
+    actual_name = stored_model_id(used.get("name") or model)
     turn["usd"] = cost_usd(routed_model(actual_provider, actual_name), turn.get("usage") or {})
     turn["actualModel"] = {"provider": registry.resolve_provider(actual_provider), "name": actual_name}
     turn["backupUsed"] = bool(used.get("backupUsed"))
@@ -567,7 +583,7 @@ def _stream_turn_body(
     }
 
     done_payload = None
-    used = {"name": model, "provider": provider, "backupUsed": False}
+    used = {"name": stored_model_id(model), "provider": provider, "backupUsed": False}
     events = _stream_with_backup(model, provider, messages, tools, config, True, tool_choice, backup_model)
     try:
         while True:
@@ -595,7 +611,7 @@ def _stream_turn_body(
             used = stop.value
     if done_payload:
         actual_provider = used.get("provider") or provider
-        actual_name = used.get("name") or model
+        actual_name = stored_model_id(used.get("name") or model)
         done_payload["usd"] = cost_usd(routed_model(actual_provider, actual_name), done_payload.get("usage") or {})
         done_payload["actualModel"] = {"provider": registry.resolve_provider(actual_provider), "name": actual_name}
         done_payload["backupUsed"] = bool(used.get("backupUsed"))

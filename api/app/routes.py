@@ -58,7 +58,7 @@ def patch_agent(id: str, body: dict):
         return missing()
     for key in ("name", "roleKey", "description", "model", "backupModel", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities", "workerEngine"):
         if key in body:
-            agent[key] = body[key]
+            agent[key] = models_catalog.normalize_spec(body[key]) if key in ("model", "backupModel") else body[key]
     agent["updatedAt"] = db.now()
     db.put("agent", id, agent)
     return agent
@@ -491,10 +491,11 @@ def list_models():
     models = []
     seen: set[str] = set()
     for name, cache_provider in rows:
-        if name in seen or not models_catalog.is_chat(name) or models_catalog.is_retired(name):
+        ident = models_catalog.model_id(name)
+        if ident in seen or not models_catalog.is_chat(ident) or models_catalog.is_retired(ident):
             continue
-        seen.add(name)
-        record = models_catalog.info(name, cache_provider)
+        seen.add(ident)
+        record = models_catalog.info(ident, cache_provider)
         record["ownStats"] = _stats(name, agents, runs)
         models.append(record)
     return models
@@ -506,8 +507,9 @@ def list_tags():
     cached = db.get("model-cache", "openai") or {"ids": []}
     result = {}
     for name in cached["ids"]:
-        if models_catalog.is_chat(name) and not models_catalog.is_retired(name):
-            result[name] = saved.get(name) or models_catalog.seed_tags(name)
+        ident = models_catalog.model_id(name)
+        if models_catalog.is_chat(ident) and not models_catalog.is_retired(ident):
+            result[ident] = saved.get(ident) or saved.get(name) or models_catalog.seed_tags(ident)
     return result
 
 
@@ -1210,18 +1212,18 @@ def _agent(body: dict) -> dict:
     timestamp = db.now()
     stacks = body.get("stackIds") or []
     skills = body.get("skillIds") or []
-    model = body.get("model")
+    model = models_catalog.normalize_spec(body.get("model"))
     if not model:
         from runtime import fit
 
-        model = fit.default_model(body.get("roleKey")) or default_model_spec()
+        model = models_catalog.normalize_spec(fit.default_model(body.get("roleKey")) or default_model_spec())
     return {
         "id": db.nid("agt"),
         "name": body.get("name"),
         "roleKey": body.get("roleKey"),
         "description": body.get("description") or "",
         "model": model,
-        "backupModel": body.get("backupModel"),
+        "backupModel": models_catalog.normalize_spec(body.get("backupModel")),
         "activePromptVersionId": None,
         "toolIds": body.get("toolIds") or [],
         "skillIds": skills,
@@ -1327,7 +1329,7 @@ def _latest_prompt_version_id(agent_id: str) -> str | None:
 
 
 def _new_run(agent: dict, body: dict) -> dict:
-    model = body.get("model") or agent["model"]
+    model = models_catalog.normalize_spec(body.get("model") or agent.get("model"))
     prompt_version_id = body.get("promptVersionId") or agent.get("activePromptVersionId") or _latest_prompt_version_id(agent["id"]) or ""
     return {
         "id": db.nid("run"),
@@ -1375,7 +1377,12 @@ def _stats(name: str, agents: list[dict], runs: list[dict]) -> list[dict]:
             )
             continue
         ids = {agent["id"] for agent in agents if agent["roleKey"] == role}
-        matched = [run for run in runs if (run.get("model") or {}).get("name") == name and run.get("agentId") in ids]
+        matched = [
+            run
+            for run in runs
+            if models_catalog.model_id((run.get("model") or {}).get("name") or "") == models_catalog.model_id(name)
+            and run.get("agentId") in ids
+        ]
         if not matched:
             continue
         passed = [run for run in matched if run["status"] == "completed" and run.get("summary")]
