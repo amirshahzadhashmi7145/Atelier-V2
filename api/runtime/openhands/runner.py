@@ -84,8 +84,16 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 timeout_sec=max(30, minutes * 60),
                 on_cost=on_cost,
                 repo_instructions=notes.read_text(project).strip(),
+                backup_model=_backup_id(agent),
+                backup_api_key=_backup_key(agent),
             )
         )
+        run["costSource"] = "openhands"
+        if result.actual_model:
+            run["actualModel"] = {"name": result.actual_model}
+        if result.backup_used:
+            run["backupUsed"] = True
+            run["backupUseCount"] = int(run.get("backupUseCount") or 0) + 1
         if result.cost_usd and recorded[0] == 0:
             on_cost(result.cost_usd)
         _save_log(run, result.events, task)
@@ -157,6 +165,7 @@ def _open_run(project: dict, agent: dict, task: dict) -> dict:
         "tokensIn": 0,
         "tokensOut": 0,
         "costUsd": 0,
+        "costSource": "openhands",
         "startedAt": db.now(),
     }
     db.put("workspace", run["id"], {"folder": project["folderPath"]})
@@ -174,6 +183,20 @@ def _model_id(agent: dict) -> str:
 
 def _api_key(agent: dict) -> str | None:
     model = agent.get("model") or {}
+    return llm.resolve_api_key(model.get("provider"))
+
+
+def _backup_id(agent: dict) -> str:
+    model = agent.get("backupModel") or {}
+    if not model.get("name"):
+        return ""
+    return llm.routed_model(model.get("provider"), model.get("name") or "")
+
+
+def _backup_key(agent: dict) -> str | None:
+    model = agent.get("backupModel") or {}
+    if not model.get("name"):
+        return None
     return llm.resolve_api_key(model.get("provider"))
 
 

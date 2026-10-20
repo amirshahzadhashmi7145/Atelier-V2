@@ -32,6 +32,8 @@ export type Db = {
   modelTags: Record<string, { tags: string[]; note: string; heuristic: boolean }>
   roles: components["schemas"]["Role"][]
   taskBoards: Record<string, components["schemas"]["TaskBoard"]>
+  lessons: components["schemas"]["Lesson"][]
+  needs: components["schemas"]["NeedYou"][]
 }
 
 const emptySchema = { type: "object", additionalProperties: false }
@@ -131,11 +133,22 @@ const seedRoles: components["schemas"]["Role"][] = [
     id: "team-lead",
     name: "Team Lead",
     kind: "supervisor",
-    reportsTo: null,
+    reportsTo: "qa-engineer",
     layer: 1,
     zones: [],
     tags: ["supervisor", "review", "planning"],
     colour: "#7c3aed",
+    contractFile: null,
+  },
+  {
+    id: "qa-engineer",
+    name: "QA Engineer",
+    kind: "supervisor",
+    reportsTo: null,
+    layer: 2,
+    zones: [],
+    tags: ["supervisor", "review"],
+    colour: "#0f766e",
     contractFile: null,
   },
 ]
@@ -160,7 +173,8 @@ const emptyDb = (): Db => ({
     maxMinutes: 45,
     loopDetection: true,
     recordModelRequests: false,
-    approvePlansBeforeRunning: true,
+    approvePlansBeforeRunning: false,
+    maxLessonsPerRole: 20,
     maxSpendPerReviewUsd: 1,
   },
   events: [],
@@ -170,6 +184,8 @@ const emptyDb = (): Db => ({
   modelTags: {},
   roles: structuredClone(seedRoles),
   taskBoards: {},
+  lessons: [],
+  needs: [],
 })
 
 const STORAGE_KEY = "atelier-mock-db"
@@ -191,6 +207,8 @@ function storedDb(): Db | null {
       modelTags: saved.modelTags ?? {},
       roles: saved.roles?.length ? saved.roles : structuredClone(seedRoles),
       taskBoards: saved.taskBoards ?? {},
+      lessons: saved.lessons ?? [],
+      needs: saved.needs ?? [],
     }
   } catch {
     return null

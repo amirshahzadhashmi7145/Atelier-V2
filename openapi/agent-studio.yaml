@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Agent Studio API
-  version: 0.13.0
+  version: 0.14.0
   description: Contract for the studio, the API, and the runtime. Both sides generate types from this file.
 servers:
   - url: http://localhost:8000
@@ -292,6 +292,94 @@ paths:
         "204":
           description: Deleted
         "404":
+          $ref: "#/components/responses/Error"
+  /roles/{id}/lessons:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listLessons
+      tags: [roles]
+      responses:
+        "200":
+          description: Lessons for the role
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lesson"
+        "404":
+          $ref: "#/components/responses/Error"
+  /roles/{id}/lessons/{lessonId}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: lessonId
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: deleteLesson
+      tags: [roles]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/Error"
+  /roles/{id}/suggestion:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getRoleSuggestion
+      tags: [roles]
+      responses:
+        "200":
+          description: Suggested model for this role from real runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelSuggestion"
+        "404":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/needs:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listProjectNeeds
+      tags: [projects]
+      responses:
+        "200":
+          description: Open items that need a person
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NeedYou"
+        "404":
+          $ref: "#/components/responses/Error"
+  /needs/{id}/answer:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: answerNeed
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NeedAnswer"
+      responses:
+        "200":
+          description: Answer recorded and the run resumed when it was waiting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NeedYou"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
           $ref: "#/components/responses/Error"
   /tags:
     get:
@@ -1466,6 +1554,8 @@ components:
           enum: [loop, openhands]
         capabilities:
           $ref: "#/components/schemas/Capabilities"
+        backupModel:
+          $ref: "#/components/schemas/ModelSelection"
         createdAt:
           type: string
           format: date-time
@@ -1510,6 +1600,8 @@ components:
           enum: [loop, openhands]
         capabilities:
           $ref: "#/components/schemas/Capabilities"
+        backupModel:
+          $ref: "#/components/schemas/ModelSelection"
     AgentPatch:
       type: object
       additionalProperties: false
@@ -1543,6 +1635,8 @@ components:
         workerEngine:
           type: string
           enum: [loop, openhands]
+        backupModel:
+          $ref: "#/components/schemas/ModelSelection"
     Scope:
       type: object
       additionalProperties: false
@@ -2153,6 +2247,14 @@ components:
           minimum: 0
         avgCostUsd:
           type: number
+        avgRework:
+          type: number
+        firstTryRate:
+          type: number
+        suggested:
+          type: boolean
+        reason:
+          type: string
     SpeedTier:
       type: string
       enum: [fast, balanced, slow]
@@ -2240,7 +2342,11 @@ components:
           type: boolean
         approvePlansBeforeRunning:
           type: boolean
-          default: true
+          default: false
+        maxLessonsPerRole:
+          type: integer
+          minimum: 1
+          default: 20
         maxSpendPerReviewUsd:
           type: number
           minimum: 0
@@ -2452,6 +2558,85 @@ components:
         endedAt:
           type: string
           format: date-time
+        actualModel:
+          $ref: "#/components/schemas/ModelRef"
+        backupUsed:
+          type: boolean
+        backupUseCount:
+          type: integer
+          minimum: 0
+        costSource:
+          type: string
+          enum: [gateway, openhands]
+          description: openhands means the isolated process reported the cost
+    Lesson:
+      type: object
+      additionalProperties: false
+      required: [id, roleKey, text, sourceTaskId, createdAt]
+      properties:
+        id:
+          type: string
+        roleKey:
+          type: string
+        text:
+          type: string
+        sourceTaskId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ModelSuggestion:
+      type: object
+      additionalProperties: false
+      required: [roleKey, reason]
+      properties:
+        roleKey:
+          type: string
+        provider:
+          type: [string, "null"]
+        name:
+          type: [string, "null"]
+        reason:
+          type: string
+        firstTryRate:
+          type: number
+        avgCostUsd:
+          type: number
+        tasks:
+          type: integer
+    NeedYou:
+      type: object
+      additionalProperties: false
+      required: [id, projectId, kind, question, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        taskId:
+          type: [string, "null"]
+        runId:
+          type: [string, "null"]
+        kind:
+          type: string
+          enum: [escalate, budget, question]
+        question:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        resolvedAt:
+          type: [string, "null"]
+        answer:
+          type: [string, "null"]
+    NeedAnswer:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
     RunCreate:
       type: object
       additionalProperties: false

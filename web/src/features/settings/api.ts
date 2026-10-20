@@ -66,3 +66,13 @@ export async function listRoleTags() {
   const result = await unwrap(await api.GET("/tags"))
   return result.tags
 }
+
+export async function listLessons(id: string) {
+  return unwrap(await api.GET("/roles/{id}/lessons", { params: { path: { id } } }))
+}
+
+export async function deleteLesson(id: string, lessonId: string) {
+  const result = await api.DELETE("/roles/{id}/lessons/{lessonId}", { params: { path: { id, lessonId } } })
+  if (result.response.status === 204) return
+  return unwrap(result)
+}

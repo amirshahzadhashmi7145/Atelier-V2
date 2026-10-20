@@ -53,6 +53,7 @@ type Draft = {
   roleKey: string
   description: string
   model: Agent["model"]
+  backupModel?: Agent["backupModel"]
   toolIds: string[]
   skillIds: string[]
   stackIds: string[]
@@ -121,6 +122,7 @@ function draftFrom(agent: Agent, sections: Sections | undefined): Draft {
     roleKey: agent.roleKey,
     description: agent.description,
     model: agent.model,
+    backupModel: agent.backupModel,
     toolIds: agent.toolIds,
     skillIds: agent.skillIds,
     stackIds: agent.stackIds,
@@ -202,6 +204,7 @@ export function AgentEditor({ id }: { id: string }) {
         roleKey: current.roleKey,
         description: current.description,
         model: { ...current.model, config },
+        backupModel: current.backupModel,
         toolIds: current.toolIds,
         skillIds: current.skillIds,
         stackIds: current.stackIds,
@@ -369,6 +372,33 @@ export function AgentEditor({ id }: { id: string }) {
           )}
           {configError ? <p className="text-sm text-destructive">{configError}</p> : null}
           {selectedModel ? <ModelCard model={selectedModel} /> : null}
+          <Field>
+            <FieldLabel>Backup model</FieldLabel>
+            <ModelPicker
+              models={modelsQuery.data ?? []}
+              value={current.backupModel?.name ?? ""}
+              roleKey={current.roleKey}
+              tags={tagsQuery.data}
+              allowEmpty
+              emptyLabel="No backup"
+              onChange={(name) => {
+                if (!name) {
+                  patch({ backupModel: undefined })
+                  return
+                }
+                const model = modelsQuery.data?.find((item) => item.name === name)
+                if (!model) return
+                patch({
+                  backupModel: {
+                    provider: model.provider,
+                    name: model.name,
+                    config: {},
+                  },
+                })
+              }}
+            />
+            <p className="text-sm text-muted-foreground">Used only if the main model&apos;s provider errors, times out, or rate-limits.</p>
+          </Field>
         </CardContent>
       </Card>
       <Card>

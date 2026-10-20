@@ -79,7 +79,7 @@ def plan(state: SupervisorState) -> dict:
     task_ids = [item["id"] for item in kids]
     status = {item["id"]: "planning" for item in kids if not item.get("supersededBy")}
     if plan_row and plan_row.get("status") != "approved":
-        if leadlib.settings().get("approvePlansBeforeRunning", True):
+        if leadlib.settings().get("approvePlansBeforeRunning", False):
             from langgraph.types import interrupt
 
             updated = {
@@ -141,15 +141,17 @@ def wait(state: SupervisorState) -> dict:
         out = {"phase": "wrap_up", "last_worker_status": None}
         steplib.publish({**state, **out})
         return out
-    from runtime import notes
+    from runtime import lessons, notes
 
     project = db.get("project", state["project_id"]) or {}
+    worker = db.get("agent", (db.get("task", task_id) or {}).get("assignedAgentId") or "") or {}
     result = get_runner().run(
         {
             "project_id": state["project_id"],
             "task_id": task_id,
             "text": "",
             "notes": notes.for_prompt(project),
+            "lessons": lessons.for_prompt(worker.get("roleKey") or ""),
         }
     )
     handoff_ids = list(state.get("handoff_ids") or [])
@@ -245,9 +247,11 @@ def advance(state: SupervisorState) -> dict:
     reviewer = db.get("agent", state.get("current_reviewer_id") or "")
     status = dict(state.get("status_by_task") or {})
     if verdict == "approve":
-        from runtime import notes
+        from runtime import fit, lessons, notes
 
         notes.update_after_approval(project, live)
+        lessons.maybe_write(live, feedback)
+        fit.record_task(live)
         nxt = rolelib.next_reviewer(project, worker, reviewer)
         if nxt:
             status[live["id"]] = "reviewing"
@@ -326,6 +330,15 @@ def advance(state: SupervisorState) -> dict:
         lead or {},
         "review",
         {"verdict": "changes_requested"},
+    )
+    from runtime import needs
+
+    needs.write(
+        state["project_id"],
+        live["id"],
+        "escalate",
+        "A supervisor requested changes twice. Decide whether to retry or stop.",
+        state.get("lead_run_id"),
     )
     status[live["id"]] = "escalated"
     out = {

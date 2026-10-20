@@ -30,6 +30,18 @@ def write_handoff(run: dict, task: dict, summary: dict) -> dict:
     return note
 
 
+def write_user_answer(task: dict, text: str) -> dict:
+    record = {
+        "id": db.nid("userans"),
+        "taskId": task["id"],
+        "kind": "user",
+        "summary": text,
+        "createdAt": db.now(),
+    }
+    db.put("user-answer", record["id"], record)
+    return record
+
+
 def write_feedback(task: dict, reviewer: dict | None, verdict: str, notes: str, items: list | None = None) -> dict:
     rows = list(items or [])
     if not rows and notes:
@@ -84,6 +96,9 @@ def timeline(task: dict | None) -> list[dict]:
     for item in db.listing("notes"):
         if item.get("taskId") in ids:
             events.append({**item, "kind": "notes"})
+    for item in db.listing("user-answer"):
+        if item.get("taskId") in ids:
+            events.append({**item, "kind": "user"})
     events.sort(key=lambda item: item.get("createdAt") or "")
     return events
 

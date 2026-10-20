@@ -383,20 +383,66 @@ def _provider_stream(provider: str | None, model: str, messages, tools, config, 
     yield from iter_live_events(impl.id, model, messages, tools, config, stream=stream, tool_choice=tool_choice)
 
 
-def _with_retries(model: str, provider: str | None, stream_factory):
+def _provider_failure(exc: Exception) -> bool:
+    if isinstance(exc, (ModelTimeout, ProviderError)):
+        return True
+    text = str(exc).lower()
+    name = type(exc).__name__.lower()
+    tokens = ("rate limit", "rate_limit", "429", "timeout", "timed out", "overloaded", "service unavailable", "503", "502")
+    return any(token in text for token in tokens) or "timeout" in name or "ratelimit" in name
+
+
+def _backup_spec(backup_model: dict | None) -> tuple[str, str | None] | None:
+    if not backup_model or not backup_model.get("name"):
+        return None
+    return backup_model["name"], backup_model.get("provider")
+
+
+def _raise_failover(exc: Exception | None, provider: str | None, model: str):
+    if isinstance(exc, ModelTimeout):
+        raise ModelTimeout(_timeout_message(provider, model)) from exc
+    if exc:
+        raise exc
+    raise ModelTimeout(_timeout_message(provider, model))
+
+
+def _stream_with_backup(
+    model: str,
+    provider: str | None,
+    messages,
+    tools,
+    config,
+    stream: bool,
+    tool_choice: str | None,
+    backup_model: dict | None,
+):
+    used = {"name": model, "provider": provider, "backupUsed": False}
+    backup = _backup_spec(backup_model)
     last: Exception | None = None
-    for attempt in range(3):
+    timeout_tries = 2 if backup else 3
+    for attempt in range(timeout_tries):
         try:
-            yield from stream_factory()
-            return
-        except ModelTimeout as exc:
+            yield from _provider_stream(provider, model, messages, tools, config, stream, tool_choice)
+            return used
+        except Exception as exc:
+            if not _provider_failure(exc):
+                raise
             last = exc
-            if attempt >= 2:
-                raise ModelTimeout(_timeout_message(provider, model)) from exc
+            if backup:
+                yield {"kind": "retry", "attempt": attempt + 1, "reason": str(exc)}
+                if attempt == 0:
+                    time.sleep(min(1, 2**attempt))
+                    continue
+                bname, bprov = backup
+                yield {"kind": "retry", "attempt": attempt + 1, "reason": "switching to backup model"}
+                used = {"name": bname, "provider": bprov, "backupUsed": True}
+                yield from _provider_stream(bprov, bname, messages, tools, config, stream, tool_choice)
+                return used
+            if not isinstance(exc, ModelTimeout) or attempt + 1 >= timeout_tries:
+                _raise_failover(exc, provider, model)
             yield {"kind": "retry", "attempt": attempt + 1, "reason": str(exc)}
             time.sleep(min(8, 2**attempt))
-    if last:
-        raise ModelTimeout(_timeout_message(provider, model)) from last
+    _raise_failover(last, provider, model)
 
 
 def complete(
@@ -408,6 +454,7 @@ def complete(
     run_id: str | None = None,
     call_index: int = 0,
     provider: str | None = None,
+    backup_model: dict | None = None,
 ) -> dict:
     from gateway.request_capture import record
     from gateway.tool_pairing import assert_chat_tool_pairing
@@ -423,23 +470,23 @@ def complete(
         "provider": registry.resolve_provider(provider),
     }
     turn: dict | None = None
-    last: Exception | None = None
-    for attempt in range(3):
-        try:
-            for event in _provider_stream(provider, model, messages, tools, config, False, None):
-                if event.get("kind") == "done":
-                    turn = {k: v for k, v in event.items() if k != "kind"}
-            if turn is None:
-                raise RuntimeError("provider returned no completion")
-            break
-        except ModelTimeout as exc:
-            last = exc
-            if attempt >= 2:
-                raise ModelTimeout(_timeout_message(provider, model)) from exc
-            time.sleep(min(8, 2**attempt))
+    used = {"name": model, "provider": provider, "backupUsed": False}
+    events = _stream_with_backup(model, provider, messages, tools, config, False, None, backup_model)
+    try:
+        while True:
+            event = next(events)
+            if event.get("kind") == "done":
+                turn = {k: v for k, v in event.items() if k != "kind"}
+    except StopIteration as stop:
+        if isinstance(stop.value, dict):
+            used = stop.value
     if turn is None:
-        raise ModelTimeout(_timeout_message(provider, model)) from last
-    turn["usd"] = cost_usd(routed_model(provider, model), turn.get("usage") or {})
+        raise RuntimeError("provider returned no completion")
+    actual_provider = used.get("provider") or provider
+    actual_name = used.get("name") or model
+    turn["usd"] = cost_usd(routed_model(actual_provider, actual_name), turn.get("usage") or {})
+    turn["actualModel"] = {"provider": registry.resolve_provider(actual_provider), "name": actual_name}
+    turn["backupUsed"] = bool(used.get("backupUsed"))
     record(run_id, call_index, {"request": request_payload, "response": turn})
     return turn
 
@@ -454,6 +501,7 @@ def stream_turn(
     call_index: int = 0,
     tool_choice: str | None = None,
     provider: str | None = None,
+    backup_model: dict | None = None,
 ):
     from gateway.tool_pairing import assert_chat_tool_pairing
 
@@ -467,6 +515,7 @@ def stream_turn(
         call_index=call_index,
         tool_choice=tool_choice,
         provider=provider,
+        backup_model=backup_model,
     )
 
 
@@ -480,6 +529,7 @@ def _stream_turn_body(
     call_index: int,
     tool_choice: str | None,
     provider: str | None,
+    backup_model: dict | None = None,
 ):
     from gateway.request_capture import record
 
@@ -491,32 +541,40 @@ def _stream_turn_body(
         "provider": registry.resolve_provider(provider),
     }
 
-    def factory():
-        yield from _provider_stream(provider, model, messages, tools, config, True, tool_choice)
-
     done_payload = None
-    for event in _with_retries(model, provider, factory):
-        if event["kind"] in ("retry", "thinking"):
-            yield event
-            continue
-        if event["kind"] == "delta":
-            yield event
-        elif event["kind"] == "tool_delta":
-            yield {
-                "kind": "delta",
-                "text": "",
-                "tool": {
-                    "index": event.get("index"),
-                    "id": event.get("id"),
-                    "name": event.get("name"),
-                    "arguments": event.get("arguments"),
-                },
-            }
-        elif event["kind"] == "done":
-            event["usd"] = cost_usd(routed_model(provider, model), event.get("usage") or {})
-            done_payload = event
-            yield event
+    used = {"name": model, "provider": provider, "backupUsed": False}
+    events = _stream_with_backup(model, provider, messages, tools, config, True, tool_choice, backup_model)
+    try:
+        while True:
+            event = next(events)
+            if event["kind"] in ("retry", "thinking"):
+                yield event
+                continue
+            if event["kind"] == "delta":
+                yield event
+            elif event["kind"] == "tool_delta":
+                yield {
+                    "kind": "delta",
+                    "text": "",
+                    "tool": {
+                        "index": event.get("index"),
+                        "id": event.get("id"),
+                        "name": event.get("name"),
+                        "arguments": event.get("arguments"),
+                    },
+                }
+            elif event["kind"] == "done":
+                done_payload = event
+    except StopIteration as stop:
+        if isinstance(stop.value, dict):
+            used = stop.value
     if done_payload:
+        actual_provider = used.get("provider") or provider
+        actual_name = used.get("name") or model
+        done_payload["usd"] = cost_usd(routed_model(actual_provider, actual_name), done_payload.get("usage") or {})
+        done_payload["actualModel"] = {"provider": registry.resolve_provider(actual_provider), "name": actual_name}
+        done_payload["backupUsed"] = bool(used.get("backupUsed"))
+        yield done_payload
         record(
             run_id,
             call_index,

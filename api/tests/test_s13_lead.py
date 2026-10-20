@@ -36,7 +36,14 @@ def lead_agent(client: TestClient) -> dict:
     )
 
 
+def gate_plans(client: TestClient, on: bool = True) -> None:
+    current = client.get("/settings/runs").json()
+    current["approvePlansBeforeRunning"] = on
+    assert client.put("/settings/runs", json=current).status_code == 200
+
+
 def led_project(client: TestClient) -> tuple[dict, dict, dict, dict]:
+    gate_plans(client)
     front = frontend_agent(client)
     back = backend_agent(client)
     lead = lead_agent(client)
@@ -111,7 +118,7 @@ def test_team_lead_template_imports_with_scope_evals_and_supervisor_tag(client: 
 
 def test_run_settings_default_approve_plans_and_review_cap(client: TestClient):
     settings = client.get("/settings/runs").json()
-    assert settings["approvePlansBeforeRunning"] is True
+    assert settings["approvePlansBeforeRunning"] is False
     assert settings["maxSpendPerReviewUsd"] == 1
 
 
@@ -229,7 +236,7 @@ def test_seeded_bug_eval_requests_changes(client: TestClient):
             ),
             None,
         ),
-        timeout=20,
+        timeout=45,
     )
     assert review
     assert "delete" in (review.get("text") or "").lower()

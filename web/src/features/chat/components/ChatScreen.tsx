@@ -19,7 +19,9 @@ import {
   patchProject,
   listChatAgents,
   listMessages,
+  listProjectNeeds,
   listProjects,
+  answerNeed,
   postMessage,
   stopChatRun,
   type ChatMessage,
@@ -93,6 +95,7 @@ export function ChatScreen({
         ) : null}
         {projectId && project.data ? (
           <div className="flex shrink-0 flex-col gap-1 overflow-auto">
+          <NeedsYou projectId={projectId} />
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-semibold">{project.data.name}</h1>
             <div className="flex gap-2">
@@ -446,6 +449,64 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
         </Button>
       </form>
     </div>
+  )
+}
+
+function NeedsYou({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient()
+  const needs = useQuery({
+    queryKey: queryKeys.needs(projectId),
+    queryFn: () => listProjectNeeds(projectId),
+    refetchInterval: 2000,
+  })
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const answer = useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) => answerNeed(id, text),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.needs(projectId) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send the answer"),
+  })
+  const rows = needs.data ?? []
+  if (rows.length === 0) return null
+  return (
+    <section className="rounded border p-3" data-needs-you>
+      <h2 className="text-sm font-semibold">Needs you</h2>
+      <ul className="mt-2 flex flex-col gap-3">
+        {rows.map((item) => (
+          <li key={item.id} className="flex flex-col gap-2 text-sm">
+            {item.taskId ? (
+              <Link href={`/chat/${projectId}/tasks/${item.taskId}`} className="text-xs underline">
+                Task history
+              </Link>
+            ) : null}
+            <p>{item.question}</p>
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const text = (drafts[item.id] || "").trim()
+                if (text) answer.mutate({ id: item.id, text })
+              }}
+            >
+              <label className="sr-only" htmlFor={`need-${item.id}`}>
+                Answer
+              </label>
+              <input
+                id={`need-${item.id}`}
+                className="flex-1 rounded border px-2 py-1"
+                value={drafts[item.id] ?? ""}
+                onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+              />
+              <Button type="submit" disabled={answer.isPending}>
+                {answer.isPending ? "Sending…" : "Answer"}
+              </Button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

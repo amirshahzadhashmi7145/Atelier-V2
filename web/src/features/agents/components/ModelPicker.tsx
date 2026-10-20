@@ -3,13 +3,13 @@
 import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { bestForRole } from "@/lib/models/stats"
+import { suggestedForRole, type OwnStat } from "@/lib/models/stats"
 import { tagsFor, type TagRecord } from "@/lib/models/tags"
 
 type Model = {
   name: string
   provider?: string
-  ownStats?: { roleKey: string; runs: number; passed: number }[]
+  ownStats?: OwnStat[]
 }
 
 export function ModelPicker({
@@ -18,12 +18,16 @@ export function ModelPicker({
   roleKey = "",
   tags = {},
   onChange,
+  allowEmpty = false,
+  emptyLabel = "Choose a model",
 }: {
   models: Model[]
   value: string
   roleKey?: string
   tags?: Record<string, TagRecord>
   onChange: (name: string) => void
+  allowEmpty?: boolean
+  emptyLabel?: string
 }) {
   const [query, setQuery] = useState("")
   const needle = query.trim().toLowerCase()
@@ -37,7 +41,12 @@ export function ModelPicker({
   const providerLabel: Record<string, string> = { openai: "OpenAI", gemini: "Google Gemini" }
   const selected = tagsFor(value, value ? tags[value] : undefined)
   const stat = models.find((model) => model.name === value)?.ownStats?.find((item) => item.roleKey === roleKey)
-  const best = value && bestForRole(models.map((model) => ({ name: model.name, ownStats: model.ownStats ?? [] })), roleKey).includes(value)
+  const pick = suggestedForRole(
+    models.map((model) => ({ name: model.name, ownStats: model.ownStats ?? [] })),
+    roleKey,
+  )
+  const suggested = Boolean(pick && pick.name === value)
+  const reason = stat?.reason || (stat && stat.runs < 5 ? "not enough data yet" : pick?.reason)
   return (
     <div className="flex flex-col gap-2">
       <Input aria-label="Search models" value={query} placeholder="Search models" onChange={(event) => setQuery(event.target.value)} />
@@ -48,14 +57,15 @@ export function ModelPicker({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        <option value="">Choose a model</option>
+        <option value="">{emptyLabel}</option>
         {Object.entries(groups).map(([provider, items]) => (
           <optgroup key={provider} label={providerLabel[provider] ?? provider.replace(/\b\w/g, (char) => char.toUpperCase())}>
             {items.map((model) => {
               const record = tagsFor(model.name, tags[model.name])
+              const mark = pick?.name === model.name
               return (
                 <option key={model.name} value={model.name} title={record.note}>
-                  {model.name}
+                  {mark ? `${model.name} (Suggested)` : model.name}
                 </option>
               )
             })}
@@ -70,13 +80,11 @@ export function ModelPicker({
               {tag}
             </Badge>
           ))}
-          {best ? <Badge>best in your runs for {roleKey}</Badge> : null}
+          {suggested ? <Badge>Suggested</Badge> : null}
         </div>
-      ) : null}
-      {stat && stat.runs >= 1 ? (
-        <p className="text-sm text-muted-foreground">
-          In your runs: {stat.passed} of {stat.runs} {roleKey} tasks passed
-        </p>
+      ) : allowEmpty ? null : null}
+      {value && roleKey ? (
+        <p className="text-sm text-muted-foreground">{reason || "not enough data yet"}</p>
       ) : null}
     </div>
   )

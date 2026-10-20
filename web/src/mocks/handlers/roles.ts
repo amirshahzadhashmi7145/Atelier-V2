@@ -48,6 +48,33 @@ export const roleHandlers = [
     remember()
     return new HttpResponse(null, { status: 204 })
   }),
+  http.get("/roles/:id/lessons", ({ params }) => {
+    const role = db.roles.find((item) => item.id === params.id)
+    if (!role) return error(404, "not_found", "Not found")
+    return HttpResponse.json(db.lessons.filter((item) => item.roleKey === params.id))
+  }),
+  http.delete("/roles/:id/lessons/:lessonId", ({ params }) => {
+    const index = db.lessons.findIndex((item) => item.id === params.lessonId && item.roleKey === params.id)
+    if (index < 0) return error(404, "not_found", "Not found")
+    db.lessons.splice(index, 1)
+    remember()
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.get("/roles/:id/suggestion", ({ params }) => {
+    const role = db.roles.find((item) => item.id === params.id)
+    if (!role) return error(404, "not_found", "Not found")
+    return HttpResponse.json({ roleKey: params.id, name: null, provider: null, reason: "not enough data yet", tasks: 0 })
+  }),
+  http.get("/projects/:id/needs", () => HttpResponse.json(db.needs.filter((item) => !item.resolvedAt))),
+  http.post("/needs/:id/answer", async ({ params, request }) => {
+    const body = (await request.json()) as { text?: string }
+    const row = db.needs.find((item) => item.id === params.id)
+    if (!row) return error(404, "not_found", "Not found")
+    row.resolvedAt = new Date().toISOString()
+    row.answer = body.text || ""
+    remember()
+    return HttpResponse.json(row)
+  }),
   http.get("/tags", () => {
     const tags: string[] = []
     for (const role of db.roles) {

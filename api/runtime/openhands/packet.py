@@ -6,11 +6,11 @@ import os
 import sys
 from pathlib import Path
 
-from runtime import board, notes
+from runtime import board, lessons, notes
 from runtime.compile import compile_prompt
 from store import db
 
-OWN_TOOLS = {"search_data", "load_skill"}
+OWN_TOOLS = {"search_data", "load_skill", "get_lessons"}
 API_ROOT = Path(__file__).resolve().parents[2]
 STUDIO_MCP = "atelier"
 
@@ -84,6 +84,9 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
     block = notes_text if notes_text is not None else (notes.for_prompt(project) if project else "")
     if block:
         lines.append(block)
+    taught = lessons.for_prompt(agent.get("roleKey") or "")
+    if taught:
+        lines.append(taught)
     lines.append(
         "Commit your work on this branch. If you are blocked or need a decision, "
         "state the open question; do not ask the user. Do not edit the project notes file."

@@ -173,6 +173,7 @@ def test_cost_recorded_per_run_agent_and_role(client: TestClient):
     result = _run(project, task, fake)
     run = db.get("run", result["runId"])
     assert run["costUsd"] == 1.25
+    assert run.get("costSource") == "openhands"
     spend = db.get("agent-spend", agent["id"])
     assert spend and spend["usd"] == 1.25
     role = db.get("role-spend", agent["roleKey"])
@@ -352,13 +353,14 @@ def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient)
 
         pytest.skip("no provider key in the Settings encrypted store")
     assert _hydrate_studio_secrets()
-    from test_s13_lead import lead_agent, wait_plan, wait_until
+    from test_s13_lead import gate_plans, lead_agent, wait_plan, wait_until
     from test_engine import wait_status
 
     worker = _agent(client)
     lead = lead_agent(client)
     project = client.post("/projects", json={"name": "RealOH", "agentId": worker["id"]}).json()
     assert client.post(f"/projects/{project['id']}/members", json={"agentId": lead["id"]}).status_code == 200
+    gate_plans(client)
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "add a hello heading to the home page"}).json()
     wait_status(client, posted["runId"], {"completed", "failed"}, timeout=60)
     plan = wait_plan(client, project["id"])

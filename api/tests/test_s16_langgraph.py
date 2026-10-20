@@ -11,7 +11,7 @@ from store import db
 
 from test_engine import client, fresh, wait_status  # noqa: F401
 from test_s12_backend import _activate
-from test_s13_lead import _one_child_plan, lead_agent, led_project, wait_plan, wait_until
+from test_s13_lead import _one_child_plan, gate_plans, lead_agent, led_project, wait_plan, wait_until
 from test_s15_roles_board import _worker
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,6 +112,7 @@ def test_two_reworks_then_next_layer_then_user(client: TestClient):
     assert client.post(f"/projects/{project['id']}/members", json={"agentId": worker["id"]}).status_code == 200
     assert client.post(f"/projects/{project['id']}/members", json={"agentId": gate["id"]}).status_code == 200
     openai_gateway.SCRIPTS.append(_one_child_plan(worker["id"], "Implement notes. The mocked result omits delete.", ["notes can be deleted"]))
+    gate_plans(client)
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "build notes with delete"}).json()
     wait_status(client, posted["runId"], {"completed", "failed"}, timeout=20)
     plan = wait_plan(client, project["id"])
@@ -168,6 +169,7 @@ def test_new_supervisor_role_as_data_runs_on_same_graph(client: TestClient):
     project = client.post("/projects", json={"name": "Desk", "agentId": desk["id"]}).json()
     assert client.post(f"/projects/{project['id']}/members", json={"agentId": worker["id"]}).status_code == 200
     openai_gateway.SCRIPTS.append(_one_child_plan(worker["id"], "Build the React UI against the contract", ["criteria met"]))
+    gate_plans(client)
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "build a small page"}).json()
     run = db.get("run", posted["runId"])
     assert run["kind"] == "lead"
@@ -260,7 +262,12 @@ def test_graph_state_holds_ids_not_copied_records(client: TestClient):
 
 def test_graph_code_does_not_import_provider_or_langchain_chat():
     found = []
-    for path in sorted(GRAPH_DIR.glob("*.py")):
+    extra = [
+        ROOT / "api" / "runtime" / "fit.py",
+        ROOT / "api" / "runtime" / "lessons.py",
+        ROOT / "api" / "runtime" / "needs.py",
+    ]
+    for path in [*sorted(GRAPH_DIR.glob("*.py")), *extra]:
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

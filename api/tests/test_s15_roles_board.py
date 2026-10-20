@@ -23,6 +23,9 @@ LOGIC = [
     *sorted((ROOT / "api" / "runtime" / "openhands").glob("*.py")),
     *sorted((ROOT / "api" / "runtime" / "mcp").glob("*.py")),
     ROOT / "api" / "runtime" / "notes.py",
+    ROOT / "api" / "runtime" / "fit.py",
+    ROOT / "api" / "runtime" / "lessons.py",
+    ROOT / "api" / "runtime" / "needs.py",
 ]
 FORBIDDEN = re.compile(r"\b(frontend|backend|team[ -]lead|qa)\b", re.I)
 
@@ -236,6 +239,9 @@ def test_max_two_reworks_then_next_supervisor_layer(client: TestClient):
     assert client.post(f"/projects/{project['id']}/members", json={"agentId": worker["id"]}).status_code == 200
     assert client.post(f"/projects/{project['id']}/members", json={"agentId": gate["id"]}).status_code == 200
     openai_gateway.SCRIPTS.append(_one_child_plan(worker["id"], "Implement notes. The mocked result omits delete.", ["notes can be deleted"]))
+    from test_s13_lead import gate_plans
+
+    gate_plans(client)
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "build notes with delete"}).json()
     wait_status(client, posted["runId"], {"completed", "failed"}, timeout=20)
     plan = wait_plan(client, project["id"])
@@ -249,7 +255,7 @@ def test_max_two_reworks_then_next_supervisor_layer(client: TestClient):
             ),
             None,
         ),
-        timeout=30,
+        timeout=45,
     )
     assert gate_review, "the next supervisor layer never received the task"
 

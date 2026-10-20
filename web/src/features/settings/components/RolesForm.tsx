@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { createRole, listRoles, updateRole } from "@/features/settings/api"
+import { createRole, deleteLesson, listLessons, listRoles, updateRole } from "@/features/settings/api"
 import { queryKeys } from "@/lib/api/query-keys"
 import type { components } from "@/lib/api/generated/types"
 
@@ -65,6 +65,7 @@ export function RolesForm() {
       <PageHeader title="Roles" description="Roles are data. Workers do the work. Supervisors review. Add a role here; no code change is required." />
       <QueryBody query={roles} emptyTitle="No roles" emptyDescription="Seed roles failed to load.">
         {(items) => (
+          <>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left">
@@ -82,6 +83,20 @@ export function RolesForm() {
               ))}
             </tbody>
           </table>
+          <div className="mt-6 flex flex-col gap-4">
+            {items.map((role) => (
+              <Card key={`${role.id}-lessons`}>
+                <CardHeader>
+                  <CardTitle className="text-base">{role.name} lessons</CardTitle>
+                  <CardDescription>Short, repeatable mistakes for this role. Not project facts.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <RoleLessons roleId={role.id} />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          </>
         )}
       </QueryBody>
       <Card>
@@ -196,6 +211,32 @@ function RoleRow({ role, peers }: { role: Role; peers: Role[] }) {
         <span className="inline-block h-3 w-3 rounded-full" style={{ background: role.colour || "#64748b" }} />
       </td>
     </tr>
+  )
+}
+
+function RoleLessons({ roleId }: { roleId: string }) {
+  const queryClient = useQueryClient()
+  const lessons = useQuery({ queryKey: queryKeys.lessons(roleId), queryFn: () => listLessons(roleId) })
+  const remove = useMutation({
+    mutationFn: (lessonId: string) => deleteLesson(roleId, lessonId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.lessons(roleId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not delete the lesson"),
+  })
+  const rows = lessons.data ?? []
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No lessons yet.</p>
+  return (
+    <ul className="flex flex-col gap-2">
+      {rows.map((item) => (
+        <li key={item.id} className="flex items-start justify-between gap-2 text-sm">
+          <span>{item.text}</span>
+          <Button type="button" variant="outline" onClick={() => remove.mutate(item.id)}>
+            Delete
+          </Button>
+        </li>
+      ))}
+    </ul>
   )
 }
 

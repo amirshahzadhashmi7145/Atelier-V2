@@ -27,6 +27,11 @@ TOOLS = {
             "required": ["name"],
         },
     },
+    "get_lessons": {
+        "name": "get_lessons",
+        "description": "Load short lessons for this agent's role.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 }
 
 
@@ -57,6 +62,10 @@ def invoke(run: dict, name: str, arguments: dict) -> dict:
             if folder is None and workspace.get("folder"):
                 folder = Path(workspace["folder"])
             result = tools._skill(run, folder, wanted)
+    elif name == "get_lessons":
+        from runtime import lessons
+
+        result = {"output": lessons.for_prompt(agent.get("roleKey") or "")}
     else:
         result = {"refused": True, "reason": f"unknown tool {name}"}
     blob = json.dumps(result, default=str)

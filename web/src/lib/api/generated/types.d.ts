@@ -166,6 +166,97 @@ export interface paths {
         patch: operations["updateRole"];
         trace?: never;
     };
+    "/roles/{id}/lessons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["listLessons"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{id}/lessons/{lessonId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                lessonId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["deleteLesson"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/roles/{id}/suggestion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["getRoleSuggestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/needs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["listProjectNeeds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/needs/{id}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answerNeed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tags": {
         parameters: {
             query?: never;
@@ -1005,6 +1096,7 @@ export interface components {
             /** @enum {string} */
             workerEngine?: "loop" | "openhands";
             capabilities: components["schemas"]["Capabilities"];
+            backupModel?: components["schemas"]["ModelSelection"];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1024,6 +1116,7 @@ export interface components {
             /** @enum {string} */
             workerEngine?: "loop" | "openhands";
             capabilities?: components["schemas"]["Capabilities"];
+            backupModel?: components["schemas"]["ModelSelection"];
         };
         AgentPatch: {
             name?: string;
@@ -1037,6 +1130,7 @@ export interface components {
             scope?: components["schemas"]["Scope"];
             /** @enum {string} */
             workerEngine?: "loop" | "openhands";
+            backupModel?: components["schemas"]["ModelSelection"];
         };
         Scope: {
             does: string[];
@@ -1300,6 +1394,10 @@ export interface components {
             runs: number;
             passed: number;
             avgCostUsd: number;
+            avgRework?: number;
+            firstTryRate?: number;
+            suggested?: boolean;
+            reason?: string;
         };
         /** @enum {string} */
         SpeedTier: "fast" | "balanced" | "slow";
@@ -1336,8 +1434,10 @@ export interface components {
             maxIterations: number;
             maxMinutes: number;
             loopDetection: boolean;
-            /** @default true */
+            /** @default false */
             approvePlansBeforeRunning: boolean;
+            /** @default 20 */
+            maxLessonsPerRole: number;
             /** @default 1 */
             maxSpendPerReviewUsd: number;
             /**
@@ -1431,6 +1531,47 @@ export interface components {
             startedAt: string;
             /** Format: date-time */
             endedAt?: string;
+            actualModel?: components["schemas"]["ModelRef"];
+            backupUsed?: boolean;
+            backupUseCount?: number;
+            /**
+             * @description openhands means the isolated process reported the cost
+             * @enum {string}
+             */
+            costSource?: "gateway" | "openhands";
+        };
+        Lesson: {
+            id: string;
+            roleKey: string;
+            text: string;
+            sourceTaskId: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ModelSuggestion: {
+            roleKey: string;
+            provider?: string | null;
+            name?: string | null;
+            reason: string;
+            firstTryRate?: number;
+            avgCostUsd?: number;
+            tasks?: number;
+        };
+        NeedYou: {
+            id: string;
+            projectId: string;
+            taskId?: string | null;
+            runId?: string | null;
+            /** @enum {string} */
+            kind: "escalate" | "budget" | "question";
+            question: string;
+            /** Format: date-time */
+            createdAt: string;
+            resolvedAt?: string | null;
+            answer?: string | null;
+        };
+        NeedAnswer: {
+            text: string;
         };
         RunCreate: {
             agentId: string;
@@ -2145,6 +2286,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Role"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    listLessons: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lessons for the role */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lesson"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    deleteLesson: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+                lessonId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    getRoleSuggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Suggested model for this role from real runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelSuggestion"];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    listProjectNeeds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Open items that need a person */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NeedYou"][];
+                };
+            };
+            404: components["responses"]["Error"];
+        };
+    };
+    answerNeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NeedAnswer"];
+            };
+        };
+        responses: {
+            /** @description Answer recorded and the run resumed when it was waiting */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NeedYou"];
                 };
             };
             404: components["responses"]["Error"];
