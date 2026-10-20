@@ -1873,6 +1873,8 @@ export interface components {
             planId?: string;
             planItems?: components["schemas"]["PlanItem"][];
             /** @enum {string} */
+            planStatus?: "pending" | "approved";
+            /** @enum {string} */
             queueStatus?: "waiting";
             statusNote?: string;
             agentId?: string;

@@ -94,7 +94,7 @@ export function ChatScreen({
           </p>
         ) : null}
         {projectId && project.data ? (
-          <div className="flex shrink-0 flex-col gap-1 overflow-auto">
+          <div className="flex min-h-0 max-h-[42%] shrink-0 flex-col gap-1 overflow-auto">
           <NeedsYou projectId={projectId} />
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-semibold">{project.data.name}</h1>
@@ -154,7 +154,7 @@ export function ChatScreen({
         ) : (
           <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
         )}
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
           {showPreview ? (
             <div className="h-full overflow-hidden xl:hidden">
               <PreviewPane url={project.data?.previewUrl} />
@@ -221,19 +221,21 @@ export function ChatScreen({
             </div>
           )}
           {away && !showPreview ? (
-            <button
-              type="button"
-              className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border bg-background px-3 py-1 text-xs shadow"
-              onClick={() => {
-                const node = threadRef.current
-                if (!node) return
-                node.scrollTop = node.scrollHeight
-                stickRef.current = true
-                setAway(false)
-              }}
-            >
-              jump to latest
-            </button>
+            <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
+              <button
+                type="button"
+                className="pointer-events-auto rounded-full border bg-background px-3 py-1 text-xs shadow"
+                onClick={() => {
+                  const node = threadRef.current
+                  if (!node) return
+                  node.scrollTop = node.scrollHeight
+                  stickRef.current = true
+                  setAway(false)
+                }}
+              >
+                jump to latest
+              </button>
+            </div>
           ) : null}
         </div>
         {projectId ? <Composer projectId={projectId} /> : null}
@@ -249,9 +251,11 @@ export function ChatScreen({
 function PlanCard({ projectId, message }: { projectId: string; message: ChatMessage }) {
   const queryClient = useQueryClient()
   const [items, setItems] = useState(() => (message.planItems ?? []).map((item) => ({ ...item })))
+  const approved = message.planStatus === "approved"
   const approve = useMutation({
     mutationFn: () => approveProjectPlan(projectId, message.planId ?? "", items),
     onSuccess: async () => {
+      toast.success("Plan approved")
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
     },
@@ -278,6 +282,7 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
           <textarea
             className="min-h-16 rounded border px-2 py-1 text-sm"
             value={item.text}
+            readOnly={approved}
             onChange={(event) => {
               const next = items.slice()
               next[index] = { ...item, text: event.target.value }
@@ -286,14 +291,18 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
           />
         </label>
       ))}
-      <div className="flex gap-2">
-        <Button type="button" variant="outline" disabled={edit.isPending} onClick={() => edit.mutate()}>
-          {edit.isPending ? "Saving…" : "Edit"}
-        </Button>
-        <Button type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
-          {approve.isPending ? "Starting…" : "Approve"}
-        </Button>
-      </div>
+      {approved ? (
+        <p className="text-xs font-medium">Plan approved</p>
+      ) : (
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" disabled={edit.isPending} onClick={() => edit.mutate()}>
+            {edit.isPending ? "Saving…" : "Edit"}
+          </Button>
+          <Button type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
+            {approve.isPending ? "Starting…" : "Approve"}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

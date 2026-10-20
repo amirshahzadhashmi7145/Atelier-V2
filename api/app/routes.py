@@ -964,7 +964,17 @@ def delete_project(id: str):
 def list_messages(id: str):
     if db.get("project", id) is None:
         return missing()
-    rows = [item for item in db.listing("message") if item["projectId"] == id]
+    rows = []
+    for item in db.listing("message"):
+        if item.get("projectId") != id:
+            continue
+        row = dict(item)
+        plan_id = row.get("planId")
+        if plan_id:
+            plan = db.get("plan", plan_id)
+            if plan and plan.get("status"):
+                row["planStatus"] = plan["status"]
+        rows.append(row)
     return sorted(rows, key=lambda item: item["createdAt"])
 
 

@@ -3270,6 +3270,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/PlanItem"
+        planStatus:
+          type: string
+          enum: [pending, approved]
         queueStatus:
           type: string
           enum: [waiting]
