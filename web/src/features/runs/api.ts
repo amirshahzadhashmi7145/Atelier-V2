@@ -57,3 +57,7 @@ export async function listRunStacks() {
 export async function getSpendCap() {
   return unwrap(await api.GET("/settings/runs"))
 }
+
+export async function listRunProviders() {
+  return unwrap(await api.GET("/providers"))
+}

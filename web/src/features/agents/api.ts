@@ -101,6 +101,10 @@ export async function listEditorModels() {
   return unwrap(await api.GET("/models"))
 }
 
+export async function listEditorProviders() {
+  return unwrap(await api.GET("/providers"))
+}
+
 export async function listRoles() {
   return unwrap(await api.GET("/roles"))
 }

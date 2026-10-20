@@ -9,8 +9,7 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { createRun, getSpendCap, listRunAgents, listRunStacks, listRunVersions } from "@/features/runs/api"
-import { listProviders } from "@/features/settings/api"
+import { createRun, getSpendCap, listRunAgents, listRunProviders, listRunStacks, listRunVersions } from "@/features/runs/api"
 import { queryKeys } from "@/lib/api/query-keys"
 
 export function NewRun() {
@@ -19,7 +18,7 @@ export function NewRun() {
   const agents = useQuery({ queryKey: queryKeys.agents, queryFn: listRunAgents })
   const stacks = useQuery({ queryKey: queryKeys.stacks, queryFn: listRunStacks })
   const cap = useQuery({ queryKey: queryKeys.runSettings, queryFn: getSpendCap })
-  const providers = useQuery({ queryKey: queryKeys.providers, queryFn: listProviders })
+  const providers = useQuery({ queryKey: queryKeys.providers, queryFn: listRunProviders })
   const [agentId, setAgentId] = useState(params.get("agentId") ?? "")
   const [kind, setKind] = useState<"repo" | "scaffold">("scaffold")
   const [url, setUrl] = useState("")

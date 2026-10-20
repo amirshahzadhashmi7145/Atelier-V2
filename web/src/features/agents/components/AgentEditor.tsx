@@ -24,6 +24,7 @@ import {
   deleteEval,
   getAgent,
   listEditorModels,
+  listEditorProviders,
   listEditorSkills,
   listEditorStacks,
   listEditorTools,
@@ -33,7 +34,6 @@ import {
   runEvals,
   updateAgent,
 } from "@/features/agents/api"
-import { listProviders } from "@/features/settings/api"
 import { asSchema, defaultsFromSchema, retainConfig, validateConfig } from "@/features/agents/config-schema"
 import { ModelPicker } from "@/features/agents/components/ModelPicker"
 import { StackSheet } from "@/features/agents/components/StackSheet"
@@ -147,7 +147,7 @@ export function AgentEditor({ id }: { id: string }) {
   const modelsQuery = useQuery({ queryKey: queryKeys.models, queryFn: listEditorModels })
   const tagsQuery = useQuery({ queryKey: queryKeys.modelTags, queryFn: listModelTags })
   const rolesQuery = useQuery({ queryKey: queryKeys.roles, queryFn: listRoles })
-  const providersQuery = useQuery({ queryKey: queryKeys.providers, queryFn: listProviders })
+  const providersQuery = useQuery({ queryKey: queryKeys.providers, queryFn: listEditorProviders })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [previewBody, setPreviewBody] = useState<components["schemas"]["CompilePreviewRequest"] | null>(null)
   const [evalForm, setEvalForm] = useState({ name: "", task: "", criteria: "", passRule: "" })
