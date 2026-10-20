@@ -134,7 +134,7 @@ def _plan(messages: list[dict]) -> list[dict]:
         return _lead_turns(blob)
     if "omits delete" in blob.lower() or "omit delete" in blob.lower():
         return _done_turns("Notes can be listed and created.")
-    if "Implement the HTTP API" in blob or "Produce api/CONTRACT.md" in blob:
+    if "Implement the HTTP API" in blob or "Produce api/CONTRACT.md" in blob or "Produce server/CONTRACT.md" in blob:
         return _done_turns(
             "API ready.",
             endpoints=[{"method": "POST", "path": "/login", "request": "{email}", "response": "{token}"}],

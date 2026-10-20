@@ -293,6 +293,21 @@ paths:
           description: Deleted
         "404":
           $ref: "#/components/responses/Error"
+  /roles/{id}/reset:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: resetRole
+      tags: [roles]
+      responses:
+        "200":
+          description: Seed role restored to default
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+        "404":
+          $ref: "#/components/responses/Error"
   /roles/{id}/lessons:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2487,7 +2502,7 @@ components:
           items:
             type: object
             additionalProperties: true
-          description: Backend-created HTTP endpoints copied into api/CONTRACT.md
+          description: Backend-created HTTP endpoints copied into server/CONTRACT.md
     Run:
       type: object
       additionalProperties: false

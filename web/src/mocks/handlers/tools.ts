@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw"
 import { operationsFromSpec } from "@/features/tools/import-map"
-import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
+import { isChatModel, isRetiredModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, modelList, nid, now, remember } from "@/mocks/db"
 import { discoveredModelIds } from "@/mocks/handlers/providers"
 
@@ -145,7 +145,7 @@ export const toolHandlers = [
     const found = await discoveredModelIds()
     const provider = db.providers.find((item) => item.id === "openai")
     if (found) {
-      db.models = found.ids.filter(isChatModel).map((id) => modelInfoFromId(id))
+      db.models = found.ids.filter((id) => isChatModel(id) && !isRetiredModel(id)).map((id) => modelInfoFromId(id))
       if (provider) {
         provider.modelsCachedAt = now()
         provider.connected = found.fromProvider

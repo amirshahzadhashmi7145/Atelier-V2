@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from app import bridge, models_catalog
 from gateway import keys
 from gateway.exceptions import ProviderError
-from gateway.llm import default_model_spec, has_api_key, list_model_ids, test_connection
+from gateway.llm import default_model_spec, env_var_for, has_api_key, list_model_ids, missing_key_message, test_connection
 from store import db
 
 router = APIRouter()
@@ -160,6 +160,17 @@ def patch_role(id: str, body: dict):
     return role
 
 
+@router.post("/roles/{id}/reset")
+def reset_role(id: str):
+    from runtime import roles as rolelib
+
+    if not rolelib.is_seed(id):
+        return missing()
+    if db.get("role", id) is None:
+        return missing()
+    return rolelib.reset_seed(id)
+
+
 @router.delete("/roles/{id}", status_code=204)
 def delete_role(id: str):
     if db.get("role", id) is None:
@@ -232,9 +243,19 @@ def list_available_tags():
 
 @router.post("/agents/{id}/compile-preview")
 def compile_preview(id: str, body: dict):
-    if db.get("agent", id) is None:
+    agent = db.get("agent", id)
+    if agent is None:
         return missing()
-    return bridge.compile_prompt(body.get("sections") or {}, body.get("toolIds") or [], body.get("skillIds") or [], body.get("stackIds") or [], scope=body.get("scope"))
+    from runtime import roles as rolelib
+
+    return bridge.compile_prompt(
+        body.get("sections") or {},
+        body.get("toolIds") or [],
+        body.get("skillIds") or [],
+        body.get("stackIds") or [],
+        scope=body.get("scope"),
+        worker=not rolelib.is_supervisor(agent),
+    )
 
 
 @router.post("/agents/{id}/evals", status_code=201)
@@ -470,7 +491,7 @@ def list_models():
     models = []
     seen: set[str] = set()
     for name, cache_provider in rows:
-        if name in seen or not models_catalog.is_chat(name):
+        if name in seen or not models_catalog.is_chat(name) or models_catalog.is_retired(name):
             continue
         seen.add(name)
         record = models_catalog.info(name, cache_provider)
@@ -485,7 +506,7 @@ def list_tags():
     cached = db.get("model-cache", "openai") or {"ids": []}
     result = {}
     for name in cached["ids"]:
-        if models_catalog.is_chat(name):
+        if models_catalog.is_chat(name) and not models_catalog.is_retired(name):
             result[name] = saved.get(name) or models_catalog.seed_tags(name)
     return result
 
@@ -517,7 +538,10 @@ def put_run_settings(body: dict):
 
 def _public_provider(row: dict) -> dict:
     pid = row["id"]
-    env_name = row.get("envVar")
+    env_name = env_var_for(pid)
+    if not row.get("envVar"):
+        row["envVar"] = env_name
+        db.put("provider", pid, row)
     stored = keys.has(pid)
     env_val = keys.env_fallback(env_name)
     if pid == "gemini" and not env_val:
@@ -595,7 +619,7 @@ def refresh_provider(id: str):
         return missing()
     if os.environ.get("GATEWAY_MOCK") != "1" and not has_api_key(id):
         return error(422, "key_missing", "Add an API key in Settings > Providers")
-    ids = [name for name in list_model_ids(id) if models_catalog.is_chat(name)]
+    ids = [name for name in list_model_ids(id) if models_catalog.is_chat(name) and not models_catalog.is_retired(name)]
     db.put("model-cache", id, {"ids": ids})
     provider = db.get("provider", id)
     provider["connected"] = True
@@ -683,6 +707,9 @@ def create_run(body: dict):
     agent = db.get("agent", body.get("agentId", ""))
     if agent is None:
         return missing()
+    key_error = missing_key_message(agent)
+    if key_error:
+        return error(422, "key_missing", key_error)
     if not (body.get("promptVersionId") or agent.get("activePromptVersionId") or _latest_prompt_version_id(agent["id"])):
         return error(422, "no_version", "No active prompt version")
     run = _new_run(agent, body)
@@ -1081,6 +1108,9 @@ def edit_plan(id: str, planId: str, body: dict):
 def _start_project_run(project: dict, agent: dict, task: dict, text: str, message_id: str | None, prior: dict | None, kind: str | None = None):
     from runtime import project_runs
 
+    key_error = missing_key_message(agent)
+    if key_error:
+        return error(422, "key_missing", key_error)
     run = _new_run(agent, {"task": text, "workspace": _workspace(project), "criteria": []})
     run["taskId"] = task["id"]
     run["projectId"] = project["id"]
@@ -1213,7 +1243,17 @@ def _agent(body: dict) -> dict:
 
 def _save_version(agent: dict, sections: dict) -> dict:
     existing = [item for item in db.listing("version") if item["agentId"] == agent["id"]]
-    compiled = bridge.compile_prompt(sections, agent["toolIds"], agent["skillIds"], agent["stackIds"], (agent.get("model") or {}).get("name") or "gpt-4o", agent.get("scope"))
+    from runtime import roles as rolelib
+
+    compiled = bridge.compile_prompt(
+        sections,
+        agent["toolIds"],
+        agent["skillIds"],
+        agent["stackIds"],
+        (agent.get("model") or {}).get("name") or "gpt-4o",
+        agent.get("scope"),
+        worker=not rolelib.is_supervisor(agent),
+    )
     version = {
         "id": db.nid("pv"),
         "agentId": agent["id"],

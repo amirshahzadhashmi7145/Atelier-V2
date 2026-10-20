@@ -24,6 +24,8 @@ def compiled_prompt(agent: dict) -> str:
     version = db.get("version", agent.get("activePromptVersionId") or "")
     sections = (version or {}).get("sections") or {}
     model = (agent.get("model") or {}).get("name") or "gpt-4o"
+    from runtime import roles as rolelib
+
     compiled = compile_prompt(
         sections,
         agent.get("toolIds") or [],
@@ -32,6 +34,7 @@ def compiled_prompt(agent: dict) -> str:
         model=model,
         scope=agent.get("scope"),
         include_tools=False,
+        worker=not rolelib.is_supervisor(agent),
     )
     return compiled["compiled"]
 

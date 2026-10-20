@@ -37,7 +37,18 @@ export const roleHandlers = [
     const role = db.roles.find((item) => item.id === params.id)
     if (!role) return error(404, "not_found", "Not found")
     const body = (await request.json()) as components["schemas"]["RoleWrite"]
-    Object.assign(role, body)
+    const seed = ["frontend-engineer", "backend-engineer", "team-lead", "qa-engineer"].includes(role.id)
+    const nextZones = body.zones ?? role.zones
+    const nextContract = body.contractFile === undefined ? role.contractFile : body.contractFile
+    if (nextContract) {
+      const rel = nextContract.replaceAll("\\", "/").replace(/^\/+/, "")
+      const inside = (nextZones ?? []).some((zone) => {
+        const pattern = zone.replaceAll("\\", "/").replace(/^\/+/, "")
+        return rel === pattern || (pattern.endsWith("/**") && rel.startsWith(pattern.slice(0, -3)))
+      })
+      if (!inside) return error(422, "invalid", "Contract file must be inside this role's zones")
+    }
+    Object.assign(role, body, seed ? { id: role.id, kind: role.kind } : {})
     remember()
     return HttpResponse.json(role)
   }),
@@ -47,6 +58,65 @@ export const roleHandlers = [
     db.roles.splice(index, 1)
     remember()
     return new HttpResponse(null, { status: 204 })
+  }),
+  http.post("/roles/:id/reset", ({ params }) => {
+    const role = db.roles.find((item) => item.id === params.id)
+    if (!role) return error(404, "not_found", "Not found")
+    const seed = db.roles.find((item) => item.id === params.id)
+    if (!["frontend-engineer", "backend-engineer", "team-lead", "qa-engineer"].includes(String(params.id))) {
+      return error(404, "not_found", "Not found")
+    }
+    const defaults: Record<string, components["schemas"]["Role"]> = {
+      "frontend-engineer": {
+        id: "frontend-engineer",
+        name: "Frontend Engineer",
+        kind: "worker",
+        reportsTo: "team-lead",
+        layer: 0,
+        zones: ["src/**", "app/**", "public/**"],
+        tags: ["frontend"],
+        colour: "#2563eb",
+        contractFile: null,
+      },
+      "backend-engineer": {
+        id: "backend-engineer",
+        name: "Backend Engineer",
+        kind: "worker",
+        reportsTo: "team-lead",
+        layer: 0,
+        zones: ["server/**"],
+        tags: ["backend"],
+        colour: "#d97706",
+        contractFile: "server/CONTRACT.md",
+      },
+      "team-lead": {
+        id: "team-lead",
+        name: "Team Lead",
+        kind: "supervisor",
+        reportsTo: "qa-engineer",
+        layer: 1,
+        zones: [],
+        tags: ["supervisor", "review", "planning"],
+        colour: "#7c3aed",
+        contractFile: null,
+      },
+      "qa-engineer": {
+        id: "qa-engineer",
+        name: "QA Engineer",
+        kind: "supervisor",
+        reportsTo: null,
+        layer: 2,
+        zones: [],
+        tags: ["supervisor", "review"],
+        colour: "#0f766e",
+        contractFile: null,
+      },
+    }
+    const next = defaults[String(params.id)]
+    if (!seed || !next) return error(404, "not_found", "Not found")
+    Object.assign(role, next)
+    remember()
+    return HttpResponse.json(role)
   }),
   http.get("/roles/:id/lessons", ({ params }) => {
     const role = db.roles.find((item) => item.id === params.id)

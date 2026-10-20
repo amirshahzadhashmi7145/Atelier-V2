@@ -19,4 +19,16 @@ describe("compilePrompt", () => {
     expect(result.tokenCount).toBe(fixture.tokenCount)
     expect(result.tokenCount).toBe(Math.ceil(result.compiled.length / 4))
   })
+
+  it("omits worker-only lines for supervisors", () => {
+    const result = compilePrompt({
+      ...fixture.input,
+      tools: [{ name: "create_task", description: "Create a child task" }],
+      worker: false,
+    })
+    expect(result.compiled).not.toContain("Prefer files.edit")
+    expect(result.compiled).not.toContain("build_test before complete")
+    expect(result.compiled).toContain("create_task: Create a child task")
+    expect(result.compiled).not.toContain("files:")
+  })
 })

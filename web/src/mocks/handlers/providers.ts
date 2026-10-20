@@ -1,5 +1,5 @@
 import { bypass, http, HttpResponse } from "msw"
-import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
+import { isChatModel, isRetiredModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, modelList, now, remember, setProviderSecret } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
@@ -74,7 +74,7 @@ export const providerHandlers = [
     if (!provider) return error(404, "not_found", "Provider not found")
     const found = await discoveredModelIds()
     if (!found) return error(422, "invalid", "Could not reach the provider")
-    db.models = found.ids.filter(isChatModel).map((id) => modelInfoFromId(id))
+    db.models = found.ids.filter((id) => isChatModel(id) && !isRetiredModel(id)).map((id) => modelInfoFromId(id))
     provider.modelsCachedAt = now()
     provider.connected = found.fromProvider
     remember()

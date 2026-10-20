@@ -324,7 +324,19 @@ def _note_tool(run_id: str, track: dict, call: dict, result: dict) -> None:
 
 def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = None) -> list[dict]:
     version = db.get("version", run.get("promptVersionId") or "") or _active_version(agent)
-    compiled = version["compiled"] if version else compile_prompt.compile_prompt(agent.get("sections") or {}, agent.get("toolIds") or [], agent.get("skillIds") or [], agent.get("stackIds") or [], scope=agent.get("scope"))["compiled"]
+    if version:
+        compiled = version["compiled"]
+    else:
+        from runtime import roles as rolelib
+
+        compiled = compile_prompt.compile_prompt(
+            agent.get("sections") or {},
+            agent.get("toolIds") or [],
+            agent.get("skillIds") or [],
+            agent.get("stackIds") or [],
+            scope=agent.get("scope"),
+            worker=not rolelib.is_supervisor(agent),
+        )["compiled"]
     folder = Path(run["folder"]) if run.get("folder") else None
     tree = _tree(folder) if folder else ""
     skills = "\n".join(f"{item['name']}: {item['description']}" for item in db.listing("skill"))
