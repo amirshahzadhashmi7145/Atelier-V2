@@ -166,6 +166,24 @@ export interface paths {
         patch: operations["updateRole"];
         trace?: never;
     };
+    "/roles/{id}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resetRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/roles/{id}/lessons": {
         parameters: {
             query?: never;
@@ -1502,7 +1520,7 @@ export interface components {
             criteria: components["schemas"]["CriterionResult"][];
             assumptions: string[];
             followUps: string[];
-            /** @description Backend-created HTTP endpoints copied into api/CONTRACT.md */
+            /** @description Backend-created HTTP endpoints copied into server/CONTRACT.md */
             endpoints?: {
                 [key: string]: unknown;
             }[];
@@ -2290,6 +2308,29 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             422: components["responses"]["Error"];
+        };
+    };
+    resetRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Seed role restored to default */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     listLessons: {

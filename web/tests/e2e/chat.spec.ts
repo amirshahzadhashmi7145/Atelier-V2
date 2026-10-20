@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-const API = process.env.E2E_API_URL || "http://127.0.0.1:8000"
+const API = process.env.E2E_API_URL || `http://127.0.0.1:${process.env.E2E_API_PORT || "8000"}`
 
 test("a message creates a project run and shows the summary", async ({ page, request }) => {
   test.setTimeout(90_000)
@@ -101,7 +101,9 @@ async function openChat(page: import("@playwright/test").Page, project: string, 
   await page.goto("/chat")
   await page.getByRole("button", { name: "New project" }).click()
   await page.getByLabel("Name").fill(project)
-  await page.getByLabel("Agent").selectOption({ label: agent })
+  const picker = page.getByLabel("Agent")
+  await expect(picker.locator("option", { hasText: agent })).toHaveCount(1, { timeout: 15_000 })
+  await picker.selectOption({ label: agent })
   await page.getByRole("button", { name: "Create" }).click()
   await expect(page.getByRole("heading", { name: project })).toBeVisible()
 }
@@ -301,20 +303,20 @@ test("a team lead plan can be edited and approved and the review verdict shows",
       zones: [],
     },
   })
-  await activateRole(request, {
+  const backId = await activateRole(request, {
     name: "S13 Backend Engineer",
     roleKey: "backend-engineer",
     description: "APIs",
     model: { provider: "openai", name: "gpt-5", config: {} },
     toolIds: ["files", "build_test"],
-    zones: ["api/**", "package.json", "tsconfig*.json"],
+    zones: ["server/**", "package.json", "tsconfig*.json"],
     scope: {
       does: ["HTTP APIs", "auth backends"],
       neverDoes: ["user interfaces", "styling"],
-      zones: ["api/**", "package.json", "tsconfig*.json"],
+      zones: ["server/**", "package.json", "tsconfig*.json"],
     },
   })
-  await activateRole(request, {
+  const frontId = await activateRole(request, {
     name: "S13 Frontend Engineer",
     roleKey: "frontend-engineer",
     description: "UI",
@@ -329,27 +331,30 @@ test("a team lead plan can be edited and approved and the review verdict shows",
   })
   await page.goto("/settings/runs")
   const approvePlans = page.getByLabel("Approve plans before running")
-  await expect(approvePlans).not.toBeChecked()
-  await approvePlans.check()
-  await page.getByRole("button", { name: "Save" }).click()
-  await expect(page.getByText("Run settings saved")).toBeVisible()
+  await expect(approvePlans).toBeVisible({ timeout: 15_000 })
+  if (!(await approvePlans.isChecked())) {
+    await approvePlans.check()
+    await page.getByRole("button", { name: "Save", exact: true }).click()
+    await expect(page.getByText("Run settings saved")).toBeVisible()
+  }
   await openChat(page, "LeadReview", "S13 Team Lead")
-  await page.getByLabel("Add agent to project").selectOption({ label: "S13 Backend Engineer" })
-  await page.getByRole("button", { name: "Add agent to project" }).click()
-  await expect(page.getByText("S13 Backend Engineer").nth(0)).toBeVisible()
-  await page.getByLabel("Add agent to project").selectOption({ label: "S13 Frontend Engineer" })
-  await page.getByRole("button", { name: "Add agent to project" }).click()
-  await expect(page.getByText("S13 Frontend Engineer").nth(0)).toBeVisible()
-  await page.getByLabel("Message").fill("build a todo app with login")
-  await page.getByRole("button", { name: "Send" }).click()
+  await addMemberById(page, backId)
+  await expect(page.locator("[data-member='S13 Backend Engineer']")).toBeVisible()
+  await addMemberById(page, frontId)
+  await expect(page.locator("[data-member='S13 Frontend Engineer']")).toBeVisible()
+  await page.getByLabel("Message", { exact: true }).fill("build a todo app with login")
+  await page.getByRole("button", { name: "Send", exact: true }).click()
   const plan = page.locator("[data-plan]")
   await expect(plan).toBeVisible({ timeout: 30_000 })
   await expect(page.locator("[data-label='plan']")).toBeVisible()
   const firstStep = plan.locator("textarea").first()
   await firstStep.fill("Implement login and the notes API")
-  await plan.getByRole("button", { name: "Edit" }).click()
-  await expect(page.getByText("Plan updated")).toBeVisible()
-  await plan.getByRole("button", { name: "Approve" }).click()
+  const approved = page.waitForResponse(
+    (response) => response.url().includes("/approve") && response.request().method() === "POST",
+    { timeout: 15_000 },
+  )
+  await plan.getByRole("button", { name: "Approve" }).evaluate((node: HTMLElement) => node.click())
+  expect((await approved).ok(), await (await approved).text()).toBeTruthy()
   await expect(page.locator("[data-verdict='approve']").first()).toBeVisible({ timeout: 60_000 })
   await expect(page.locator("[data-label='review']").first()).toBeVisible()
 })

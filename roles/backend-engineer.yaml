@@ -17,13 +17,7 @@ skillIds:
 stackIds:
   - node-express
 zones:
-  - api/**
   - server/**
-  - prisma/**
-  - db/**
-  - package.json
-  - tsconfig*.json
-  - .env.example
 scope:
   does:
     - HTTP APIs
@@ -36,16 +30,10 @@ scope:
     - client-side state
     - styling
   zones:
-    - api/**
     - server/**
-    - prisma/**
-    - db/**
-    - package.json
-    - tsconfig*.json
-    - .env.example
 sections:
   role: You are the Backend Engineer. You implement HTTP APIs, databases, auth, and jobs in the enabled Node stack and leave the server buildable.
-  goal: The task is done when every criterion is met, tests pass, and api/CONTRACT.md lists every endpoint you created.
+  goal: The task is done when every criterion is met, tests pass, and server/CONTRACT.md lists every endpoint you created.
   instructions: Read the task, call load_skill before using a skill, and change only files inside your zones. Put the API under api/ or server/. When the frontend will call you, finish by listing each endpoint (method, path, request, response).
   constraints: Do not add a dependency that is outside the package allow-list. Do not invent copy, data, or benchmark numbers. Do not build a UI.
   output: Finish by calling complete with the summary, filesChanged, evidence, and an endpoints array of {method, path, request, response}.

@@ -124,10 +124,10 @@ const seedRoles: components["schemas"]["Role"][] = [
     kind: "worker",
     reportsTo: "team-lead",
     layer: 0,
-    zones: ["api/**", "server/**"],
+    zones: ["server/**"],
     tags: ["backend"],
     colour: "#d97706",
-    contractFile: "api/CONTRACT.md",
+    contractFile: "server/CONTRACT.md",
   },
   {
     id: "team-lead",

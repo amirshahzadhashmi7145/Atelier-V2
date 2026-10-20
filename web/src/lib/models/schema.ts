@@ -2,7 +2,16 @@
 // https://developers.openai.com/api/docs/guides/reasoning
 const REASONING_EFFORT = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
-const BLOCKED = /embedding|tts|whisper|dall-e|moderation|realtime|image|audio/i
+const BLOCKED =
+  /embedding|tts|whisper|dall-e|moderation|realtime|image|imagen|audio|video|veo|sora|music|lyria|voice|chirp|live|transcribe|computer[-_ ]?use|robotic|deep[-_ ]?research|search/i
+const RETIRED = /retired|deprecated/i
+
+export function modelId(id: string) {
+  let text = id.trim()
+  if (text.toLowerCase().startsWith("models/")) text = text.slice(7)
+  if (text.includes("/")) text = text.split("/").pop() ?? text
+  return text
+}
 
 const temperature = {
   type: "number",
@@ -32,7 +41,12 @@ function objectSchema(properties: Record<string, unknown>) {
 }
 
 export function isChatModel(id: string) {
-  return !BLOCKED.test(id)
+  const ident = modelId(id)
+  return Boolean(ident) && !BLOCKED.test(ident)
+}
+
+export function isRetiredModel(id: string) {
+  return RETIRED.test(modelId(id))
 }
 
 function isReasoning(id: string) {

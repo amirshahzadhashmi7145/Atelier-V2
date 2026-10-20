@@ -62,6 +62,10 @@ export async function updateRole(id: string, body: components["schemas"]["RoleWr
   return unwrap(await api.PATCH("/roles/{id}", { params: { path: { id } }, body }))
 }
 
+export async function resetRole(id: string) {
+  return unwrap(await api.POST("/roles/{id}/reset", { params: { path: { id } } }))
+}
+
 export async function listRoleTags() {
   const result = await unwrap(await api.GET("/tags"))
   return result.tags

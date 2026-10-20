@@ -122,6 +122,8 @@ def label(agent: dict, text: str, project_id: str | None = None) -> str:
 def chat_system(agent: dict) -> str:
     version = db.get("version", agent.get("activePromptVersionId") or "") if agent.get("activePromptVersionId") else None
     sections = (version or {}).get("sections") or agent.get("sections") or {}
+    from runtime import roles as rolelib
+
     body = compiler.compile_prompt(
         sections,
         agent.get("toolIds") or [],
@@ -130,6 +132,7 @@ def chat_system(agent: dict) -> str:
         (agent.get("model") or {}).get("name") or "gpt-4o",
         agent.get("scope"),
         include_tools=False,
+        worker=not rolelib.is_supervisor(agent),
     )["compiled"]
     return f"{body}\n\n{RUN_CAPABILITIES}"
 

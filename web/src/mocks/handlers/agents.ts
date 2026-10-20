@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw"
 import { compilePrompt } from "@/features/agents/compile"
 import { asSchema, validateConfig } from "@/features/agents/config-schema"
-import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
+import { isChatModel, isRetiredModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, nid, now, orderedById } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
@@ -13,7 +13,7 @@ function agentOr404(id: string) {
 }
 
 function modelError(model: { provider: string; name: string; config: Record<string, unknown> }) {
-  if (!isChatModel(model.name)) return "Unknown model. Refresh models in Settings."
+  if (!isChatModel(model.name) || isRetiredModel(model.name)) return "Unknown model. Refresh models in Settings."
   return validateConfig(asSchema(modelInfoFromId(model.name).configSchema), model.config)
 }
 
@@ -23,15 +23,17 @@ function compileFor(
   skillIds: string[],
   stackIds: string[],
   scope?: { does: string[]; neverDoes: string[]; zones: string[] },
+  worker = true,
 ) {
-  const controlIds = db.tools.filter((tool) => tool.kind === "control").map((tool) => tool.id)
-  const ids = [...toolIds, ...controlIds.filter((id) => !toolIds.includes(id))]
+  const controlIds = worker ? db.tools.filter((tool) => tool.kind === "control").map((tool) => tool.id) : []
+  const ids = worker ? [...toolIds, ...controlIds.filter((id) => !toolIds.includes(id))] : [...toolIds]
   return compilePrompt({
     sections,
     stacks: orderedById(db.stacks, stackIds).map((stack) => ({ name: stack.name, version: stack.version })),
     tools: orderedById(db.tools, ids).map((item) => ({ name: item.name, description: item.description })),
     skills: orderedById(db.skills, skillIds).map((skill) => ({ name: skill.name, description: skill.description })),
     scope,
+    worker,
   })
 }
 
@@ -156,7 +158,17 @@ export const agentHandlers = [
     if (!body.sections || !body.toolIds || !body.skillIds || !body.stackIds) {
       return error(422, "invalid", "sections, toolIds, skillIds, and stackIds are required")
     }
-    return HttpResponse.json(compileFor(body.sections, body.toolIds, body.skillIds, body.stackIds, body.scope ?? agent.scope))
+    const role = db.roles.find((item) => item.id === agent.roleKey)
+    return HttpResponse.json(
+      compileFor(
+        body.sections,
+        body.toolIds,
+        body.skillIds,
+        body.stackIds,
+        body.scope ?? agent.scope,
+        role?.kind !== "supervisor",
+      ),
+    )
   }),
   http.get("/agents/:id", ({ params }) => {
     const agent = agentOr404(String(params.id))

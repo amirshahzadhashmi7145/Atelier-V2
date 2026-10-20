@@ -29,7 +29,7 @@ def render(summary: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_contract(folder: Path | None, summary: dict, rel: str = "api/CONTRACT.md") -> Path | None:
+def write_contract(folder: Path | None, summary: dict, rel: str = "server/CONTRACT.md") -> Path | None:
     if folder is None or not rel:
         return None
     target = folder / rel
@@ -38,7 +38,7 @@ def write_contract(folder: Path | None, summary: dict, rel: str = "api/CONTRACT.
     return target
 
 
-def read_contract(folder: Path | None, rel: str = "api/CONTRACT.md") -> str:
+def read_contract(folder: Path | None, rel: str = "server/CONTRACT.md") -> str:
     if folder is None or not rel:
         return ""
     target = folder / rel

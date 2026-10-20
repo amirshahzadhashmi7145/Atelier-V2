@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { createRun, getSpendCap, listRunAgents, listRunStacks, listRunVersions } from "@/features/runs/api"
+import { createRun, getSpendCap, listRunAgents, listRunProviders, listRunStacks, listRunVersions } from "@/features/runs/api"
 import { queryKeys } from "@/lib/api/query-keys"
 
 export function NewRun() {
@@ -18,6 +18,7 @@ export function NewRun() {
   const agents = useQuery({ queryKey: queryKeys.agents, queryFn: listRunAgents })
   const stacks = useQuery({ queryKey: queryKeys.stacks, queryFn: listRunStacks })
   const cap = useQuery({ queryKey: queryKeys.runSettings, queryFn: getSpendCap })
+  const providers = useQuery({ queryKey: queryKeys.providers, queryFn: listRunProviders })
   const [agentId, setAgentId] = useState(params.get("agentId") ?? "")
   const [kind, setKind] = useState<"repo" | "scaffold">("scaffold")
   const [url, setUrl] = useState("")
@@ -39,17 +40,30 @@ export function NewRun() {
   const active = versions.data?.find((item) => item.id === agent?.activePromptVersionId)
   const enabled = (stacks.data ?? []).filter((stack) => agent?.stackIds.includes(stack.id) && stack.scaffoldTemplate)
   const chosenTemplate = template || enabled[0]?.scaffoldTemplate || ""
+  const missingKey = (() => {
+    if (!agent) return ""
+    if (providers.isPending) return "Checking providers…"
+    const needed = [agent.model.provider, agent.backupModel?.provider].filter(Boolean) as string[]
+    const missing = [...new Set(needed)].filter((pid) => {
+      const provider = (providers.data ?? []).find((item) => item.id === pid)
+      return !provider?.keyRef && !provider?.keyHint
+    })
+    if (missing.length === 0) return ""
+    return `Add an API key for ${missing.join(" and ")} in Settings > Providers before running this agent.`
+  })()
   const blocked = !agent
     ? "Choose an agent"
-    : !agent.activePromptVersionId
-      ? "No active prompt version. Set one on the agent before starting a run."
-      : kind === "repo" && !url.trim()
-        ? "Add a GitHub repository URL"
-        : kind === "scaffold" && !chosenTemplate
-          ? "no stacks enabled"
-          : !task.trim()
-            ? "Write the task"
-            : ""
+    : missingKey
+      ? missingKey
+      : !agent.activePromptVersionId
+        ? "No active prompt version. Set one on the agent before starting a run."
+        : kind === "repo" && !url.trim()
+          ? "Add a GitHub repository URL"
+          : kind === "scaffold" && !chosenTemplate
+            ? "no stacks enabled"
+            : !task.trim()
+              ? "Write the task"
+              : ""
 
   const create = useMutation({
     mutationFn: () =>

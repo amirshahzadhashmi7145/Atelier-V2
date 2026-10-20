@@ -1,5 +1,5 @@
 import { bypass, http, HttpResponse } from "msw"
-import { isChatModel, modelInfoFromId } from "@/lib/models/schema"
+import { isChatModel, isRetiredModel, modelInfoFromId } from "@/lib/models/schema"
 import { db, modelList, now, remember, setProviderSecret } from "@/mocks/db"
 
 function error(status: number, code: string, message: string) {
@@ -8,6 +8,14 @@ function error(status: number, code: string, message: string) {
 
 function providerOr404(id: string) {
   return db.providers.find((item) => item.id === id)
+}
+
+function markConnected(provider: NonNullable<ReturnType<typeof providerOr404>>) {
+  provider.connected = true
+  if (!provider.keyRef) {
+    provider.keyRef = `env:${provider.id}`
+    provider.keyHint = provider.keyHint ?? "••••"
+  }
 }
 
 const FIXTURE_KEY = "atelier-discovered-models"
@@ -65,7 +73,7 @@ export const providerHandlers = [
   http.post("/providers/:id/test", ({ params }) => {
     const provider = providerOr404(String(params.id))
     if (!provider) return error(404, "not_found", "Provider not found")
-    provider.connected = true
+    markConnected(provider)
     remember()
     return HttpResponse.json(provider)
   }),
@@ -74,9 +82,10 @@ export const providerHandlers = [
     if (!provider) return error(404, "not_found", "Provider not found")
     const found = await discoveredModelIds()
     if (!found) return error(422, "invalid", "Could not reach the provider")
-    db.models = found.ids.filter(isChatModel).map((id) => modelInfoFromId(id))
+    db.models = found.ids.filter((id) => isChatModel(id) && !isRetiredModel(id)).map((id) => modelInfoFromId(id))
     provider.modelsCachedAt = now()
-    provider.connected = found.fromProvider
+    if (found.fromProvider) markConnected(provider)
+    else provider.connected = false
     remember()
     return HttpResponse.json(modelList())
   }),

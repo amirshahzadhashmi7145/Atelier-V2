@@ -162,7 +162,7 @@ def write_express_prisma(folder: Path) -> None:
         encoding="utf-8",
     )
     (folder / ".env.example").write_text("DATABASE_URL=file:./dev.db\n", encoding="utf-8")
-    api = folder / "api"
-    api.mkdir(exist_ok=True)
-    (api / "CONTRACT.md").write_text("# API contract\n\n| Method | Path | Request | Response |\n| --- | --- | --- | --- |\n| GET | /health |  | { ok: true } |\n", encoding="utf-8")
+    server = folder / "server"
+    server.mkdir(exist_ok=True)
+    (server / "CONTRACT.md").write_text("# API contract\n\n| Method | Path | Request | Response |\n| --- | --- | --- | --- |\n| GET | /health |  | { ok: true } |\n", encoding="utf-8")
 

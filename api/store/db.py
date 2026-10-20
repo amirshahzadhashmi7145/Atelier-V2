@@ -32,6 +32,10 @@ def engine():
     if _engine is None:
         url = os.environ.get("DATABASE_URL", f"sqlite:///{ROOT / 'api' / 'atelier.db'}")
         _engine = create_engine(url, connect_args={"check_same_thread": False})
+        if url.startswith("sqlite"):
+            with _engine.connect() as conn:
+                conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+                conn.commit()
         Base.metadata.create_all(_engine)
         seed()
         sync_builtin_tools()

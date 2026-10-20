@@ -10,6 +10,7 @@ export type CompileInput = {
   tools: { name: string; description: string }[]
   skills: { name: string; description: string }[]
   scope?: { does: string[]; neverDoes: string[]; zones: string[] }
+  worker?: boolean
 }
 
 const SCOPE_LINE =
@@ -32,10 +33,12 @@ export function compilePrompt(input: CompileInput): {
   compiled: string
   tokenCount: number
 } {
+  const worker = input.worker !== false
+  const how = worker ? `${input.sections.instructions}\n${FILES_LINE}` : input.sections.instructions
   const compiled = [
     `# Role\n${input.sections.role}`,
     `# Goal and definition of done\n${input.sections.goal}`,
-    `# How to work\n${input.sections.instructions}\n${FILES_LINE}`,
+    `# How to work\n${how}`,
     `# Constraints\n${input.sections.constraints}`,
     `# Output\n${input.sections.output}`,
     [

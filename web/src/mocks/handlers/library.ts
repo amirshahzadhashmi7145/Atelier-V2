@@ -65,14 +65,17 @@ export const libraryHandlers = [
         createdAt: timestamp,
         updatedAt: timestamp,
       }
-      const controlIds = db.tools.filter((tool) => tool.kind === "control").map((tool) => tool.id)
-      const toolIds = [...agent.toolIds, ...controlIds]
+      const role = db.roles.find((item) => item.id === agent.roleKey)
+      const worker = role?.kind !== "supervisor"
+      const controlIds = worker ? db.tools.filter((tool) => tool.kind === "control").map((tool) => tool.id) : []
+      const toolIds = worker ? [...agent.toolIds, ...controlIds.filter((id) => !agent.toolIds.includes(id))] : [...agent.toolIds]
       const compiled = compilePrompt({
         sections: template.sections,
         stacks: orderedById(db.stacks, agent.stackIds).map((stack) => ({ name: stack.name, version: stack.version })),
         tools: orderedById(db.tools, toolIds).map((tool) => ({ name: tool.name, description: tool.description })),
         skills: orderedById(db.skills, agent.skillIds).map((skill) => ({ name: skill.name, description: skill.description })),
         scope: agent.scope,
+        worker,
       })
       db.agents.push(agent)
       db.versions.push({

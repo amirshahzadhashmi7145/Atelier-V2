@@ -24,10 +24,12 @@ import {
   deleteEval,
   getAgent,
   listEditorModels,
+  listEditorProviders,
   listEditorSkills,
   listEditorStacks,
   listEditorTools,
   latestVersion,
+  listRoles,
   listVersions,
   runEvals,
   updateAgent,
@@ -144,6 +146,8 @@ export function AgentEditor({ id }: { id: string }) {
   const stacksQuery = useQuery({ queryKey: queryKeys.stacks, queryFn: listEditorStacks })
   const modelsQuery = useQuery({ queryKey: queryKeys.models, queryFn: listEditorModels })
   const tagsQuery = useQuery({ queryKey: queryKeys.modelTags, queryFn: listModelTags })
+  const rolesQuery = useQuery({ queryKey: queryKeys.roles, queryFn: listRoles })
+  const providersQuery = useQuery({ queryKey: queryKeys.providers, queryFn: listEditorProviders })
   const [draft, setDraft] = useState<Draft | null>(null)
   const [previewBody, setPreviewBody] = useState<components["schemas"]["CompilePreviewRequest"] | null>(null)
   const [evalForm, setEvalForm] = useState({ name: "", task: "", criteria: "", passRule: "" })
@@ -264,6 +268,22 @@ export function AgentEditor({ id }: { id: string }) {
   })
 
   const tools = useMemo(() => (toolsQuery.data ?? []).filter((tool) => tool.kind !== "control"), [toolsQuery.data])
+  const allTools = toolsQuery.data ?? []
+  const role = (rolesQuery.data ?? []).find((item) => item.id === current?.roleKey)
+  const reportsToRole = (rolesQuery.data ?? []).find((item) => item.id === role?.reportsTo)
+  const supervisor = role?.kind === "supervisor"
+  const openhands = current?.workerEngine === "openhands"
+  const missingKey = (() => {
+    if (providersQuery.isPending) return null
+    const providers = providersQuery.data ?? []
+    const needed = [current?.model.provider, current?.backupModel?.provider].filter(Boolean) as string[]
+    const missing = [...new Set(needed)].filter((pid) => {
+      const provider = providers.find((item) => item.id === pid)
+      return !provider?.keyRef && !provider?.keyHint
+    })
+    if (missing.length === 0) return null
+    return `Add an API key for ${missing.join(" and ")} in Settings > Providers before running this agent.`
+  })()
 
   if (agentQuery.isPending || versionsQuery.isPending) {
     return <Skeleton className="h-40 w-full" />
@@ -316,24 +336,26 @@ export function AgentEditor({ id }: { id: string }) {
             </Field>
             <Field>
               <p className="text-sm">Reports to</p>
-              <p className="text-sm text-muted-foreground">{agent.reportsTo ?? "no one"}</p>
+              <p className="text-sm text-muted-foreground">{reportsToRole?.name ?? "no one"}</p>
             </Field>
             <Field>
               <FieldLabel htmlFor="description">Description</FieldLabel>
               <Input id="description" value={current.description} onChange={(event) => patch({ description: event.target.value })} />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="workerEngine">Worker engine</FieldLabel>
-              <select
-                id="workerEngine"
-                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                value={current.workerEngine}
-                onChange={(event) => patch({ workerEngine: event.target.value === "openhands" ? "openhands" : "loop" })}
-              >
-                <option value="loop">Loop</option>
-                <option value="openhands">OpenHands</option>
-              </select>
-            </Field>
+            {supervisor ? null : (
+              <Field>
+                <FieldLabel htmlFor="workerEngine">Worker engine</FieldLabel>
+                <select
+                  id="workerEngine"
+                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                  value={current.workerEngine}
+                  onChange={(event) => patch({ workerEngine: event.target.value === "openhands" ? "openhands" : "loop" })}
+                >
+                  <option value="loop">Loop</option>
+                  <option value="openhands">OpenHands</option>
+                </select>
+              </Field>
+            )}
           </FieldGroup>
         </CardContent>
       </Card>
@@ -371,6 +393,14 @@ export function AgentEditor({ id }: { id: string }) {
             <p className="text-sm text-muted-foreground">Refresh models in Settings to edit this model&apos;s settings.</p>
           )}
           {configError ? <p className="text-sm text-destructive">{configError}</p> : null}
+          {missingKey ? (
+            <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
+              {missingKey}{" "}
+              <Link className="underline" href="/settings/providers">
+                Open Providers
+              </Link>
+            </p>
+          ) : null}
           {selectedModel ? <ModelCard model={selectedModel} /> : null}
           <Field>
             <FieldLabel>Backup model</FieldLabel>
@@ -435,16 +465,28 @@ export function AgentEditor({ id }: { id: string }) {
           <CardDescription>Control tools stay on and are hidden from the Tools page.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          {!current.toolIds.includes("build_test") ||
-          !current.toolIds.includes("shell") ||
-          !current.toolIds.includes("preview_deploy") ? (
+          {openhands ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">
+                OpenHands provides a file editor, terminal, and task tracker. Safety comes from the zone, package, and
+                build checks after each run.
+              </p>
+              <ul className="list-disc pl-5 text-sm" data-openhands-tools="true">
+                <li>File editor</li>
+                <li>Terminal</li>
+                <li>Task tracker</li>
+              </ul>
+            </div>
+          ) : !current.toolIds.includes("build_test") ||
+            !current.toolIds.includes("shell") ||
+            !current.toolIds.includes("preview_deploy") ? (
             <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
               this agent cannot build or run anything
             </p>
           ) : null}
           {(
             [
-              ["builtin", "Built-in"],
+              ...(openhands ? [] : ([["builtin", "Built-in"]] as const)),
               ["client", "Client-side"],
               ["mcp", "MCP"],
               ["api", "APIs"],
@@ -473,6 +515,32 @@ export function AgentEditor({ id }: { id: string }) {
               />
             )
           })}
+          {openhands ? (
+            <Checklist
+              legend="Studio"
+              empty="No tools yet."
+              items={[
+                ...allTools
+                  .filter((tool) => tool.id === "search_data")
+                  .map((tool) => ({
+                    id: tool.id,
+                    label: tool.name,
+                    detail: tool.description,
+                    badge: <PermissionBadge permission={tool.permission} />,
+                  })),
+                {
+                  id: "load_skill",
+                  label: "load_skill",
+                  detail: "Load a skill body into the context.",
+                  badge: <PermissionBadge permission="read" />,
+                },
+              ]}
+              selected={current.toolIds}
+              onToggle={(toolId, on) =>
+                patch({ toolIds: on ? [...current.toolIds, toolId] : current.toolIds.filter((item) => item !== toolId) })
+              }
+            />
+          ) : null}
           <Checklist
             legend="Skills"
             empty="No skills yet. Import an agent to copy the skills it uses."

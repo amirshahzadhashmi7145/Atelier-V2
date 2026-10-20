@@ -47,7 +47,8 @@ def test_seed_roles_exist(client: TestClient):
     lead = next(item for item in rows if item["id"] == "team-lead")
     assert lead["kind"] == "supervisor"
     back = next(item for item in rows if item["id"] == "backend-engineer")
-    assert back["contractFile"] == "api/CONTRACT.md"
+    assert back["contractFile"] == "server/CONTRACT.md"
+    assert back["zones"] == ["server/**"]
     assert client.get("/tags").json()["tags"]
 
 

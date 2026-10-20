@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fnmatch import fnmatch
 from hashlib import sha1
 
 from store import db
@@ -34,10 +35,10 @@ SEED_ROLES = [
         "kind": "worker",
         "reportsTo": "team-lead",
         "layer": 0,
-        "zones": ["api/**", "server/**", "prisma/**", "db/**", "package.json", "tsconfig*.json", ".env.example"],
+        "zones": ["server/**"],
         "tags": ["backend"],
         "colour": "#d97706",
-        "contractFile": "api/CONTRACT.md",
+        "contractFile": "server/CONTRACT.md",
     },
     {
         "id": "team-lead",
@@ -64,12 +65,19 @@ SEED_ROLES = [
 ]
 
 UTILITY_TAGS = ["review", "planning", "cheap", "fast"]
+SEED_BY_ID = {role["id"]: role for role in SEED_ROLES}
+BACKEND_CONTRACT_META = "backend-contract-server"
+
+
+def is_seed(role_id: str | None) -> bool:
+    return bool(role_id) and role_id in SEED_BY_ID
 
 
 def sync_roles() -> None:
     for role in SEED_ROLES:
         if db.get("role", role["id"]) is None:
             db.put("role", role["id"], dict(role))
+    _migrate_backend_contract()
     if db.get("meta", "seed-parent-link"):
         return
     for role in SEED_ROLES:
@@ -80,14 +88,56 @@ def sync_roles() -> None:
     db.put("meta", "seed-parent-link", {"applied": True})
 
 
+def _migrate_backend_contract() -> None:
+    if db.get("meta", BACKEND_CONTRACT_META):
+        return
+    seed = SEED_BY_ID["backend-engineer"]
+    existing = db.get("role", "backend-engineer")
+    if existing:
+        db.put(
+            "role",
+            "backend-engineer",
+            {**existing, "zones": list(seed["zones"]), "contractFile": seed["contractFile"]},
+        )
+    db.put("meta", BACKEND_CONTRACT_META, {"applied": True})
+
+
+def reset_seed(role_id: str) -> dict:
+    seed = SEED_BY_ID.get(role_id)
+    if seed is None:
+        raise KeyError(role_id)
+    row = dict(seed)
+    db.put("role", role_id, row)
+    return row
+
+
+def contract_in_zones(path: str | None, zones: list[str]) -> None:
+    if not path:
+        return
+    rel = path.replace("\\", "/").strip().lstrip("/")
+    if not rel or any(part == ".." for part in rel.split("/")):
+        raise ValueError("Contract file must be a path inside this role's zones")
+    for zone in zones:
+        pattern = (zone or "").replace("\\", "/").strip().lstrip("/")
+        if not pattern:
+            continue
+        if rel == pattern or fnmatch(rel, pattern) or fnmatch(rel, pattern.rstrip("/") + "/**"):
+            return
+    raise ValueError("Contract file must be inside this role's zones")
+
+
 def normalize(body: dict, existing: dict | None = None) -> dict:
     current = dict(existing or {})
     role_id = (body.get("id") or current.get("id") or _slug(body.get("name") or "")).strip()
     if not role_id:
         raise ValueError("id or name is required")
-    kind = (body.get("kind") or current.get("kind") or "worker").strip().lower()
-    if kind not in ("worker", "supervisor"):
-        raise ValueError("kind must be worker or supervisor")
+    if existing and is_seed(existing.get("id")):
+        role_id = existing["id"]
+        kind = SEED_BY_ID[role_id]["kind"]
+    else:
+        kind = (body.get("kind") or current.get("kind") or "worker").strip().lower()
+        if kind not in ("worker", "supervisor"):
+            raise ValueError("kind must be worker or supervisor")
     layer = body.get("layer") if "layer" in body else current.get("layer")
     try:
         layer = int(layer if layer is not None else (1 if kind == "supervisor" else 0))
@@ -100,13 +150,15 @@ def normalize(body: dict, existing: dict | None = None) -> dict:
     contract = body.get("contractFile") if "contractFile" in body else current.get("contractFile")
     if contract == "":
         contract = None
+    zones = list(body.get("zones") if "zones" in body else current.get("zones") or [])
+    contract_in_zones(contract, zones)
     return {
         "id": role_id,
         "name": (body.get("name") or current.get("name") or role_id).strip(),
         "kind": kind,
         "reportsTo": reports,
         "layer": layer,
-        "zones": list(body.get("zones") if "zones" in body else current.get("zones") or []),
+        "zones": zones,
         "tags": list(body.get("tags") if "tags" in body else current.get("tags") or []),
         "colour": colour or None,
         "contractFile": contract,

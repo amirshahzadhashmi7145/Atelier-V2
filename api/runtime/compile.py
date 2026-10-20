@@ -23,7 +23,16 @@ def scope_block(scope: dict | None) -> str:
     return "\n".join(["# Scope", f"Does: {does}", f"Never does: {never}", f"Zones: {zones}", SCOPE_LINE])
 
 
-def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], stack_ids: list[str], model: str = "gpt-4o", scope: dict | None = None, include_tools: bool = True) -> dict:
+def compile_prompt(
+    sections: dict,
+    tool_ids: list[str],
+    skill_ids: list[str],
+    stack_ids: list[str],
+    model: str = "gpt-4o",
+    scope: dict | None = None,
+    include_tools: bool = True,
+    worker: bool = True,
+) -> dict:
     tools = {item["id"]: item for item in db.listing("tool")}
     skills = {item["id"]: item for item in db.listing("skill")}
     stacks = {item["id"]: item for item in db.listing("stack")}
@@ -33,7 +42,8 @@ def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], st
         if skill:
             skill_lines.append(f"{skill['name']}: {skill['description']}")
     tool_lines = []
-    ordered = [*tool_ids, *[name for name in ("load_skill", "complete", "raise_clarification", "escalate") if name not in tool_ids]]
+    extra = ["load_skill", "complete", "raise_clarification", "escalate"] if worker else []
+    ordered = [*tool_ids, *[name for name in extra if name not in tool_ids]]
     for tool_id in ordered:
         tool = tools.get(tool_id)
         if tool:
@@ -43,10 +53,13 @@ def compile_prompt(sections: dict, tool_ids: list[str], skill_ids: list[str], st
         stack = stacks.get(stack_id)
         if stack:
             stack_lines.append(f"{stack['name']} {stack['version']}")
+    how = sections.get("instructions", "")
+    if worker:
+        how = f"{how}\n{FILES_LINE}"
     parts = [
         f"# Role\n{sections.get('role', '')}",
         f"# Goal and definition of done\n{sections.get('goal', '')}",
-        f"# How to work\n{sections.get('instructions', '')}\n{FILES_LINE}",
+        f"# How to work\n{how}",
         f"# Constraints\n{sections.get('constraints', '')}",
         f"# Output\n{sections.get('output', '')}",
         "\n".join(

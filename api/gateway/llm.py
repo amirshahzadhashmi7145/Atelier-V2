@@ -78,6 +78,31 @@ def has_api_key(provider: str | None = None) -> bool:
     return bool(resolve_api_key(provider) or _mocked())
 
 
+def missing_provider_keys(agent: dict | None) -> list[str]:
+    if not agent or _mocked():
+        return []
+    missing: list[str] = []
+    seen: set[str] = set()
+    for spec in (agent.get("model"), agent.get("backupModel")):
+        if not spec:
+            continue
+        pid = spec.get("provider")
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        if not has_api_key(pid):
+            missing.append(pid)
+    return missing
+
+
+def missing_key_message(agent: dict | None) -> str | None:
+    missing = missing_provider_keys(agent)
+    if not missing:
+        return None
+    names = " and ".join(missing)
+    return f"Add an API key for {names} in Settings > Providers before running this agent."
+
+
 def openai_api_key() -> str | None:
     return resolve_api_key("openai")
 
@@ -212,12 +237,12 @@ def list_live_models(provider: str | None) -> list[str]:
         raw = litellm.get_valid_models(custom_llm_provider=prefix, api_key=key) or []
     except Exception:
         raw = []
-    from app.models_catalog import is_chat
+    from app.models_catalog import is_chat, is_retired, model_id
 
     names: list[str] = []
     for item in raw:
-        name = str(item).split("/")[-1]
-        if not name or not is_chat(name):
+        name = model_id(str(item))
+        if not name or not is_chat(name) or is_retired(name):
             continue
         if supports_tool_calling(pid, name):
             names.append(name)

@@ -16,7 +16,7 @@ from test_engine import client, fresh, ready, wait_status  # noqa: F401
 def _done(endpoints=None):
     summary = {
         "description": "Done.",
-        "filesChanged": ["api/CONTRACT.md"] if endpoints else ["index.html"],
+        "filesChanged": ["server/CONTRACT.md"] if endpoints else ["index.html"],
         "dependencies": [],
         "criteria": [],
         "assumptions": [],
@@ -102,7 +102,7 @@ def test_backend_template_imports_with_scope_stack_and_evals(client: TestClient)
     assert agent["roleKey"] == "backend-engineer"
     assert agent["scope"]["does"] == ["HTTP APIs", "databases and migrations", "auth backends", "background jobs", "server-side validation"]
     assert agent["scope"]["neverDoes"] == ["user interfaces", "client-side state", "styling"]
-    assert "api/**" in agent["scope"]["zones"]
+    assert "server/**" in agent["scope"]["zones"]
     assert "node-express" in agent["stackIds"]
     assert {item["id"] for item in agent["evals"]} == {"eval_crud", "eval_auth", "eval_pagination"}
     stack = next(item for item in client.get("/stacks").json() if item["id"] == "node-express")
@@ -184,7 +184,7 @@ def test_contract_md_written_and_included_in_frontend_context(client: TestClient
     runs.sort(key=lambda item: item["startedAt"])
     assert wait_status(client, runs[0]["id"], {"completed", "failed"}, timeout=20)["status"] == "completed"
     assert wait_status(client, runs[1]["id"], {"completed", "failed"}, timeout=20)["status"] == "completed"
-    contract = Path(project["folderPath"]) / "api" / "CONTRACT.md"
+    contract = Path(project["folderPath"]) / "server" / "CONTRACT.md"
     assert contract.exists()
     body = contract.read_text()
     assert "GET" in body and "/health" in body
@@ -245,7 +245,7 @@ def test_real_todo_app_both_agents(client: TestClient):
     runs = [item for item in db.listing("run") if item.get("projectId") == project["id"]]
     assert len(runs) >= 2
     assert {item["status"] for item in runs} == {"completed"}
-    assert (Path(project["folderPath"]) / "api" / "CONTRACT.md").exists()
+    assert (Path(project["folderPath"]) / "server" / "CONTRACT.md").exists()
     shots = [item for item in db.listing("artifact") if item.get("kind") == "screenshot"]
     assert shots
     assert message.get("taskId")

@@ -1,6 +1,14 @@
 import re
+from datetime import datetime, timezone
 
-BLOCKED = re.compile(r"embedding|tts|whisper|dall-e|moderation|realtime|image|audio", re.I)
+BLOCKED = re.compile(
+    r"embedding|tts|whisper|dall-e|moderation|realtime|"
+    r"image|imagen|audio|video|veo|sora|music|lyria|voice|chirp|"
+    r"live|transcribe|computer[-_ ]?use|robotic|"
+    r"deep[-_ ]?research|search",
+    re.I,
+)
+RETIRED_MARK = re.compile(r"retired|deprecated", re.I)
 REASONING = re.compile(r"^(o\d|gpt-5)([-.]|$)", re.I)
 TEMPERATURE = {"type": "number", "minimum": 0, "maximum": 2, "default": 0.2, "description": "Sampling temperature"}
 MAX_OUTPUT = {"type": "integer", "minimum": 1, "maximum": 128000, "default": 4096, "description": "Maximum tokens to generate"}
@@ -14,8 +22,48 @@ WEB = {"type": "boolean", "default": False, "description": "Allow the model to s
 STRUCTURED = {"type": "boolean", "default": False, "description": "Require a JSON schema response"}
 
 
+def model_id(name: str) -> str:
+    text = (name or "").strip()
+    if text.lower().startswith("models/"):
+        text = text[7:]
+    if "/" in text:
+        text = text.rsplit("/", 1)[-1]
+    return text
+
+
 def is_chat(name: str) -> bool:
-    return BLOCKED.search(name) is None
+    ident = model_id(name)
+    return bool(ident) and BLOCKED.search(ident) is None
+
+
+def _shutdown_date(name: str) -> str | None:
+    ident = model_id(name)
+    try:
+        import litellm
+
+        cost = getattr(litellm, "model_cost", None) or {}
+    except Exception:
+        return None
+    for key in (ident, f"openai/{ident}", f"gemini/{ident}", name):
+        row = cost.get(key) if isinstance(cost, dict) else None
+        if not isinstance(row, dict):
+            continue
+        for field in ("shutdown_date", "deprecation_date"):
+            value = row.get(field)
+            if value:
+                return str(value)
+    return None
+
+
+def is_retired(name: str, today: str | None = None) -> bool:
+    ident = model_id(name)
+    if RETIRED_MARK.search(ident):
+        return True
+    date = _shutdown_date(ident)
+    if not date:
+        return False
+    day = (today or datetime.now(timezone.utc).strftime("%Y-%m-%d"))[:10]
+    return str(date)[:10] <= day
 
 
 def reasoning(name: str) -> bool:
