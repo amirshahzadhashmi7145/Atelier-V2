@@ -16,6 +16,7 @@ import {
   deleteProject,
   getChatRun,
   getProject,
+  patchProject,
   listChatAgents,
   listMessages,
   listProjects,
@@ -144,6 +145,7 @@ export function ChatScreen({
           </div>
           {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
           {projectId ? <MemberPanel projectId={projectId} project={project.data} /> : null}
+          {projectId ? <NotesSettings key={projectId} projectId={projectId} project={project.data} /> : null}
           <SupervisorSteps steps={project.data.supervisorSteps} />
           </div>
         ) : (
@@ -316,6 +318,41 @@ function SupervisorSteps({ steps }: { steps?: Project["supervisorSteps"] }) {
         ))}
       </ul>
     </div>
+  )
+}
+
+function NotesSettings({ projectId, project }: { projectId: string; project: Project }) {
+  const queryClient = useQueryClient()
+  const [path, setPath] = useState(project.notesPath || ".atelier/NOTES.md")
+  const [maxBytes, setMaxBytes] = useState(String(project.notesMaxBytes ?? 8192))
+  const save = useMutation({
+    mutationFn: () => patchProject(projectId, { notesPath: path, notesMaxBytes: Number(maxBytes) }),
+    onSuccess: async () => {
+      toast.success("Project notes settings saved")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save notes settings"),
+  })
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2 text-sm"
+      onSubmit={(event) => {
+        event.preventDefault()
+        save.mutate()
+      }}
+    >
+      <label className="flex flex-col gap-1">
+        Notes file
+        <input className="rounded border px-2 py-1" value={path} onChange={(event) => setPath(event.target.value)} />
+      </label>
+      <label className="flex flex-col gap-1">
+        Size limit (bytes)
+        <input className="w-28 rounded border px-2 py-1" value={maxBytes} onChange={(event) => setMaxBytes(event.target.value)} />
+      </label>
+      <Button type="submit" variant="outline" disabled={save.isPending}>
+        {save.isPending ? "Saving…" : "Save notes settings"}
+      </Button>
+    </form>
   )
 }
 

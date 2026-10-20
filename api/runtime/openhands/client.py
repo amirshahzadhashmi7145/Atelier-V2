@@ -11,11 +11,11 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from gateway import keys
+from runtime.openhands.envcheck import assert_pinned, requirements_file
 
 PINNED = "1.51.0"
 SERVER_IMAGE = os.environ.get("OPENHANDS_SERVER_IMAGE") or f"ghcr.io/openhands/agent-server:{PINNED}-python"
 DRIVER = Path(__file__).resolve().parent / "driver.py"
-REQUIREMENTS = Path(__file__).resolve().parent / "requirements.txt"
 
 
 @dataclass
@@ -27,6 +27,7 @@ class RunSpec:
     mcp: dict
     timeout_sec: int
     on_cost: Callable[[float], None] | None = None
+    repo_instructions: str = ""
 
 
 @dataclass
@@ -147,6 +148,7 @@ class ProcessOpenHandsClient:
         self._cleaned = False
 
     def run(self, spec: RunSpec) -> RunResult:
+        assert_pinned()
         payload = {
             "workspace": str(spec.workspace),
             "prompt": spec.prompt,
@@ -154,6 +156,7 @@ class ProcessOpenHandsClient:
             "mcp": spec.mcp,
             "timeout_sec": spec.timeout_sec,
             "server_image": SERVER_IMAGE,
+            "repo_instructions": spec.repo_instructions or "",
         }
         env = {key: value for key, value in os.environ.items() if key != "LLM_API_KEY"}
         if spec.api_key:
@@ -165,7 +168,7 @@ class ProcessOpenHandsClient:
             "--isolated",
             "--no-project",
             "--with-requirements",
-            str(REQUIREMENTS),
+            str(requirements_file()),
             "python",
             str(DRIVER),
         ]

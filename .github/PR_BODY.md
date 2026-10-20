@@ -1,32 +1,40 @@
 ## Summary
-- **Part 1 (real OpenHands run) did not run.** Docker is up. The Settings encrypted store (`~/.atelier-projects/.secrets/providers`) has no provider `.enc` files. This session only uses that store at run time, so the live e2e was not started. Seed worker agents stay on `loop`. Env fallback keys were not copied into Settings and were not passed to OpenHands.
-- **Part 2:** OpenHands runs now get a studio MCP server (`search_data` and `load_skill`) plus the agent's own MCP servers. Each run gets a short-lived `atk_…` token (env only, hashed at rest, revoked when the run ends). Loop workers and supervisors still call the tools directly. The supervisor graph is unchanged.
+- **Stacked on #20** (`feat/s18-openhands-live-mcp`). Do not merge until #20 lands.
+- Isolated OpenHands sidecar is locked to **litellm==1.96.2** (GHSA-3cv6-jpf6-8222). A startup check refuses a run if the isolated env is not that version. API stays on **litellm==1.83.0**.
+- Each project has one notes file (default `.atelier/NOTES.md`). Workers receive it; they cannot edit it. After a supervisor approves a task, `advance` updates the file from the handoff (stable facts only), commits it on the task branch, and records it on the task board.
 
-## Real test results
-- `RUN_REAL_LLM_TESTS=1` was not executed (no Settings key).
-- Passes needed to switch seeds: 2 of 3. Actual: **0 of 3** (not started). Seeds remain `loop`.
+## Isolated litellm pin
+- Advisory: [GHSA-3cv6-jpf6-8222](https://github.com/BerriAI/litellm/security/advisories/GHSA-3cv6-jpf6-8222) (authenticated SSRF / credential exfiltration).
+- Unsafe: main line `<1.94.0`, plus 1.93.0–1.93.1, 1.94.0–1.94.2, 1.95.0, 1.96.0–1.96.1. `openhands-sdk==1.51.0` asks for `litellm>=1.93.0`; 1.93.0 is not safe.
+- Pin: **1.96.2** (published 2026-08-11, older than the 2026-10-06 two-week floor). Transitive pins in `api/runtime/openhands/requirements.lock`.
+- `ProcessOpenHandsClient` refuses to start if `import litellm; litellm.__version__` is not `1.96.2`.
+
+## Live OpenHands run
+- The Settings encrypted store (`~/.atelier-projects/.secrets/providers`) still has **no `.enc` files**. Part 2 stopped. The live key was not read from env, argv, logs, or files.
+- `RUN_REAL_LLM_TESTS=1` skipped: `no provider key in the Settings encrypted store`.
+- Passes needed to switch seeds: 2 of 3. Actual: **0 of 3** (not started). Seed worker agents stay on `loop`.
 
 ## Cost comparison
-- Not measured live. OpenHands would report `llm.metrics.accumulated_cost` from the **isolated** SDK (its own `litellm>=1.93.0`). The API records that number on the run / agent / role. Our gateway's `completion_cost` still uses **litellm 1.83.0**, so a same-token total can drift if model price tables changed between those versions. Re-run this check after a Settings key exists.
+- Not measured live. OpenHands would report `accumulated_cost` from isolated litellm **1.96.2**. Gateway `completion_cost` still uses API litellm **1.83.0**. The gap is expected if price tables changed; pricing logic was not changed this session.
 
-## LiteLLM pin (not upgraded)
-- Keep **`litellm==1.83.0`**.
-- Moving to **1.93.0** does **not** look safe: published 2026-07-19, but GHSA-3cv6-jpf6-8222 (authenticated SSRF / credential exfiltration) affects `<1.94.0` and is patched in `1.93.2` / `1.96.2` (and other backports). 1.93.0 also throttles over-budget keys instead of rejecting them, and moves OpenTelemetry error attributes under `litellm.*`.
-- If we ever move, jump to a patched release at least two weeks old (not 1.93.0 itself), and re-run gateway tests. Out of scope here.
-
-## MCP wrapper
-- `POST /mcp` JSON-RPC and host-side `python -m runtime.mcp.stdio`.
-- Token in MCP child `env`, never argv, logs, or API responses (`atk_` is redacted).
-- Agent-scoped sources and skills. Calls logged as `MCP_TOOL_CALLED` with name + result size only.
+## Project notes
+- Path and size cap live on the project (`PATCH /projects/{id}`). Defaults: `.atelier/NOTES.md`, 8192 bytes.
+- Loop and OpenHands workers get the current file in task input. OpenHands also gets it as an always-loaded skill (same role as `AGENTS.md` in current OpenHands docs). We do not write `AGENTS.md` into the repo.
+- Zone check rejects worker edits to the notes path even when it sits inside the role zones.
+- On approve, `advance` extracts new stable facts from the handoff, drops task progress, rewrites shorter near the cap, commits on `task/{id}`, and adds a `notes` board event.
 
 ## Test plan
-- [x] Mocked MCP pytest: same results as direct tools; own sources/skills only; missing/wrong/expired tokens refused; token dead after the run; events have no secrets; OpenHands spec includes studio MCP + agent MCP.
-- [x] Role-name AST scan covers `api/runtime/mcp/*.py`; graph import scan still passing.
-- [x] Full API pytest: 142 passed, 7 skipped. Known tic-tac-toe PNG flake failed once (not worse).
+- [x] OpenHands run refused when isolated litellm is not 1.96.2.
+- [x] Notes file in loop and OpenHands task input.
+- [x] Worker edit of the notes file rejected (OpenHands zone check + loop `files` tool).
+- [x] Supervisor approval adds a new fact and records it on the task board; task progress is not written.
+- [x] Size limit triggers a shorter rewrite.
+- [x] Role-name AST scan covers `api/runtime/notes.py` and existing OpenHands/MCP files; graph import scan still passing.
+- [x] Full API pytest: 149 passed, 7 skipped. Known tic-tac-toe PNG size flake failed (not worse; screenshot dimensions only).
 - [x] Vitest 80 passed; typecheck passed.
-- [ ] Real OpenHands + Docker e2e: blocked on Settings key.
+- [ ] Real OpenHands + Docker e2e ×3: blocked on Settings key.
 
 ## Out of scope / follow-ups
 - Save a provider key in Settings, then run `RUN_REAL_LLM_TESTS=1` three times and switch seeds if 2/3 pass.
 - Live cost comparison vs gateway 1.83.0.
-- Notes/memory, QA, badges, fallbacks, automation defaults, supervisor graph, main litellm pin.
+- Long-term cross-project memory, QA role, suggestion badges, fallback models, automation defaults, API litellm pin, supervisor graph structure beyond the notes update in `advance`.

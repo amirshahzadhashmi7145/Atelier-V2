@@ -305,9 +305,37 @@ def test_origin_remote_is_the_github_url():
     assert url == "https://github.com/amirshahzadhashmi7145/Atelier-V2.git"
 
 
+def _studio_secrets() -> Path:
+    return Path.home() / ".atelier-projects" / ".secrets"
+
+
 def _settings_key_present() -> bool:
-    studio = Path.home() / ".atelier-projects" / ".secrets" / "providers"
+    studio = _studio_secrets() / "providers"
     return bool(studio.is_dir() and list(studio.glob("*.enc")))
+
+
+def _hydrate_studio_secrets() -> bool:
+    src = _studio_secrets()
+    if not _settings_key_present():
+        return False
+    dest = Path(os.environ.get("PROJECTS_DIR") or "") / ".secrets"
+    if not dest.parent.exists():
+        return False
+    shutil.copytree(src, dest, dirs_exist_ok=True)
+    return dest.joinpath("providers").is_dir() and bool(list(dest.joinpath("providers").glob("*.enc")))
+
+
+def _gateway_price(events: list[dict], model: str) -> float:
+    total = 0.0
+    for item in events or []:
+        usage = item.get("token_usage") or item.get("usage") or {}
+        if not isinstance(usage, dict):
+            continue
+        inp = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+        out = usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        if inp or out:
+            total += llm.cost_usd(model, {"input_tokens": int(inp), "output_tokens": int(out)})
+    return round(total, 6)
 
 
 def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient):
@@ -323,6 +351,7 @@ def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient)
         import pytest
 
         pytest.skip("no provider key in the Settings encrypted store")
+    assert _hydrate_studio_secrets()
     from test_s13_lead import lead_agent, wait_plan, wait_until
     from test_engine import wait_status
 
@@ -340,3 +369,16 @@ def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient)
     assert kids
     assert all(board.last_handoff(item) for item in kids)
     assert any(item.get("engine") == "openhands" for item in db.listing("run") if item.get("kind") == "worker")
+    oh_runs = [item for item in db.listing("run") if item.get("kind") == "worker" and item.get("engine") == "openhands"]
+    for run in oh_runs:
+        arts = [item for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("name") == "openhands.jsonl"]
+        events: list[dict] = []
+        for art in arts:
+            for line in (art.get("text") or "").splitlines():
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        reported = float(run.get("costUsd") or 0)
+        gateway = _gateway_price(events, (run.get("model") or {}).get("name") or "gpt-4.1-mini")
+        db.put("cost-compare", run["id"], {"openhandsUsd": reported, "gatewayUsd": gateway, "gapUsd": round(reported - gateway, 6)})

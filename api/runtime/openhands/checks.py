@@ -65,8 +65,23 @@ def build_violation(run: dict, folder: Path) -> str | None:
     return f"build_test failed: {tail}"
 
 
+def protected_violation(project: dict | None, files: list[str]) -> str | None:
+    from runtime import notes
+
+    bad = [path for path in files if notes.is_protected(path, project)]
+    if not bad:
+        return None
+    return "changed protected notes file: " + ", ".join(bad)
+
+
 def reject_reason(agent: dict, run: dict, folder: Path, files: list[str], before: set[str]) -> str | None:
-    return zone_violation(agent, files) or package_violation(agent, folder, before) or build_violation(run, folder)
+    project = db.get("project", run.get("projectId") or "") if run.get("projectId") else None
+    return (
+        protected_violation(project, files)
+        or zone_violation(agent, files)
+        or package_violation(agent, folder, before)
+        or build_violation(run, folder)
+    )
 
 
 def auto_feedback(task: dict, reason: str) -> dict:

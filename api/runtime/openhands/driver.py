@@ -9,6 +9,21 @@ import threading
 from pathlib import Path
 
 
+def _agent_context(text: str):
+    try:
+        from openhands.sdk import AgentContext
+        from openhands.sdk.context import Skill
+    except Exception:
+        try:
+            from openhands.sdk.context import AgentContext, Skill
+        except Exception:
+            return None
+    try:
+        return AgentContext(skills=[Skill(name="project-notes", content=text, trigger=None)])
+    except Exception:
+        return None
+
+
 def _secret(value: str | None):
     try:
         from pydantic import SecretStr
@@ -80,15 +95,21 @@ def main() -> int:
     from openhands.workspace import DockerWorkspace
 
     llm = LLM(model=model, api_key=_secret(key), base_url=os.environ.get("LLM_BASE_URL") or None)
-    agent = Agent(
-        llm=llm,
-        tools=[
+    kwargs = {
+        "llm": llm,
+        "tools": [
             Tool(name=TerminalTool.name),
             Tool(name=FileEditorTool.name),
             Tool(name=TaskTrackerTool.name),
         ],
-        mcp_config=spec.get("mcp") or {},
-    )
+        "mcp_config": spec.get("mcp") or {},
+    }
+    instructions = spec.get("repo_instructions") or ""
+    if instructions:
+        context = _agent_context(instructions)
+        if context is not None:
+            kwargs["agent_context"] = context
+    agent = Agent(**kwargs)
     error = None
     conversation = None
     try:

@@ -51,9 +51,13 @@ export function TaskDetail({ projectId, taskId }: { projectId: string; taskId: s
             </section>
             {board.events.map((event, index) => (
               <article key={`${event.kind}-${index}`} className="rounded border p-3" data-board-kind={event.kind}>
-                <p className="text-xs uppercase text-muted-foreground">{event.kind === "handoff" ? "Handoff note" : "Review feedback"}</p>
+                <p className="text-xs uppercase text-muted-foreground">
+                  {event.kind === "handoff" ? "Handoff note" : event.kind === "notes" ? "Project notes" : "Review feedback"}
+                </p>
                 {event.kind === "handoff" ? (
                   <HandoffBody event={event as unknown as Record<string, unknown>} />
+                ) : event.kind === "notes" ? (
+                  <NotesBody event={event as unknown as Record<string, unknown>} />
                 ) : (
                   <FeedbackBody event={event as unknown as Record<string, unknown>} />
                 )}
@@ -80,6 +84,15 @@ function HandoffBody({ event }: { event: Record<string, unknown> }) {
         </p>
       ))}
       {questions.length ? <p>Open questions: {questions.join("; ")}</p> : null}
+    </div>
+  )
+}
+
+function NotesBody({ event }: { event: Record<string, unknown> }) {
+  return (
+    <div className="mt-2 flex flex-col gap-2 text-sm">
+      <p className="whitespace-pre-wrap">{String(event.summary ?? "")}</p>
+      {event.path ? <p className="text-xs text-muted-foreground">{String(event.path)}</p> : null}
     </div>
   )
 }
