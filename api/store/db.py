@@ -23,6 +23,7 @@ class Document(Base):
 
 
 _engine = None
+_generation = 0
 LOCK = threading.RLock()
 
 
@@ -42,16 +43,21 @@ def engine():
 
 
 def reset_engine() -> None:
-    global _engine
+    global _engine, _generation
     if _engine is not None:
         _engine.dispose()
     _engine = None
+    _generation += 1
     try:
         from runtime.supervisor.graph import reset_compiled
 
         reset_compiled()
     except Exception:
         pass
+
+
+def generation() -> int:
+    return _generation
 
 
 def session() -> Session:

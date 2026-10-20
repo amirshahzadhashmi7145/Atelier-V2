@@ -30,6 +30,7 @@ def drive(run_id: str) -> None:
     run = db.get("run", run_id)
     if run is None:
         return
+    run["_gen"] = db.generation()
     workspace = db.get("workspace", run_id) or {}
     run["folder"] = workspace.get("folder")
     agent = db.get("agent", run["agentId"]) or {}
@@ -64,7 +65,7 @@ def drive(run_id: str) -> None:
     db.put("run-track", run_id, track)
     model_call_index = 0
     for _ in range(max_iterations):
-        if _cancelled(run_id):
+        if _cancelled(run_id) or not _alive(run):
             return
         if time.time() - started > max_minutes * 60:
             _fail(run, "timeout", "The run exceeded the time limit.", recent)
@@ -429,7 +430,7 @@ def _pause(run: dict, status: str, event_type: str, payload: dict) -> bool:
 def _finish_run(run: dict) -> None:
     from runtime import project_runs
 
-    if not run.get("projectId"):
+    if not _alive(run) or not run.get("projectId"):
         return
     if run.get("spendRecorded"):
         project_runs.drain(run["projectId"])
@@ -475,6 +476,8 @@ def _complete(run: dict, summary: dict) -> None:
     run["summary"] = summary
     run["endedAt"] = db.now()
     run.update({key: value for key, value in git.items() if value})
+    if not _alive(run):
+        return
     db.append_event(run["id"], "RUN_COMPLETED", {"summary": summary, **{key: value for key, value in git.items() if value}})
     run["status"] = "completed"
     db.put("run", run["id"], _public(run))
@@ -638,6 +641,8 @@ def _plain(call: dict) -> str:
 
 
 def _fail(run: dict, cause: str, text: str, recent: list[str] | None = None) -> None:
+    if not _alive(run):
+        return
     doing = ", ".join((recent or [])[-3:]) or "starting the task"
     text = f"I was {doing}. Cause: {text}"
     run["terminalCause"] = cause
@@ -695,8 +700,15 @@ def _say(run: dict, text: str) -> None:
     )
 
 
+def _alive(run: dict | None) -> bool:
+    gen = None if run is None else run.get("_gen")
+    return gen is None or gen == db.generation()
+
+
 def _persist_run(run: dict) -> bool:
     """Keep a user stop from being overwritten by the worker's in-memory copy."""
+    if not _alive(run):
+        return False
     fresh = db.get("run", run["id"]) or {}
     if fresh.get("status") == "cancelled" and run.get("status") != "cancelled":
         run["status"] = "cancelled"
@@ -723,7 +735,7 @@ def _cancelled(run_id: str) -> bool:
 
 
 def _public(run: dict) -> dict:
-    return {key: value for key, value in run.items() if key != "folder" and key != "answer"}
+    return {key: value for key, value in run.items() if key not in ("folder", "answer", "_gen")}
 
 
 def _short(value) -> str:
