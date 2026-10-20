@@ -96,8 +96,9 @@ def resume_supervisor(parent_task_id: str, value=True) -> None:
         return
     with _lock:
         live = _threads.get(parent_task_id)
-        if live and live.is_alive():
-            return
+    if live is not None and live.is_alive():
+        live.join(timeout=5)
+    with _lock:
         thread = threading.Thread(
             target=_invoke_resume,
             args=(parent_task_id, value),

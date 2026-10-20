@@ -34,6 +34,7 @@ def get_checkpointer() -> SqliteSaver:
     if path != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     _conn = sqlite3.connect(path, check_same_thread=False)
+    _conn.execute("PRAGMA journal_mode=WAL")
     _saver = SqliteSaver(_conn)
     _saver.setup()
     return _saver

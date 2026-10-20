@@ -215,6 +215,7 @@ def drive(run_id: str) -> None:
                     return
                 continue
             if result.get("done"):
+                db.append_event(run_id, "TOOL_RESULT", {"name": call["name"], "output": _short(result_text)})
                 track["transcript"] = transcript
                 db.put("run-track", run_id, track)
                 _complete(run, result.get("summary") or {})
@@ -496,20 +497,17 @@ def _complete(run: dict, summary: dict) -> None:
     if run.get("kind") == "review":
         _finish_run(run)
         return
-    if run.get("taskId"):
+    if run.get("taskId") and run.get("kind") != "lead":
         task = db.get("task", run["taskId"])
         if task:
-            if run.get("kind") == "lead":
-                leadlib.publish_plan(run)
-            else:
-                task["status"] = "completed"
-                task["summary"] = summary["description"]
-                task["diffRef"] = run["id"]
-                shots = [item["id"] for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("kind") == "screenshot"]
-                task["screenshotRefs"] = shots
-                db.put("task", task["id"], task)
-                if not leadlib.is_lead(agent):
-                    board.write_handoff(run, task, summary)
+            task["status"] = "completed"
+            task["summary"] = summary["description"]
+            task["diffRef"] = run["id"]
+            shots = [item["id"] for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("kind") == "screenshot"]
+            task["screenshotRefs"] = shots
+            db.put("task", task["id"], task)
+            if not leadlib.is_lead(agent):
+                board.write_handoff(run, task, summary)
     if project and run.get("kind") != "lead":
         reply = summary["description"]
         if git.get("prUrl"):
