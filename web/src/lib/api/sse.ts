@@ -36,7 +36,7 @@ export async function readEventStream(
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
-  const seen = new Set<number>()
+  const seen = new Set<string>()
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -44,8 +44,19 @@ export async function readEventStream(
     const parsed = parseSseChunk(buffer)
     buffer = parsed.rest
     for (const frame of parsed.frames) {
-      if (frame.id <= after || seen.has(frame.id)) continue
-      seen.add(frame.id)
+      if (!frame.data) continue
+      let key = String(frame.id)
+      let seq = frame.id
+      try {
+        const payload = JSON.parse(frame.data) as { id?: string; seq?: number; type?: string }
+        if (payload.id) key = payload.id
+        if (typeof payload.seq === "number") seq = payload.seq
+        if (payload.type !== "MODEL_DELTA" && seq > 0 && seq <= after) continue
+      } catch {
+        if (seq > 0 && seq <= after) continue
+      }
+      if (seen.has(key)) continue
+      seen.add(key)
       onFrame(frame)
     }
   }

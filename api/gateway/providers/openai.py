@@ -67,13 +67,15 @@ class OpenAIProvider:
         mock_turns.PROMPTS.append(messages)
         turn = mock_turns.next_mock(messages)
         usage = turn.get("usage", {"input_tokens": 10, "output_tokens": 10})
+        pace = float(os.environ.get("STREAM_PACE_MS") or 0) / 1000
         if turn.get("deltas"):
             for piece in turn["deltas"]:
                 yield {"kind": "delta", "text": piece["text"], "call": piece.get("call"), "index": piece.get("index")}
+                if pace:
+                    time.sleep(pace)
             yield self._done(turn, usage)
             return
         text = turn.get("content") or ""
-        pace = float(os.environ.get("STREAM_PACE_MS") or 0) / 1000
         if stream and text:
             words = text.split(" ")
             for index, word in enumerate(words):

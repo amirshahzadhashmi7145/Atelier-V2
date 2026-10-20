@@ -55,4 +55,23 @@ describe("event stream", () => {
     })
     expect(ids).toEqual([2])
   })
+
+  it("keeps live deltas when the SSE id is 0 or the resume seq is later", async () => {
+    const body = [
+      `id: 0\nevent: MODEL_DELTA\ndata: ${JSON.stringify({ id: "delta_a_1", seq: 1_000_001, type: "MODEL_DELTA" })}\n\n`,
+      `id: 1000002\nevent: MODEL_DELTA\ndata: ${JSON.stringify({ id: "delta_a_2", seq: 1_000_002, type: "MODEL_DELTA" })}\n\n`,
+      `id: 2\nevent: MODEL_OUTPUT\ndata: ${JSON.stringify({ id: "e2", seq: 2, type: "MODEL_OUTPUT" })}\n\n`,
+    ].join("")
+    const original = globalThis.fetch
+    globalThis.fetch = async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })
+    try {
+      const ids: string[] = []
+      await readEventStream("http://localhost/runs/stream-delta/events", 2, (frame) => {
+        ids.push((JSON.parse(frame.data) as { id: string }).id)
+      })
+      expect(ids).toEqual(["delta_a_1", "delta_a_2"])
+    } finally {
+      globalThis.fetch = original
+    }
+  })
 })

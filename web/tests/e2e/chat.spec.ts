@@ -121,8 +121,8 @@ test("interleaved model calls stay in two bubbles", async ({ page, request }) =>
   await openChat(page, "Bubbles", "Bubble Agent")
   await page.getByLabel("Message").fill("interleave-bubbles please")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("[data-bubble]").nth(0)).toContainText("First bubble.", { timeout: 20_000 })
-  await expect(page.locator("[data-bubble]").nth(1)).toContainText("Second bubble.")
+  await expect(page.locator("[data-bubble='a']")).toContainText("First bubble.", { timeout: 20_000 })
+  await expect(page.locator("[data-bubble='b']")).toContainText("Second bubble.")
 })
 
 test("hello gets a direct reply and no run", async ({ page, request }) => {
