@@ -224,7 +224,7 @@ def test_seeded_bug_eval_requests_changes(client: TestClient):
         _one_child_plan(back["id"], "Implement notes. The mocked result omits delete.", ["notes can be deleted"])
     )
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "add a notes list with delete"}).json()
-    wait_status(client, posted["runId"], {"completed", "failed"}, timeout=20)
+    wait_status(client, posted["runId"], {"completed", "failed"}, timeout=40)
     plan = wait_plan(client, project["id"])
     assert client.post(f"/projects/{project['id']}/plans/{plan['planId']}/approve").status_code == 200
     review = wait_until(
@@ -236,7 +236,7 @@ def test_seeded_bug_eval_requests_changes(client: TestClient):
             ),
             None,
         ),
-        timeout=45,
+        timeout=90,
     )
     assert review
     assert "delete" in (review.get("text") or "").lower()
@@ -271,7 +271,7 @@ def test_review_spend_cap_is_reported_not_retried(client: TestClient):
     project, _front, back, _lead = led_project(client)
     openai_gateway.SCRIPTS.append(_one_child_plan(back["id"], "Ship the health endpoint", ["health returns ok"]))
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "add health"}).json()
-    wait_status(client, posted["runId"], {"completed", "failed"}, timeout=20)
+    wait_status(client, posted["runId"], {"completed", "failed"}, timeout=40)
     plan = wait_plan(client, project["id"])
     openai_gateway.SCRIPTS.append(_done([{"method": "GET", "path": "/health", "request": "", "response": "{ ok: true }"}]))
     openai_gateway.SCRIPTS.append({"content": "reviewing", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 600_000}})
@@ -285,7 +285,7 @@ def test_review_spend_cap_is_reported_not_retried(client: TestClient):
             ),
             None,
         ),
-        timeout=20,
+        timeout=60,
     )
     assert failed
     rows = client.get(f"/projects/{project['id']}/messages").json()

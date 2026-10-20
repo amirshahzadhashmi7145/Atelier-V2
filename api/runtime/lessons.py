@@ -34,7 +34,7 @@ def for_prompt(role_key: str) -> str:
     rows = for_role(role_key)
     if not rows:
         return "# Role lessons\n(none yet)"
-    lines = ["# Role lessons", "Apply these. Do not treat them as task-specific facts."]
+    lines = ["# Role lessons", "Apply these. Do not treat them as facts about one task."]
     for item in rows:
         lines.append(f"- {item.get('text') or ''}")
     return "\n".join(lines)

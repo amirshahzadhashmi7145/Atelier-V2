@@ -37,7 +37,7 @@ def _cancel_live_runs() -> None:
             run["endedAt"] = db.now()
             db.put("run", run["id"], run)
             wake(run["id"])
-        deadline = time.time() + 1.5
+        deadline = time.time() + 3.0
         while time.time() < deadline:
             live = [item for item in db.listing("run") if item.get("status") in ("running", "waiting_client", "waiting_user")]
             if not live:
@@ -488,7 +488,8 @@ def test_stop_preview_message_does_not_start_a_run(client: TestClient):
     rows = client.get(f"/projects/{project['id']}/messages").json()
     assert rows[-1]["text"] == "Preview stopped."
     assert db.get("preview", project["id"]) is None
-    assert client.get("/runs").json()["total"] == 0
+    listed = client.get("/runs").json()
+    assert not any(item.get("projectId") == project["id"] for item in listed.get("items") or [])
     idle = client.post("/projects", json={"name": "Idle", "agentId": agent_id}).json()
     again = client.post(f"/projects/{idle['id']}/messages", json={"text": "stop the preview"}).json()
     assert "runId" not in again

@@ -172,7 +172,6 @@ export function ChatScreen({
               className="flex h-full flex-col gap-3 overflow-y-auto [scrollbar-width:thin]"
             >
               {(messages.data ?? []).map((message) => {
-                const replied = (messages.data ?? []).some((item) => item.role === "agent" && item.runId === message.runId)
                 const prior = (messages.data ?? []).find((item) => item.role === "user" && item.runId === message.runId)?.text ?? ""
                 return (
                   <article key={message.id} className="flex flex-col gap-2 rounded border p-3">
@@ -211,7 +210,7 @@ export function ChatScreen({
                       <RunFollow
                         message={message}
                         renderRun={renderRun}
-                        streaming={message.role === "user" && !replied}
+                        streaming={message.role === "user"}
                         prior={prior}
                         onActivity={() => setActivity((value) => value + 1)}
                       />
@@ -713,6 +712,7 @@ function LiveText({
   const [retrying, setRetrying] = useState(false)
   const [phase, setPhase] = useState("Starting run…")
   const seen = useRef(new Set<string>())
+  const sealed = useRef(new Set<string>())
   const notify = useRef(onActivity)
   const waitHint = modelWaitHint(model)
   const waitHintRef = useRef(waitHint)
@@ -731,8 +731,9 @@ function LiveText({
       seen.current.add(event.id)
       if (event.type !== "MODEL_DELTA") seq = Math.max(seq, event.seq)
       if (event.type === "MODEL_DELTA") {
-        setPhase("Model responding…")
         const callId = String(event.payload.modelCallId ?? event.payload.callId ?? "call")
+        if (sealed.current.has(callId)) return
+        setPhase("Model responding…")
         const index = Number(event.payload.index ?? 0)
         setBubbles((current) => placeDelta(current, callId, index, String(event.payload.text ?? "")))
         notify.current?.()
@@ -740,11 +741,13 @@ function LiveText({
       if (event.type === "MODEL_OUTPUT") {
         const callId = String(event.payload.modelCallId ?? event.payload.callId ?? "call")
         const text = String(event.payload.text ?? "")
+        sealed.current.add(callId)
         setBubbles((current) => {
           const index = current.findIndex((item) => item.callId === callId)
           if (index === -1) return placeDelta(current, callId, 1, text)
           const copy = current.slice()
-          copy[index] = { callId, parts: new Map([[1, text]]) }
+          const existing = bubbleText(copy[index])
+          copy[index] = { callId, parts: new Map([[1, text.length >= existing.length ? text : existing]]) }
           return copy
         })
         notify.current?.()
@@ -891,12 +894,11 @@ function RunFollow({
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not try again"),
   })
   const runModel = run.data?.model
-  if (!run.data) return streaming ? <LiveText runId={runId} model={runModel} onActivity={onActivity} /> : null
   if (streaming) {
     return (
       <div className="flex flex-col gap-2">
         <LiveText runId={runId} model={runModel} onActivity={onActivity} />
-        {running.has(run.data.status) ? (
+        {run.data && running.has(run.data.status) ? (
           <Button type="button" variant="outline" onClick={() => setExpanded((value) => !value)}>
             {expanded ? "Collapse" : "Working"}
           </Button>
@@ -905,6 +907,7 @@ function RunFollow({
       </div>
     )
   }
+  if (!run.data) return null
   if (message.role === "agent" && run.data.status === "failed") {
     return (
       <Button type="button" variant="outline" disabled={retry.isPending} onClick={() => retry.mutate()}>
