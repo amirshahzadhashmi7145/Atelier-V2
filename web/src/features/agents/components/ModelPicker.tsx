@@ -20,6 +20,7 @@ export function ModelPicker({
   onChange,
   allowEmpty = false,
   emptyLabel = "Choose a model",
+  label = "Model",
 }: {
   models: Model[]
   value: string
@@ -28,6 +29,7 @@ export function ModelPicker({
   onChange: (name: string) => void
   allowEmpty?: boolean
   emptyLabel?: string
+  label?: string
 }) {
   const [query, setQuery] = useState("")
   const needle = query.trim().toLowerCase()
@@ -49,9 +51,14 @@ export function ModelPicker({
   const reason = stat?.reason || (stat && stat.runs < 5 ? "not enough data yet" : pick?.reason)
   return (
     <div className="flex flex-col gap-2">
-      <Input aria-label="Search models" value={query} placeholder="Search models" onChange={(event) => setQuery(event.target.value)} />
+      <Input
+        aria-label={label === "Model" ? "Search models" : `Search ${label.toLowerCase()}s`}
+        value={query}
+        placeholder="Search models"
+        onChange={(event) => setQuery(event.target.value)}
+      />
       <select
-        aria-label="Model"
+        aria-label={label}
         className="h-8 rounded-lg border border-input bg-background px-2.5 text-sm text-foreground"
         title={selected.note}
         value={value}

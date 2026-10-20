@@ -381,6 +381,7 @@ export function AgentEditor({ id }: { id: string }) {
               tags={tagsQuery.data}
               allowEmpty
               emptyLabel="No backup"
+              label="Backup model"
               onChange={(name) => {
                 if (!name) {
                   patch({ backupModel: undefined })

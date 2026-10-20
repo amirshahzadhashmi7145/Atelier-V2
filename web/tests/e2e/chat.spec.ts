@@ -328,7 +328,11 @@ test("a team lead plan can be edited and approved and the review verdict shows",
     },
   })
   await page.goto("/settings/runs")
-  await expect(page.getByLabel("Approve plans before running")).toBeChecked()
+  const approvePlans = page.getByLabel("Approve plans before running")
+  await expect(approvePlans).not.toBeChecked()
+  await approvePlans.check()
+  await page.getByRole("button", { name: "Save" }).click()
+  await expect(page.getByText("Run settings saved")).toBeVisible()
   await openChat(page, "LeadReview", "S13 Team Lead")
   await page.getByLabel("Add agent to project").selectOption({ label: "S13 Backend Engineer" })
   await page.getByRole("button", { name: "Add agent to project" }).click()
