@@ -50,13 +50,17 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
     run = _open_run(project, agent, task)
     work = None
     client = None
+    token = None
     try:
+        from runtime.mcp import tokens
+
+        settings = db.get("settings", "runs") or {}
+        minutes = int(settings.get("maxMinutes") or 45)
+        token = tokens.issue(run["id"], ttl_sec=max(60, minutes * 60))
         prompt = packet.task_packet(task, agent)
         work = sandbox.prepare(project, task)
         before = checks.snapshot_packages(work.folder)
-        settings = db.get("settings", "runs") or {}
         cap = float(5 if settings.get("maxSpendPerRunUsd") is None else settings.get("maxSpendPerRunUsd"))
-        minutes = int(settings.get("maxMinutes") or 45)
         recorded = [0.0]
 
         def on_cost(usd: float) -> None:
@@ -76,7 +80,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 prompt=prompt,
                 model=_model_id(agent),
                 api_key=_api_key(agent),
-                mcp=packet.mcp_config(agent),
+                mcp=packet.mcp_config(agent, token=token),
                 timeout_sec=max(30, minutes * 60),
                 on_cost=on_cost,
             )
@@ -117,6 +121,10 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         _finish(run, "failed", keys.redact(str(exc)), touch_task=True)
         return {"taskId": task["id"], "runId": run["id"], "handoffId": None, "status": "failed"}
     finally:
+        if token:
+            from runtime.mcp import tokens
+
+            tokens.revoke(run["id"])
         if client is not None:
             try:
                 client.cleanup()

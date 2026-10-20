@@ -280,6 +280,7 @@ def test_mcp_servers_are_passed_through(client: TestClient):
     mcp = (fake.last_spec.mcp if fake.last_spec else {}) or {}
     servers = mcp.get("mcpServers") or {}
     assert "docs-mcp" in servers
+    assert "atelier" in servers
     assert "search_data" not in servers
     assert "load_skill" not in servers
 
@@ -304,6 +305,11 @@ def test_origin_remote_is_the_github_url():
     assert url == "https://github.com/amirshahzadhashmi7145/Atelier-V2.git"
 
 
+def _settings_key_present() -> bool:
+    studio = Path.home() / ".atelier-projects" / ".secrets" / "providers"
+    return bool(studio.is_dir() and list(studio.glob("*.enc")))
+
+
 def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient):
     if os.environ.get("RUN_REAL_LLM_TESTS") != "1":
         import pytest
@@ -313,6 +319,10 @@ def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient)
         import pytest
 
         pytest.skip("docker is required for the live OpenHands run")
+    if not _settings_key_present():
+        import pytest
+
+        pytest.skip("no provider key in the Settings encrypted store")
     from test_s13_lead import lead_agent, wait_plan, wait_until
     from test_engine import wait_status
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
 
 _HINT_SHORT = "••••"
-_SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|AIza[A-Za-z0-9_-]{8,})")
+_SECRET_RE = re.compile(r"(sk-[A-Za-z0-9_-]{8,}|AIza[A-Za-z0-9_-]{8,}|atk_[A-Za-z0-9_-]{8,})")
 _KNOWN: dict[str, str] = {}
 
 
