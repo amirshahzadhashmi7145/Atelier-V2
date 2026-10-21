@@ -57,6 +57,9 @@ def patch_agent(id: str, body: dict):
     if agent is None:
         return missing()
     for key in ("name", "roleKey", "description", "model", "backupModel", "toolIds", "skillIds", "stackIds", "zones", "scope", "reportsTo", "capabilities", "workerEngine"):
+        if key == "workerEngine":
+            agent["workerEngine"] = "openhands"
+            continue
         if key in body:
             agent[key] = models_catalog.normalize_spec(body[key]) if key in ("model", "backupModel") else body[key]
     agent["updatedAt"] = db.now()
@@ -1232,7 +1235,7 @@ def _agent(body: dict) -> dict:
         "scope": body.get("scope") or {"does": [], "neverDoes": [], "zones": body.get("zones") or []},
         "evals": body.get("evals") or [],
         "reportsTo": body.get("reportsTo"),
-        "workerEngine": body.get("workerEngine") or "loop",
+        "workerEngine": "openhands",
         "capabilities": {
             "stacks": (body.get("capabilities") or {}).get("stacks") or stacks,
             "skills": (body.get("capabilities") or {}).get("skills") or skills,

@@ -27,9 +27,13 @@ def _status_map(state: SupervisorState, task_id: str | None, step: str) -> dict[
 
 
 def _live_children(parent_id: str) -> list[dict]:
+    from runtime import roles as rolelib
+
     rows = []
     for item in leadlib.children_of(parent_id):
         if item.get("supersededBy"):
+            continue
+        if rolelib.is_supervisor(db.get("agent", item.get("assignedAgentId") or "")):
             continue
         rows.append(item)
     return rows
@@ -61,21 +65,38 @@ def _all_approved(parent_id: str) -> bool:
     return bool(kids) and all(item.get("reviewStatus") == "approved" for item in kids)
 
 
+def _worker_children(parent_id: str) -> list[dict]:
+    from runtime import roles as rolelib
+
+    rows = []
+    for item in leadlib.children_of(parent_id):
+        if item.get("supersededBy"):
+            continue
+        owner = db.get("agent", item.get("assignedAgentId") or "")
+        if rolelib.is_supervisor(owner):
+            item["status"] = "cancelled"
+            db.put("task", item["id"], item)
+            continue
+        rows.append(item)
+    return rows
+
+
 def plan(state: SupervisorState) -> dict:
+    parent = db.get("task", state["parent_task_id"])
+    plan_row = db.get("plan", parent["planId"]) if parent and parent.get("planId") else None
     run = db.get("run", state["lead_run_id"])
-    if run and run.get("status") not in ("completed", "failed", "cancelled"):
+    if plan_row is None and run and run.get("status") not in ("completed", "failed", "cancelled"):
         from runtime.loop import drive
 
         drive(run["id"])
         run = db.get("run", state["lead_run_id"])
-    plan_row = None
-    parent = db.get("task", state["parent_task_id"])
-    if parent and parent.get("planId"):
+        parent = db.get("task", state["parent_task_id"])
+    if plan_row is None and parent and parent.get("planId"):
         plan_row = db.get("plan", parent["planId"])
     if plan_row is None and run:
         plan_row = leadlib.publish_plan(run)
         parent = db.get("task", state["parent_task_id"])
-    kids = leadlib.children_of(state["parent_task_id"])
+    kids = _worker_children(state["parent_task_id"])
     task_ids = [item["id"] for item in kids]
     status = {item["id"]: "planning" for item in kids if not item.get("supersededBy")}
     if plan_row and plan_row.get("status") != "approved":
@@ -159,6 +180,20 @@ def wait(state: SupervisorState) -> dict:
         handoff_ids.append(result["handoffId"])
     worker_status = result.get("status") or "failed"
     if worker_status != "completed" or not result.get("handoffId"):
+        child = db.get("task", task_id) or {}
+        run = db.get("run", result.get("runId") or "")
+        count = board.note_no_progress(child, run)
+        escalate = count >= 2
+        if escalate:
+            from runtime import needs
+
+            needs.write(
+                state["project_id"],
+                task_id,
+                "escalate",
+                "The same task failed with no progress twice.",
+                state.get("lead_run_id"),
+            )
         status = _status_map(state, task_id, "escalated")
         out = {
             "handoff_ids": handoff_ids,
@@ -166,6 +201,7 @@ def wait(state: SupervisorState) -> dict:
             "last_worker_status": worker_status,
             "status_by_task": status,
             "phase": "wrap_up",
+            "escalate_to_user": escalate,
         }
         steplib.publish({**state, **out})
         return out

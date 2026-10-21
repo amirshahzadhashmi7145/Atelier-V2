@@ -66,7 +66,7 @@ def publish_plan(run: dict) -> dict | None:
     parent = db.get("task", run.get("taskId") or "")
     if parent is None:
         return None
-    items = children_of(parent["id"])
+    items = [item for item in children_of(parent["id"]) if not rolelib.is_supervisor(db.get("agent", item.get("assignedAgentId") or ""))]
     if not items:
         parent["status"] = "completed"
         db.put("task", parent["id"], parent)
@@ -175,16 +175,7 @@ def start_review(author_run: dict, child: dict, reviewer: dict | None = None) ->
     child["status"] = "waiting_review"
     child["reviewerAgentId"] = lead["id"]
     db.put("task", child["id"], child)
-    criteria = child.get("acceptanceCriteria") or []
-    packet = board.rework_packet(child)
-    review_text = (
-        f"Review this task for {child.get('assignedAgentId')}.\n"
-        f"Task: {child.get('text') or ''}\n"
-        f"Criteria: {'; '.join(criteria) or 'none'}\n"
-        f"Author summary: {author_run.get('summary', {}).get('description') if isinstance(author_run.get('summary'), dict) else author_run.get('summary') or child.get('summary') or ''}\n"
-        + (f"{packet}\n" if packet else "")
-        + "Call record_review(approve or changes_requested, notes). Do not write files."
-    )
+    review_text = review_packet(child, author_run)
     from app.routes import _start_project_run
 
     handle = _start_project_run(project, lead, child, review_text, None, None, kind="review")
@@ -207,6 +198,11 @@ def apply_review(run: dict, verdict: str, notes: str, items: list | None = None)
     verdict = (verdict or "").strip().lower().replace(" ", "_")
     if verdict not in ("approve", "changes_requested"):
         return {"refused": True, "reason": "verdict must be approve or changes_requested"}
+    if verdict == "approve" and not board.handoff_covers_criteria(child, board.last_handoff(child)):
+        return {
+            "refused": True,
+            "reason": "approve needs evidence on the handoff for every acceptance criterion; request changes instead",
+        }
     project_id = child["projectId"]
     board.write_feedback(child, lead, verdict, notes, items)
     label = "Approved." if verdict == "approve" else "Changes requested."
@@ -253,11 +249,15 @@ def apply_review(run: dict, verdict: str, notes: str, items: list | None = None)
 
 
 def finish_parent(parent: dict) -> None:
-    if parent.get("status") == "completed":
+    if parent.get("status") in ("completed", "failed"):
         return
     kids = children_of(parent["id"])
     open_kids = [item for item in kids if not item.get("supersededBy") and item.get("reviewStatus") != "approved"]
     if kids and open_kids:
+        if all(item.get("status") == "failed" for item in open_kids):
+            parent["status"] = "failed"
+            parent["summary"] = "Child work failed before review."
+            db.put("task", parent["id"], parent)
         return
     project = db.get("project", parent["projectId"])
     lead = lead_of(project) if project else None
@@ -284,31 +284,59 @@ def finish_parent(parent: dict) -> None:
                 db.put("project", project["id"], project)
 
 
+def _author_diff(author: dict) -> str:
+    if author.get("gitDiff"):
+        return str(author["gitDiff"])
+    diff = db.get("diff", author.get("id") or "") or {"files": []}
+    lines = []
+    for item in (diff.get("files") or [])[:20]:
+        lines.append(f"Changed {item.get('path')}: {(item.get('after') or '')[:400]}")
+    return "\n".join(lines)
+
+
+def _author_build(author: dict) -> str:
+    recorded = author.get("buildTest") or {}
+    if recorded:
+        ok = "ok" if recorded.get("ok") else "failed"
+        return f"{ok}\n{(recorded.get('output') or '')[-4000:]}"
+    logs = [item for item in db.listing("artifact") if item.get("runId") == author.get("id") and item.get("kind") == "log"]
+    if not logs:
+        return "(not run)"
+    return (logs[-1].get("text") or logs[-1].get("output") or "")[-4000:] or f"{len(logs)} log artifact(s)"
+
+
+def review_packet(child: dict, author_run: dict | None) -> str:
+    author = author_run or {}
+    criteria = child.get("acceptanceCriteria") or []
+    packet = board.rework_packet(child)
+    lines = [
+        "# Review packet",
+        f"Review this task for {child.get('assignedAgentId')}.",
+        f"Task: {child.get('text') or ''}",
+        f"Criteria: {'; '.join(criteria) or 'none'}",
+        f"Author summary: {author.get('summary', {}).get('description') if isinstance(author.get('summary'), dict) else author.get('summary') or child.get('summary') or ''}",
+        "# Git diff",
+        _author_diff(author) or "(no diff)",
+        "# build_test",
+        _author_build(author),
+    ]
+    if packet:
+        lines.append(packet)
+    lines.append("Call record_review(approve or changes_requested, notes). Do not write files. Do not ask anyone to proceed.")
+    return "\n".join(lines)
+
+
 def review_system(run: dict, folder: Path | None) -> str:
     child = db.get("task", run.get("reviewOfTaskId") or run.get("taskId") or "") or {}
     author = db.get("run", run.get("authorRunId") or child.get("diffRef") or "") or {}
-    diff = db.get("diff", author.get("id") or "") or {"files": []}
-    logs = [item for item in db.listing("artifact") if item.get("runId") == author.get("id") and item.get("kind") == "log"]
-    shots = [item for item in db.listing("artifact") if item.get("runId") == author.get("id") and item.get("kind") == "screenshot"]
     project = db.get("project", run.get("projectId") or "") or {}
     members = memberlib.member_details(project) if project.get("id") else []
-    lines = [
-        "# Review packet",
-        f"Task: {child.get('text') or ''}",
-        f"Criteria: {'; '.join(child.get('acceptanceCriteria') or []) or 'none'}",
-        f"Author summary: {(author.get('summary') or {}).get('description') if isinstance(author.get('summary'), dict) else child.get('summary') or ''}",
-        f"Test logs: {len(logs)}",
-        f"Screenshots: {len(shots)}",
-        "# Members",
-    ]
+    lines = [review_packet(child, author), "# Members"]
     for item in members:
         lines.append(f"- {item['name']} does zones {', '.join(item.get('zones') or [])}")
     contract = contract_file.contracts_for_reader(folder, db.get("agent", run.get("agentId") or ""))
     if contract:
         lines.extend(["# API contract", contract])
-    for item in (diff.get("files") or [])[:20]:
-        lines.append(f"Changed {item.get('path')}: {(item.get('after') or '')[:400]}")
-    lines.append("Call record_review. Do not write files.")
     return "\n".join(lines)
 
 
@@ -330,5 +358,10 @@ def lead_system(project: dict, folder: Path | None) -> str:
     contract = contract_file.contracts_for_reader(folder, None)
     if contract:
         lines.extend(["# API contract", contract])
-    lines.append("Create child tasks with create_task before any implementation. Do not write application files.")
+    lines.append(
+        "Create each worker task once with create_task, then call complete. Assign only worker roles. "
+        "Never assign a supervisor as a task owner. Higher-layer supervisors review through the chain. "
+        "The graph runs workers after you finish; do not write chat asking anyone to proceed or execute. "
+        "Do not write application files."
+    )
     return "\n".join(lines)

@@ -6,48 +6,27 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from runtime import route_task, sandbox
+from runtime.tool_names import allowed_canonical, offered_name, openai_tool_defs, resolve_call, unmapped_offered
 from runtime.tool_results import READ_CAP, format_tool_result
 from store import db
 
-__all__ = ["allowed", "call_hash", "dispatch", "format_tool_result", "openai_tools", "stop_preview"]
-
-CONTROL = ["load_skill", "complete", "raise_clarification", "escalate"]
-SUPERVISOR = ["create_task", "record_review"]
+__all__ = ["allowed", "call_hash", "dispatch", "format_tool_result", "openai_tools", "stop_preview", "unmapped_offered"]
 
 
 def allowed(agent: dict) -> set[str]:
-    names = set(agent.get("toolIds") or []) | set(CONTROL)
-    from runtime import lead as leadlib
-
-    if leadlib.is_lead(agent):
-        names |= set(SUPERVISOR)
-    return names
+    return allowed_canonical(agent)
 
 
 def openai_tools(agent: dict) -> list[dict]:
-    catalog = {item["name"]: item for item in db.listing("tool")}
-    result = []
-    for name in allowed(agent):
-        tool = catalog.get(name)
-        if not tool:
-            continue
-        result.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": tool["description"],
-                    "parameters": tool["schema"],
-                },
-            }
-        )
-    return result
+    return openai_tool_defs(agent)
 
 
 def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
     agent = db.get("agent", run["agentId"]) or {}
+    name = resolve_call(name, agent)
     if name not in allowed(agent):
-        return {"refused": True, "reason": f"{name} is outside the allow-list"}
+        listed = ", ".join(sorted(offered_name(item) for item in allowed(agent)))
+        return {"refused": True, "reason": f"{name} is outside the allow-list. Allowed: {listed}"}
     folder = Path(run["folder"]) if run.get("folder") else None
     if name == "files":
         return _files(run, folder, arguments, (agent.get("scope") or {}).get("zones") or [])
@@ -97,13 +76,18 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
         if _asks_to_change_scope("\n".join(questions)):
             return {"scopeEnd": True, "reason": "You cannot enable stacks or change your own scope. Only the user can."}
         return {"clarify": "\n".join(questions), "questions": questions}
+    if name == "get_lessons":
+        from runtime import lessons
+
+        return {"output": lessons.for_prompt(agent.get("roleKey") or "")}
     if name == "escalate":
         return {"done": True, "summary": {"description": arguments.get("reason") or "Escalated", "filesChanged": [], "dependencies": [], "criteria": [], "assumptions": [], "followUps": []}}
     if name == "create_task":
         return _create_task(run, arguments)
     if name == "record_review":
         return _review(run, arguments)
-    return {"refused": True, "reason": f"unknown tool {name}"}
+    listed = ", ".join(sorted(offered_name(item) for item in allowed(agent)))
+    return {"refused": True, "reason": f"unknown tool {name}. Allowed: {listed}"}
 
 
 def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | None = None) -> dict:
@@ -486,19 +470,34 @@ def _skill(run: dict, folder: Path | None, name: str) -> dict:
     return {"output": body or f"loaded skill: {skill['name']}", "skill": skill["name"]}
 
 
+OPEN_TASK = {"planned", "queued", "running", "waiting_review", "changes_requested", "waiting_plan"}
+
+
+def _criteria_key(criteria) -> tuple:
+    return tuple(str(item).strip() for item in (criteria or []) if str(item).strip())
+
+
 def _create_task(run: dict, arguments: dict) -> dict:
+    from runtime import lead as leadlib
+    from runtime import roles as rolelib
+
     project = db.get("project", run.get("projectId"))
     if project is None:
         return {"refused": True, "reason": "no project"}
+    parent_id = arguments.get("parentTaskId") or run.get("taskId")
+    parent = db.get("task", parent_id or "")
+    if parent and parent.get("planId") and db.get("plan", parent["planId"]):
+        return {"refused": True, "reason": "the plan for this request is already published"}
     criteria = arguments.get("acceptanceCriteria") or arguments.get("criteria") or []
     if isinstance(criteria, str):
         criteria = [line.strip() for line in criteria.split("\n") if line.strip()]
+    assigned = arguments.get("assignToAgentId") or ""
     task = {
         "id": db.nid("task"),
         "projectId": project["id"],
-        "parentTaskId": arguments.get("parentTaskId") or run.get("taskId"),
+        "parentTaskId": parent_id,
         "text": arguments.get("text") or "",
-        "assignedAgentId": arguments.get("assignToAgentId") or "",
+        "assignedAgentId": assigned,
         "routedBy": "agent",
         "status": "planned",
         "summary": None,
@@ -512,6 +511,15 @@ def _create_task(run: dict, arguments: dict) -> dict:
     if not task["assignedAgentId"]:
         route_task.route_task(project, task)
         task["routedBy"] = "agent"
+    owner = db.get("agent", task.get("assignedAgentId") or "") or {}
+    if not owner or rolelib.is_supervisor(owner):
+        return {"refused": True, "reason": "supervisors never own tasks; assign a worker role"}
+    wanted = _criteria_key(task.get("acceptanceCriteria"))
+    for item in leadlib.children_of(parent_id or ""):
+        if item.get("supersededBy") or item.get("status") not in OPEN_TASK:
+            continue
+        if item.get("assignedAgentId") == task["assignedAgentId"] and _criteria_key(item.get("acceptanceCriteria")) == wanted:
+            return {"output": item["id"], "taskId": item["id"], "duplicate": True}
     db.put("task", task["id"], task)
     track = db.get("run-track", run["id"]) or {}
     created = list(track.get("createdTaskIds") or [])

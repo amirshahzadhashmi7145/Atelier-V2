@@ -163,6 +163,7 @@ class ProcessOpenHandsClient:
             "repo_instructions": spec.repo_instructions or "",
         }
         env = {key: value for key, value in os.environ.items() if key != "LLM_API_KEY"}
+        env["OPENHANDS_SUPPRESS_BANNER"] = "1"
         if spec.api_key:
             env["LLM_API_KEY"] = spec.api_key
         env["LLM_MODEL"] = spec.model
@@ -201,6 +202,8 @@ class ProcessOpenHandsClient:
                 stdout = keys.redact(stdout.replace(secret, keys.mask(secret) or "••••"))
                 stderr = keys.redact(stderr.replace(secret, keys.mask(secret) or "••••"))
         events, result = _parse_jsonl(stdout)
+        if result.get("error"):
+            raise RuntimeError(keys.redact(str(result["error"])))
         if self._proc.returncode not in (0, None) and not result:
             raise RuntimeError(keys.redact(stderr.strip() or stdout.strip() or "OpenHands process failed"))
         cost = float(result.get("costUsd") or 0)

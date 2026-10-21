@@ -44,6 +44,29 @@ def test_isolated_litellm_pin_matches_lock_and_requirements():
     assert PINNED_LITELLM == "1.96.2"
 
 
+def test_probe_isolated_version_reads_package_metadata(monkeypatch):
+    from runtime.openhands import envcheck
+
+    envcheck._cached = None
+    seen: dict[str, list[str]] = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = list(cmd)
+        class Result:
+            stdout = f"{PINNED_LITELLM}\n"
+            stderr = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr("runtime.openhands.envcheck.subprocess.run", fake_run)
+    assert envcheck.probe_isolated_version() == PINNED_LITELLM
+    blob = " ".join(seen["cmd"])
+    assert "importlib.metadata" in blob
+    assert "litellm.__version__" not in blob
+    envcheck._cached = None
+
+
 def test_openhands_run_refused_when_isolated_litellm_is_wrong(monkeypatch, tmp_path):
     monkeypatch.setattr("runtime.openhands.envcheck.probe_isolated_version", lambda: "1.93.0")
     runner = ProcessOpenHandsClient()

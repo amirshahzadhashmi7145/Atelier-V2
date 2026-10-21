@@ -16,8 +16,11 @@ STUDIO_MCP = "atelier"
 
 
 def engine_value(agent: dict | None) -> str:
-    value = (agent or {}).get("workerEngine") or "loop"
-    return "openhands" if value == "openhands" else "loop"
+    from runtime import roles as rolelib
+
+    if rolelib.is_supervisor(agent):
+        return "loop"
+    return "openhands"
 
 
 def compiled_prompt(agent: dict) -> str:
@@ -76,7 +79,7 @@ def mcp_config(agent: dict, token: str | None = None) -> dict:
             servers[tool.get("name") or tool_id] = entry
     if token:
         servers[STUDIO_MCP] = studio_mcp_server(token)
-    return {"mcpServers": servers}
+    return servers
 
 
 def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text: str | None = None) -> str:
@@ -91,7 +94,9 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
     if taught:
         lines.append(taught)
     lines.append(
-        "Commit your work on this branch. If you are blocked or need a decision, "
-        "state the open question; do not ask the user. Do not edit the project notes file."
+        "Start the app's development server in the background, open it in the browser to "
+        "verify your work, and stop that server before you finish. Commit your work on this "
+        "branch. If you are blocked or need a decision, state the open question; do not ask "
+        "the user. Do not edit the project notes file."
     )
     return "\n".join(lines).strip()

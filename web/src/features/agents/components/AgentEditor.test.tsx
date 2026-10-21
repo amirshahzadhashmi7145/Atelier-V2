@@ -40,7 +40,7 @@ function seedAgent(overrides: Record<string, unknown> = {}) {
     scope: { does: ["ui"], neverDoes: ["servers"], zones: ["src/**"] },
     evals: [],
     reportsTo: null,
-    workerEngine: "loop",
+    workerEngine: "openhands",
     capabilities: { stacks: [], skills: [], tags: [] },
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -61,10 +61,10 @@ function seedAgent(overrides: Record<string, unknown> = {}) {
 }
 
 describe("AgentEditor", () => {
-  it("hides the worker engine toggle on supervisor pages", async () => {
-    seedAgent({ name: "Team Lead", roleKey: "team-lead", toolIds: ["create_task", "record_review"] })
+  it("hides the worker engine toggle on worker and supervisor pages", async () => {
+    seedAgent()
     renderEditor("agt_test")
-    expect(await screen.findByDisplayValue("Team Lead")).toBeInTheDocument()
+    expect(await screen.findByDisplayValue("Test Agent")).toBeInTheDocument()
     expect(screen.queryByLabelText("Worker engine")).not.toBeInTheDocument()
   })
 
@@ -87,6 +87,7 @@ describe("AgentEditor", () => {
     expect(await screen.findByText("File editor")).toBeInTheDocument()
     expect(screen.getByText("Terminal")).toBeInTheDocument()
     expect(screen.getByText("Task tracker")).toBeInTheDocument()
+    expect(screen.getByText("Browser")).toBeInTheDocument()
     expect(screen.getByText(/zone, package, and build checks/)).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: /files/ })).not.toBeInTheDocument())
     expect(screen.getByRole("checkbox", { name: /search_data/ })).toBeInTheDocument()

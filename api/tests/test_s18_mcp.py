@@ -133,7 +133,7 @@ def test_token_stops_after_run_ends(client: TestClient):
     fake = FakeOpenHands(files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
     result = _run(project, task, fake)
     assert result["status"] == "completed"
-    env = ((fake.last_spec.mcp or {}).get("mcpServers") or {}).get(STUDIO_MCP, {}).get("env") or {}
+    env = ((fake.last_spec.mcp or {}).get(STUDIO_MCP) or {}).get("env") or {}
     token = env.get("ATELIER_MCP_TOKEN")
     assert token
     posted = _mcp(client, token, "tools/list")
@@ -176,7 +176,7 @@ def test_openhands_run_receives_studio_mcp_and_agent_servers(client: TestClient)
     project, task = _workspace(client, agent)
     fake = FakeOpenHands(files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
     _run(project, task, fake)
-    servers = ((fake.last_spec.mcp if fake.last_spec else {}) or {}).get("mcpServers") or {}
+    servers = (fake.last_spec.mcp if fake.last_spec else {}) or {}
     assert "docs-mcp" in servers
     assert STUDIO_MCP in servers
     assert servers[STUDIO_MCP]["args"] == ["-m", "runtime.mcp.stdio"]

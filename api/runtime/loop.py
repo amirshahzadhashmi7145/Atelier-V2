@@ -45,6 +45,10 @@ def drive(run_id: str) -> None:
     max_minutes = int(settings.get("maxMinutes") or 45)
     detect_loops = settings.get("loopDetection", True)
     openai_gateway.begin()
+    missing = tools.unmapped_offered(agent)
+    if missing:
+        _fail(run, "error", "Offered tools have no handler: " + ", ".join(missing), [])
+        return
     db.append_event(run_id, "RUN_STARTED", {})
     _status(run, "running")
     blocked = None if run.get("kind") in ("lead", "review") or leadlib.is_lead(agent) else _blocked_framework(run, agent)
@@ -186,7 +190,8 @@ def drive(run_id: str) -> None:
                 return
             if result.get("refused"):
                 db.append_event(run_id, "TOOL_REFUSED", {"name": call["name"], "reason": result["reason"]})
-                _say(run, f"{call['name']} was refused: {result['reason']}")
+                if not (run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)):
+                    _say(run, f"{call['name']} was refused: {result['reason']}")
                 continue
             if result.get("changed") is False:
                 unchanged += 1
@@ -372,13 +377,15 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
         if packet:
             system += "\n\n" + packet
     prefix: list[dict] = []
-    history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
-    history.sort(key=lambda item: item["createdAt"])
     project = project or (db.get("project", run.get("projectId")) if run.get("projectId") else None)
-    if project and project.get("summary"):
-        prefix.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
-    for item in history[-20:]:
-        prefix.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
+    supervisor = run.get("kind") in ("lead", "review") or leadlib.is_lead(agent)
+    if not supervisor:
+        history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
+        history.sort(key=lambda item: item["createdAt"])
+        if project and project.get("summary"):
+            prefix.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
+        for item in history[-20:]:
+            prefix.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
     prefix.append({"role": "user", "content": run["task"]})
     suffix: list[dict] = []
     if answer:
@@ -486,18 +493,25 @@ def _complete(run: dict, summary: dict) -> None:
         preview = tools._preview(run, Path(run["folder"]))
         if preview.get("previewUrl"):
             git["previewUrl"] = preview["previewUrl"]
+    if run.get("taskId") and not summary["criteria"]:
+        task_row = db.get("task", run["taskId"]) or {}
+        listed = ", ".join(summary.get("filesChanged") or []) or "(no files)"
+        summary["criteria"] = [
+            {"text": str(item), "evidence": f"{summary['description']} Files: {listed}"}
+            for item in task_row.get("acceptanceCriteria") or []
+        ]
+    track = db.get("run-track", run["id"]) or {}
+    run["buildTest"] = {"ok": track.get("lastBuildOk") is True, "output": track.get("lastBuildReason") or ""}
+    stored = db.get("diff", run["id"]) or {"files": []}
+    run["gitDiff"] = "\n".join(
+        f"Changed {item.get('path')}: {(item.get('after') or '')[:400]}" for item in (stored.get("files") or [])[:20]
+    )
     run["summary"] = summary
     run["endedAt"] = db.now()
     run.update({key: value for key, value in git.items() if value})
     if not _alive(run):
         return
-    db.append_event(run["id"], "RUN_COMPLETED", {"summary": summary, **{key: value for key, value in git.items() if value}})
-    run["status"] = "completed"
-    db.put("run", run["id"], _public(run))
-    if run.get("kind") == "review":
-        _finish_run(run)
-        return
-    if run.get("taskId") and run.get("kind") != "lead":
+    if run.get("taskId") and run.get("kind") not in ("lead", "review") and not leadlib.is_lead(agent):
         task = db.get("task", run["taskId"])
         if task:
             task["status"] = "completed"
@@ -506,17 +520,19 @@ def _complete(run: dict, summary: dict) -> None:
             shots = [item["id"] for item in db.listing("artifact") if item.get("runId") == run["id"] and item.get("kind") == "screenshot"]
             task["screenshotRefs"] = shots
             db.put("task", task["id"], task)
-            if not leadlib.is_lead(agent):
-                board.write_handoff(run, task, summary)
-    if project and run.get("kind") != "lead":
+            board.write_handoff(run, task, summary)
+    db.append_event(run["id"], "RUN_COMPLETED", {"summary": summary, **{key: value for key, value in git.items() if value}})
+    run["status"] = "completed"
+    db.put("run", run["id"], _public(run))
+    if run.get("kind") == "review":
+        _finish_run(run)
+        return
+    if project and run.get("kind") != "lead" and not leadlib.is_lead(agent):
         reply = summary["description"]
         if git.get("prUrl"):
             reply = reply + "\n" + git["prUrl"]
         _say(run, reply)
         refresh_summary(project["id"], run["model"]["name"])
-    elif project and run.get("kind") == "lead" and not children_waiting(run):
-        reply = summary["description"]
-        _say(run, reply)
     _finish_run(run)
 
 

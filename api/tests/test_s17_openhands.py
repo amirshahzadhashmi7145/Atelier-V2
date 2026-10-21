@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from gateway import keys, llm
@@ -91,7 +92,12 @@ def test_openhands_runner_implements_worker_runner():
     runner = get_runner()
     assert callable(runner.run)
     assert engine_of({"workerEngine": "openhands"}) == "openhands"
-    assert engine_of({}) == "loop"
+    assert engine_of({}) == "openhands"
+    from runtime.supervisor.worker import set_runner
+
+    set_runner(None)
+    assert isinstance(get_runner(), OpenHandsWorkerRunner)
+    set_runner(LoopWorkerRunner())
 
 
 def test_task_input_includes_task_criteria_handoff_and_feedback(client: TestClient):
@@ -106,6 +112,16 @@ def test_task_input_includes_task_criteria_handoff_and_feedback(client: TestClie
     assert "the heading is visible" in prompt
     assert "last pass" in prompt
     assert "Make the heading larger" in prompt
+    assert "development server in the background" in prompt
+    assert "open it in the browser" in prompt
+    assert "stop that server before you finish" in prompt
+
+
+def test_openhands_driver_registers_browser_toolset():
+    text = (ROOT / "api" / "runtime" / "openhands" / "driver.py").read_text()
+    assert "BrowserToolSet" in text
+    assert "mount_dir=" not in text
+    assert "volumes=" in text or "volumes=[" in text
 
 
 def test_zone_violation_rejects(client: TestClient):
@@ -116,6 +132,19 @@ def test_zone_violation_rejects(client: TestClient):
     assert result["handoffId"] is None
     feedback = board.latest_feedback(db.get("task", task["id"]))
     assert feedback and "zones" in (feedback.get("notes") or "")
+
+
+def test_lockfile_is_not_a_zone_violation(client: TestClient):
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    fake = FakeOpenHands(
+        files={
+            "src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n",
+            "package-lock.json": "{}",
+        }
+    )
+    result = _run(project, task, fake)
+    assert result["status"] == "completed"
 
 
 def test_off_list_package_rejects(client: TestClient):
@@ -207,6 +236,32 @@ def test_event_log_is_saved_and_linked(client: TestClient):
     assert arts
 
 
+def test_restore_host_access_skips_docker_when_readable(tmp_path, monkeypatch):
+    from runtime.openhands import sandbox
+
+    folder = tmp_path / "repo"
+    folder.mkdir()
+    (folder / "package.json").write_text("{}")
+    called: list = []
+    monkeypatch.setattr(sandbox.subprocess, "run", lambda *args, **kwargs: called.append(args))
+    sandbox.restore_host_access(folder)
+    assert called == []
+
+
+def test_openhands_sandbox_is_writable_for_container(client: TestClient):
+    from runtime.openhands import sandbox
+
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    work = sandbox.prepare(project, task)
+    try:
+        assert work.folder.stat().st_mode & 0o222
+        (work.folder / "conversations").mkdir()
+        assert "conversations" not in sandbox.changed_files(work.folder, project)
+    finally:
+        work.cleanup()
+
+
 def test_sandbox_cleanup_runs_even_after_errors(client: TestClient):
     agent = _agent(client)
     project, task = _workspace(client, agent)
@@ -243,19 +298,24 @@ def test_keys_never_appear_in_logs_sandbox_files_or_api(client: TestClient, monk
     assert SECRET not in json.dumps(fake.last_spec.prompt if fake.last_spec else {})
 
 
-def test_switching_engine_per_agent(client: TestClient):
+def test_live_workers_always_use_openhands(client: TestClient):
     loop_agent = _agent(client, engine="loop", name="Loop Worker")
     oh_agent = _agent(client, engine="openhands", name="OH Worker")
-    assert loop_agent["workerEngine"] == "loop"
+    assert loop_agent["workerEngine"] == "openhands"
     assert oh_agent["workerEngine"] == "openhands"
-    project, task = _workspace(client, oh_agent)
-    fake = FakeOpenHands(files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
-    result = _run(project, task, fake, via_loop=True)
-    assert result["status"] == "completed"
-    assert fake.last_spec is not None
     patched = client.patch(f"/agents/{oh_agent['id']}", json={"workerEngine": "loop"})
     assert patched.status_code == 200
-    assert patched.json()["workerEngine"] == "loop"
+    assert patched.json()["workerEngine"] == "openhands"
+    from runtime.supervisor.worker import set_runner
+
+    set_runner(None)
+    project, task = _workspace(client, oh_agent)
+    fake = FakeOpenHands(files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
+    set_client_factory(lambda: fake)
+    result = get_runner().run({"project_id": project["id"], "task_id": task["id"], "text": task["text"]})
+    set_runner(LoopWorkerRunner())
+    assert result["status"] == "completed"
+    assert fake.last_spec is not None
 
 
 def test_mcp_servers_are_passed_through(client: TestClient):
@@ -278,10 +338,10 @@ def test_mcp_servers_are_passed_through(client: TestClient):
     project, task = _workspace(client, agent)
     fake = FakeOpenHands(files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
     _run(project, task, fake)
-    mcp = (fake.last_spec.mcp if fake.last_spec else {}) or {}
-    servers = mcp.get("mcpServers") or {}
+    servers = (fake.last_spec.mcp if fake.last_spec else {}) or {}
     assert "docs-mcp" in servers
     assert "atelier" in servers
+    assert "mcpServers" not in servers
     assert "search_data" not in servers
     assert "load_skill" not in servers
 
@@ -353,9 +413,11 @@ def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient)
 
         pytest.skip("no provider key in the Settings encrypted store")
     assert _hydrate_studio_secrets()
+    from runtime.supervisor.worker import set_runner
     from test_s13_lead import gate_plans, lead_agent, wait_plan, wait_until
     from test_engine import wait_status
 
+    set_runner(None)
     worker = _agent(client)
     lead = lead_agent(client)
     project = client.post("/projects", json={"name": "RealOH", "agentId": worker["id"]}).json()
@@ -384,3 +446,126 @@ def test_real_openhands_frontend_task_reviewed_by_supervisor(client: TestClient)
         reported = float(run.get("costUsd") or 0)
         gateway = _gateway_price(events, (run.get("model") or {}).get("name") or "gpt-4.1-mini")
         db.put("cost-compare", run["id"], {"openhandsUsd": reported, "gatewayUsd": gateway, "gapUsd": round(reported - gateway, 6)})
+
+
+def _live_model() -> dict:
+    from gateway import openai_gateway
+
+    spec = openai_gateway.default_model_spec()
+    return {**spec, "config": spec.get("config") or {}}
+
+
+@pytest.mark.parametrize("attempt", [1, 2, 3])
+def test_real_contact_page_openhands_qa(client: TestClient, monkeypatch, attempt):
+    if os.environ.get("RUN_REAL_LLM_TESTS") != "1":
+        import pytest
+
+        pytest.skip("RUN_REAL_LLM_TESTS=1")
+    if shutil.which("docker") is None:
+        import pytest
+
+        pytest.skip("docker is required for the live OpenHands run")
+    from dotenv import load_dotenv
+    from gateway import openai_gateway
+
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+    if not _settings_key_present() and not openai_gateway.gemini_api_key() and not openai_gateway.openai_api_key():
+        import pytest
+
+        pytest.skip("no provider key in the Settings encrypted store or env")
+    _hydrate_studio_secrets()
+    monkeypatch.setenv("GATEWAY_MOCK", "0")
+    from runtime.supervisor.worker import set_runner
+    from test_s13_lead import gate_plans, lead_agent, wait_until
+    from test_s20_platform import qa_agent
+    from test_engine import wait_status
+
+    set_runner(None)
+    gate_plans(client, False)
+    settings = client.get("/settings/runs").json()
+    settings["maxSpendPerReviewUsd"] = 5
+    assert client.put("/settings/runs", json=settings).status_code == 200
+    model = {"provider": "gemini", "name": os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash", "config": {}}
+    if not openai_gateway.gemini_api_key():
+        model = _live_model()
+    from runtime.scaffold import write_vite_react_ts
+
+    zones = [
+        "src/**",
+        "app/**",
+        "public/**",
+        "index.html",
+        "vite.config.*",
+        "package.json",
+        "tsconfig*.json",
+        "tailwind.config.*",
+        "postcss.config.*",
+    ]
+    worker = _agent(client, model=model, zones=zones)
+    db.put(
+        "stack",
+        "react",
+        {
+            "id": "react",
+            "name": "React",
+            "version": "19",
+            "packageAllowList": [
+                "react",
+                "react-dom",
+                "react-router-dom",
+                "lucide-react",
+                "@types/react",
+                "@types/react-dom",
+                "vite",
+                "@vitejs/*",
+                "typescript",
+            ],
+            "enabledByDefault": True,
+        },
+    )
+    lead = lead_agent(client)
+    lead["model"] = model
+    db.put("agent", lead["id"], lead)
+    qa = qa_agent(client)
+    qa["model"] = model
+    db.put("agent", qa["id"], qa)
+    project = client.post("/projects", json={"name": f"Contact-{attempt}", "agentId": lead["id"]}).json()
+    folder = Path(project["folderPath"])
+    write_vite_react_ts(folder)
+    subprocess.run(["git", "init"], cwd=folder, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=folder, capture_output=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], cwd=folder, capture_output=True)
+    assert client.post(f"/projects/{project['id']}/members", json={"agentId": worker["id"]}).status_code == 200
+    assert client.post(f"/projects/{project['id']}/members", json={"agentId": qa["id"]}).status_code == 200
+    posted = client.post(
+        f"/projects/{project['id']}/messages",
+        json={
+            "text": (
+                'Add a /contact page with the heading "Contact us" and a form with Name, Email, '
+                "and Message fields and a Submit button. Add a link to it in the main navigation."
+            )
+        },
+    ).json()
+    wait_status(client, posted["runId"], {"completed", "failed"}, timeout=180)
+    finished = wait_until(lambda: (db.get("task", posted["taskId"]) or {}).get("status") in {"completed", "failed"}, timeout=1800)
+    assert (db.get("task", posted["taskId"]) or {}).get("status") == "completed"
+    assert finished
+    folder = Path(project["folderPath"])
+    blob = ""
+    for path in folder.rglob("*"):
+        if path.is_file() and ".git" not in path.parts and "node_modules" not in path.parts:
+            blob += path.read_text(errors="ignore")
+    assert "Contact us" in blob
+    kids = [item for item in db.listing("task") if item.get("parentTaskId") == posted["taskId"] and not item.get("supersededBy")]
+    assert kids
+    assert all(not (db.get("agent", item.get("assignedAgentId") or "") or {}).get("roleKey") in {"team-lead", "qa-engineer"} for item in kids)
+    assert all(board.last_handoff(item) for item in kids)
+    assert all(board.handoff_covers_criteria(item, board.last_handoff(item)) for item in kids)
+    assert any(item.get("engine") == "openhands" for item in db.listing("run") if item.get("kind") == "worker")
+    reviews = [item for item in db.listing("run") if item.get("projectId") == project["id"] and item.get("kind") == "review"]
+    assert any(item.get("agentId") == lead["id"] for item in reviews)
+    assert any(item.get("agentId") == qa["id"] for item in reviews)
+    rows = client.get(f"/projects/{project['id']}/messages").json()
+    agent_text = " ".join((item.get("text") or "").lower() for item in rows if item.get("role") == "agent")
+    assert "please proceed" not in agent_text
+    assert "please execute" not in agent_text

@@ -5,6 +5,7 @@
         "id": "backend-engineer",
         "name": "Backend Engineer",
         "roleKey": "backend-engineer",
+        "workerEngine": "openhands",
         "description": "Implements HTTP APIs, databases, auth, and jobs in the enabled Node stack, and leaves the server buildable.",
         "model": {
           "provider": "openai",
@@ -97,6 +98,7 @@
         "id": "frontend-engineer",
         "name": "Frontend Engineer",
         "roleKey": "frontend-engineer",
+        "workerEngine": "openhands",
         "description": "Implements UI in the stacks this agent is allowed to use, and leaves the project buildable.",
         "model": {
           "provider": "openai",

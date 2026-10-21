@@ -72,6 +72,34 @@ def lineage_ids(task: dict | None) -> list[str]:
     return ids
 
 
+def handoff_covers_criteria(task: dict | None, note: dict | None) -> bool:
+    needed = [str(item).strip() for item in (task or {}).get("acceptanceCriteria") or [] if str(item).strip()]
+    if not needed:
+        return True
+    rows = (note or {}).get("evidence") or []
+    found = {}
+    for item in rows:
+        key = str(item.get("criterion") or "").strip()
+        found[key] = str(item.get("evidence") or "").strip()
+    return all(found.get(item) for item in needed)
+
+
+def note_no_progress(task: dict | None, run: dict | None) -> int:
+    if not task:
+        return 0
+    origin = db.get("task", task.get("originTaskId") or task["id"]) or task
+    cause = str((run or {}).get("terminalCause") or "")
+    text = str((run or {}).get("fail") or "")
+    events = [item for item in db.listing("event") if item.get("runId") == (run or {}).get("id")]
+    failed = " ".join(str((item.get("payload") or {}).get("text") or "") for item in events if item.get("type") == "RUN_FAILED")
+    blob = f"{cause} {text} {failed}".lower()
+    if "no progress" not in blob:
+        return int(origin.get("noProgressCount") or 0)
+    origin["noProgressCount"] = int(origin.get("noProgressCount") or 0) + 1
+    db.put("task", origin["id"], origin)
+    return origin["noProgressCount"]
+
+
 def last_handoff(task: dict | None) -> dict | None:
     rows = [item for item in db.listing("handoff") if item.get("taskId") in set(lineage_ids(task))]
     rows.sort(key=lambda item: item.get("createdAt") or "")

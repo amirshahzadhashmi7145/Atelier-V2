@@ -22,7 +22,7 @@ class WorkerRunner(Protocol):
 
 
 class LoopWorkerRunner:
-    """Worker loop behind WorkerRunner. OpenHands is selected per agent via workerEngine."""
+    """In-process loop used as a mocked-test double. Live workers use OpenHands."""
 
     def run(self, task_input: dict) -> dict:
         task_id = task_input["task_id"]
@@ -51,12 +51,8 @@ class LoopWorkerRunner:
                 route_task(project, task)
                 task = db.get("task", task_id) or task
                 agent = db.get("agent", task.get("assignedAgentId") or "")
-        from runtime.openhands.packet import engine_value
-
-        if agent and engine_value(agent) == "openhands" and not live:
-            from runtime.openhands.runner import OpenHandsWorkerRunner
-
-            return OpenHandsWorkerRunner().run(task_input)
+        if agent is None or rolelib.is_supervisor(agent):
+            return {"taskId": task_id, "runId": None, "handoffId": None, "status": "failed"}
         run_id = (live or {}).get("id") if live else _start_worker(project_id, task)
         status = _wait_run(run_id) if run_id else "failed"
         task = db.get("task", task_id) or task
@@ -92,7 +88,7 @@ def _start_worker(project_id: str, task: dict) -> str | None:
     if agent is None or rolelib.is_supervisor(agent):
         route_task(project, task)
         agent = db.get("agent", task.get("assignedAgentId") or "")
-    if agent is None:
+    if agent is None or rolelib.is_supervisor(agent):
         return None
     from app.routes import _start_project_run
 
@@ -112,13 +108,17 @@ def _wait_run(run_id: str | None) -> str:
         time.sleep(0.05)
 
 
-_runner: WorkerRunner = LoopWorkerRunner()
+_runner: WorkerRunner | None = None
 
 
 def get_runner() -> WorkerRunner:
-    return _runner
+    if _runner is not None:
+        return _runner
+    from runtime.openhands.runner import OpenHandsWorkerRunner
+
+    return OpenHandsWorkerRunner()
 
 
 def set_runner(runner: WorkerRunner | None) -> None:
     global _runner
-    _runner = runner or LoopWorkerRunner()
+    _runner = runner

@@ -47,7 +47,7 @@ def probe_isolated_version() -> str:
         str(requirements_file()),
         "python",
         "-c",
-        "import litellm; print(litellm.__version__)",
+        "import importlib.metadata; print(importlib.metadata.version('litellm'))",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]

@@ -88,6 +88,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 backup_api_key=_backup_key(agent),
             )
         )
+        sandbox.restore_host_access(work.folder)
         run["costSource"] = "openhands"
         if result.actual_model:
             run["actualModel"] = {"name": result.actual_model}
@@ -98,6 +99,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
             on_cost(result.cost_usd)
         _save_log(run, result.events, task)
         files = sandbox.changed_files(work.folder, project)
+        run["gitDiff"] = sandbox.diff_text(work.folder)
         reason = checks.reject_reason(agent, run, work.folder, files, before)
         if reason:
             checks.auto_feedback(task, reason)

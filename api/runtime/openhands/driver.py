@@ -9,6 +9,35 @@ import threading
 from pathlib import Path
 
 
+def _mcp_servers(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    nested = raw.get("mcpServers")
+    if isinstance(nested, dict):
+        return nested
+    return raw
+
+
+def _browser_tools():
+    from openhands.sdk import Tool
+
+    for module_name, attr in (
+        ("openhands.tools.browser_use", "BrowserToolSet"),
+        ("openhands.tools.browser_use", "BrowserUseTool"),
+        ("openhands.tools.browser", "BrowserTool"),
+        ("openhands.tools.browser_tool", "BrowserTool"),
+    ):
+        try:
+            mod = __import__(module_name, fromlist=[attr])
+            cls = getattr(mod, attr)
+            name = getattr(cls, "name", None)
+            if name:
+                return [Tool(name=name)]
+        except Exception:
+            continue
+    return []
+
+
 def _agent_context(text: str):
     try:
         from openhands.sdk import AgentContext
@@ -112,8 +141,9 @@ def main() -> int:
             Tool(name=TerminalTool.name),
             Tool(name=FileEditorTool.name),
             Tool(name=TaskTrackerTool.name),
+            *_browser_tools(),
         ],
-        "mcp_config": spec.get("mcp") or {},
+        "mcp_config": _mcp_servers(spec.get("mcp")),
     }
     instructions = spec.get("repo_instructions") or ""
     if instructions:
@@ -155,7 +185,11 @@ def main() -> int:
         return conv
 
     try:
-        with DockerWorkspace(server_image=image, mount_dir=str(workspace)) as ws:
+        with DockerWorkspace(
+            server_image=image,
+            volumes=[f"{workspace.resolve()}:/workspace"],
+            working_dir="/workspace",
+        ) as ws:
             try:
                 conversation = _talk(agent)
             except BaseException as exc:

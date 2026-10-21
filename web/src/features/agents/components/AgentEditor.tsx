@@ -62,7 +62,7 @@ type Draft = {
   does: string[]
   neverDoes: string[]
   zones: string[]
-  workerEngine: "loop" | "openhands"
+  workerEngine: "openhands"
   sections: Sections
 }
 
@@ -131,7 +131,7 @@ function draftFrom(agent: Agent, sections: Sections | undefined): Draft {
     does: agent.scope?.does ?? [],
     neverDoes: agent.scope?.neverDoes ?? [],
     zones: agent.scope?.zones ?? agent.zones,
-    workerEngine: agent.workerEngine === "openhands" ? "openhands" : "loop",
+    workerEngine: "openhands",
     sections: sections ?? emptySections,
   }
 }
@@ -272,7 +272,7 @@ export function AgentEditor({ id }: { id: string }) {
   const role = (rolesQuery.data ?? []).find((item) => item.id === current?.roleKey)
   const reportsToRole = (rolesQuery.data ?? []).find((item) => item.id === role?.reportsTo)
   const supervisor = role?.kind === "supervisor"
-  const openhands = current?.workerEngine === "openhands"
+  const openhands = !supervisor
   const missingKey = (() => {
     if (providersQuery.isPending) return null
     const providers = providersQuery.data ?? []
@@ -342,20 +342,6 @@ export function AgentEditor({ id }: { id: string }) {
               <FieldLabel htmlFor="description">Description</FieldLabel>
               <Input id="description" value={current.description} onChange={(event) => patch({ description: event.target.value })} />
             </Field>
-            {supervisor ? null : (
-              <Field>
-                <FieldLabel htmlFor="workerEngine">Worker engine</FieldLabel>
-                <select
-                  id="workerEngine"
-                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                  value={current.workerEngine}
-                  onChange={(event) => patch({ workerEngine: event.target.value === "openhands" ? "openhands" : "loop" })}
-                >
-                  <option value="loop">Loop</option>
-                  <option value="openhands">OpenHands</option>
-                </select>
-              </Field>
-            )}
           </FieldGroup>
         </CardContent>
       </Card>
@@ -475,6 +461,7 @@ export function AgentEditor({ id }: { id: string }) {
                 <li>File editor</li>
                 <li>Terminal</li>
                 <li>Task tracker</li>
+                <li>Browser</li>
               </ul>
             </div>
           ) : !current.toolIds.includes("build_test") ||
@@ -532,6 +519,12 @@ export function AgentEditor({ id }: { id: string }) {
                   id: "load_skill",
                   label: "load_skill",
                   detail: "Load a skill body into the context.",
+                  badge: <PermissionBadge permission="read" />,
+                },
+                {
+                  id: "get_lessons",
+                  label: "get_lessons",
+                  detail: "Load short lessons for this agent's role.",
                   badge: <PermissionBadge permission="read" />,
                 },
               ]}

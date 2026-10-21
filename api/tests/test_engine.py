@@ -80,10 +80,13 @@ def fresh(tmp_path):
 
     live.reset()
     from runtime.openhands.client import set_client_factory
+    from runtime.supervisor.worker import LoopWorkerRunner, set_runner
 
     set_client_factory(None)
+    set_runner(LoopWorkerRunner())
     yield
     set_client_factory(None)
+    set_runner(LoopWorkerRunner())
     _cancel_live_runs()
 
 

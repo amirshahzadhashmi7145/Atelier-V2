@@ -54,7 +54,7 @@ def compile_prompt(
         if stack:
             stack_lines.append(f"{stack['name']} {stack['version']}")
     how = sections.get("instructions", "")
-    if worker:
+    if worker and include_tools:
         how = f"{how}\n{FILES_LINE}"
     parts = [
         f"# Role\n{sections.get('role', '')}",
