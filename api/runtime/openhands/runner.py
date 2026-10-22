@@ -188,8 +188,8 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         settings = db.get("settings", "runs") or {}
         minutes = int(settings.get("maxMinutes") or 45)
         token = tokens.issue(run["id"], ttl_sec=max(60, minutes * 60))
+        work = sandbox.prepare(project, task, agent)
         prompt = packet.task_packet(task, agent, project=project, notes_text=task_input.get("notes"))
-        work = sandbox.prepare(project, task)
         before = checks.snapshot_packages(work.folder)
         cap = leadlib.spend_cap(settings.get("maxSpendPerRunUsd"), 0)
         recorded = [0.0]
