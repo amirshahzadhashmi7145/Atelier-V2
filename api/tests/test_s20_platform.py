@@ -242,6 +242,29 @@ def test_user_answer_writes_to_the_board_and_resumes(client: TestClient):
     assert any((item.get("summary") or "") == "use email" for item in detail.get("events") or [])
 
 
+def test_chat_message_clears_needs_you(client: TestClient):
+    questions = {"id": "q", "name": "raise_clarification", "arguments": {"questions": ["Which auth?"]}}
+    openai_gateway.SCRIPTS.append({"tool_calls": [questions], "usage": {"input_tokens": 1, "output_tokens": 1}})
+    openai_gateway.SCRIPTS.append(_done())
+    agent_id = ready(client)
+    run = client.post("/runs", json={"agentId": agent_id, "workspace": {"kind": "scaffold", "template": "local"}, "task": "Ask"}).json()
+    wait_status(client, run["id"], {"waiting_user"})
+    project = client.post("/projects", json={"name": "Chat answer", "agentId": agent_id}).json()
+    task = {"id": "task_chat_ask", "projectId": project["id"], "assignedAgentId": agent_id, "text": "Ask", "status": "running"}
+    db.put("task", task["id"], task)
+    live = db.get("run", run["id"])
+    live["projectId"] = project["id"]
+    live["taskId"] = task["id"]
+    db.put("run", run["id"], live)
+    needs.write(project["id"], task["id"], "question", "Which auth?", run["id"])
+    assert client.get(f"/projects/{project['id']}/needs").json()
+    posted = client.post(f"/projects/{project['id']}/messages", json={"text": "use email"})
+    assert posted.status_code == 201, posted.text
+    assert client.get(f"/projects/{project['id']}/needs").json() == []
+    finished = wait_status(client, run["id"], {"completed", "failed"})
+    assert finished["status"] == "completed"
+
+
 def test_backup_model_used_only_on_provider_failure(client: TestClient, monkeypatch):
     from gateway import llm
 

@@ -3,6 +3,7 @@ import signal
 import socket
 import socketserver
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -128,30 +129,32 @@ def run_command(folder: Path, command: str, should_stop, timeout: float = 120) -
         return _docker(folder, command, should_stop, limit)
     if not command_stays_inside(folder, command):
         raise PermissionError(command)
-    process = subprocess.Popen(
-        command,
-        cwd=folder,
-        shell=True,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        start_new_session=True,
-        env={**os.environ, "CI": "1", "DEBIAN_FRONTEND": "noninteractive"},
-    )
-    started = time.time()
-    while process.poll() is None:
-        if should_stop():
-            _kill(process)
-            return 1, "stopped"
-        if time.time() - started > limit:
-            _kill(process)
-            return 1, "timed out"
-        try:
-            process.wait(timeout=0.1)
-        except subprocess.TimeoutExpired:
-            pass
-    return process.returncode or 0, (process.stdout.read() if process.stdout else "")
+    # Output goes to a temp file, not a pipe: a full pipe buffer would block the child forever.
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as output:
+        process = subprocess.Popen(
+            command,
+            cwd=folder,
+            shell=True,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env={**os.environ, "CI": "1", "DEBIAN_FRONTEND": "noninteractive"},
+        )
+        started = time.time()
+        while process.poll() is None:
+            if should_stop():
+                _kill(process)
+                return 1, "stopped"
+            if time.time() - started > limit:
+                _kill(process)
+                return 1, "timed out"
+            try:
+                process.wait(timeout=0.1)
+            except subprocess.TimeoutExpired:
+                pass
+        output.seek(0)
+        return process.returncode or 0, output.read()
 
 
 def _kill(process: subprocess.Popen) -> None:
@@ -191,6 +194,7 @@ def _docker(folder: Path, command: str, should_stop, timeout: float) -> tuple[in
             container.kill()
             container.remove()
             return 1, "timed out" if time.time() - started > timeout else "stopped"
+        time.sleep(0.2)
     logs = container.logs().decode()
     code = container.wait().get("StatusCode", 1)
     container.remove()

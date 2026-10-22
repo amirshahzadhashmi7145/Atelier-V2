@@ -1,3 +1,4 @@
+import json
 import os
 import time
 from pathlib import Path
@@ -111,6 +112,18 @@ def test_build_test_survives_broken_package_json_and_names_missing_scripts(clien
     (folder / "package.json").write_text('{"scripts": {"test": "node -e 0"}}')
     partial = tools._build(run, folder, lambda: False)
     assert partial["buildOk"] is False and 'no "build" script' in partial["output"]
+
+
+def test_build_test_uses_nested_package_json(client: TestClient, tmp_path):
+    from runtime import tools
+
+    agent_id = ready(client)
+    folder = tmp_path / "ws"
+    (folder / "server").mkdir(parents=True)
+    (folder / "server" / "package.json").write_text(json.dumps({"scripts": {"test": "node -e \"process.exit(0)\""}}))
+    run = {"id": "run_nested", "agentId": agent_id, "folder": str(folder)}
+    result = tools._build(run, folder, lambda: False)
+    assert result["buildOk"] is True
 
 
 def test_full_write_nudge_and_third_fails(client: TestClient):

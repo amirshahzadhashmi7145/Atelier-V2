@@ -289,3 +289,43 @@ def test_task_detail_lists_handoff_and_feedback_in_order(client: TestClient):
     assert body["task"]["id"] == task["id"]
     kinds = [item["kind"] for item in body["events"]]
     assert kinds == ["handoff", "feedback"]
+    assert body["agentName"] == "Web Engineer"
+
+
+def test_project_board_lists_every_agent_task(client: TestClient):
+    frontend = _worker(client, "frontend-engineer", "Web Engineer", ["user interfaces"], [])
+    backend = _worker(client, "backend-engineer", "API Engineer", ["http apis"], [], zones=["server/**"])
+    lead = lead_agent(client)
+    project = client.post("/projects", json={"name": "Shared board", "agentId": lead["id"]}).json()
+    missing = client.get("/projects/prj_missing/tasks")
+    assert missing.status_code == 404
+    empty = client.get(f"/projects/{project['id']}/tasks")
+    assert empty.status_code == 200
+    assert empty.json()["items"] == []
+    rows = []
+    for agent, text in ((frontend, "Ship the page"), (backend, "Ship the API")):
+        task = {
+            "id": db.nid("task"),
+            "projectId": project["id"],
+            "parentTaskId": None,
+            "text": text,
+            "assignedAgentId": agent["id"],
+            "status": "running",
+            "acceptanceCriteria": [],
+            "reworkCount": 0,
+            "screenshotRefs": [],
+            "summary": "",
+            "diffRef": None,
+            "routedBy": "agent",
+            "createdAt": db.now(),
+        }
+        db.put("task", task["id"], task)
+        rows.append(task)
+    listed = client.get(f"/projects/{project['id']}/tasks")
+    assert listed.status_code == 200, listed.text
+    items = listed.json()["items"]
+    ids = [item["task"]["id"] for item in items]
+    assert rows[0]["id"] in ids
+    assert rows[1]["id"] in ids
+    names = {item.get("agentName") for item in items}
+    assert names >= {"Web Engineer", "API Engineer"}

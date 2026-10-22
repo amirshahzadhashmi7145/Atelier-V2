@@ -14,9 +14,10 @@ LOCKFILES = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bu
 
 
 class Worktree:
-    def __init__(self, folder: Path, source: Path):
+    def __init__(self, folder: Path, source: Path, baseline: str = ""):
         self.folder = folder
         self.source = source
+        self.baseline = baseline
         self._closed = False
 
     def cleanup(self) -> None:
@@ -34,14 +35,19 @@ def git(folder: Path, args: list[str]) -> str:
         "GIT_AUTHOR_EMAIL": "agent@localhost",
         "GIT_COMMITTER_NAME": "Agent Studio",
         "GIT_COMMITTER_EMAIL": "agent@localhost",
+        "GIT_TERMINAL_PROMPT": "0",
     }
-    result = subprocess.run(
-        ["git", "-c", "safe.directory=*", "-c", "user.name=Agent Studio", "-c", "user.email=agent@localhost", *args],
-        cwd=folder,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-c", "user.name=Agent Studio", "-c", "user.email=agent@localhost", *args],
+            cwd=folder,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return f"git {args[0]} timed out"
     return (result.stdout or "") + (result.stderr or "")
 
 
@@ -58,9 +64,11 @@ def prepare(project: dict, task: dict) -> Worktree:
 
     git(folder, ["add", "-f", "--", notes.path_for(project)])
     git(folder, ["commit", "-m", "baseline", "--allow-empty"])
+    sha = git(folder, ["rev-parse", "HEAD"]).strip().splitlines()
+    baseline = next((line.strip() for line in reversed(sha) if line.strip() and " " not in line.strip()), "")
     git(folder, ["checkout", "-B", f"task/{task['id']}"])
     _writable_for_container(folder)
-    return Worktree(folder, source)
+    return Worktree(folder, source, baseline)
 
 
 def _writable_for_container(folder: Path) -> None:
@@ -119,15 +127,15 @@ def _readable(folder: Path) -> bool:
     return True
 
 
-def diff_text(folder: Path) -> str:
-    body = git(folder, ["diff", "HEAD"])
+def diff_text(folder: Path, baseline: str | None = None) -> str:
+    body = git(folder, ["diff", baseline or "HEAD"])
     extra = git(folder, ["ls-files", "--others", "--exclude-standard"])
     blob = (body + ("\n" + extra if extra.strip() else "")).strip()
     return blob[:20000]
 
 
-def changed_files(folder: Path, project: dict | None = None) -> list[str]:
-    names = git(folder, ["diff", "--name-only", "HEAD"]).splitlines()
+def changed_files(folder: Path, project: dict | None = None, baseline: str | None = None) -> list[str]:
+    names = git(folder, ["diff", "--name-only", baseline or "HEAD"]).splitlines()
     extra = git(folder, ["ls-files", "--others", "--exclude-standard"]).splitlines()
     seen: list[str] = []
     for name in [*names, *extra]:

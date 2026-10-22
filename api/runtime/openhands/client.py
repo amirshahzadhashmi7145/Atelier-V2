@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
@@ -16,6 +18,19 @@ from runtime.openhands.envcheck import assert_pinned, requirements_file
 PINNED = "1.51.0"
 SERVER_IMAGE = os.environ.get("OPENHANDS_SERVER_IMAGE") or f"ghcr.io/openhands/agent-server:{PINNED}-python"
 DRIVER = Path(__file__).resolve().parent / "driver.py"
+_LIVE: list["ProcessOpenHandsClient"] = []
+_LIVE_LOCK = threading.Lock()
+
+
+def cleanup_live_clients() -> None:
+    with _LIVE_LOCK:
+        clients = list(_LIVE)
+        _LIVE.clear()
+    for client in clients:
+        try:
+            client.cleanup()
+        except Exception:
+            pass
 
 
 @dataclass
@@ -27,6 +42,7 @@ class RunSpec:
     mcp: dict
     timeout_sec: int
     on_cost: Callable[[float], None] | None = None
+    on_event: Callable[[dict], None] | None = None
     repo_instructions: str = ""
     backup_model: str = ""
     backup_api_key: str | None = None
@@ -128,6 +144,9 @@ class FakeOpenHands:
             data.setdefault("name", "app")
             manifest.write_text(json.dumps(data, indent=2))
         events = list(self.events)
+        if spec.on_event:
+            for item in events:
+                spec.on_event(item)
         if self.leak_key_in == "event" and spec.api_key:
             events.append({"type": "note", "content": spec.api_key})
         if self.leak_key_in == "file" and spec.api_key:
@@ -164,6 +183,7 @@ class ProcessOpenHandsClient:
         }
         env = {key: value for key, value in os.environ.items() if key != "LLM_API_KEY"}
         env["OPENHANDS_SUPPRESS_BANNER"] = "1"
+        env["PYTHONUNBUFFERED"] = "1"
         if spec.api_key:
             env["LLM_API_KEY"] = spec.api_key
         env["LLM_MODEL"] = spec.model
@@ -191,17 +211,46 @@ class ProcessOpenHandsClient:
             text=True,
             env=env,
             cwd=str(spec.workspace),
+            bufsize=1,
+            start_new_session=True,
         )
-        try:
-            stdout, stderr = self._proc.communicate(json.dumps(payload), timeout=spec.timeout_sec + 60)
-        except subprocess.TimeoutExpired:
+        with _LIVE_LOCK:
+            if self not in _LIVE:
+                _LIVE.append(self)
+        err: list[str] = []
+
+        def _drain_err() -> None:
+            proc = self._proc
+            if proc and proc.stderr:
+                err.append(proc.stderr.read() or "")
+
+        threading.Thread(target=_drain_err, daemon=True).start()
+        finished = threading.Event()
+
+        def _kill_later() -> None:
+            if finished.wait(spec.timeout_sec + 60):
+                return
             self.cleanup()
+
+        threading.Thread(target=_kill_later, daemon=True).start()
+        try:
+            assert self._proc.stdin is not None
+            self._proc.stdin.write(json.dumps(payload))
+            self._proc.stdin.close()
+            events, result = _iter_jsonl(self._proc.stdout, spec.on_event, spec.on_cost)
+            self._proc.wait(timeout=30)
+        except Exception:
+            self.cleanup()
+            raise
+        finally:
+            finished.set()
+        if self._cleaned and not result:
             raise TimeoutError("OpenHands exceeded the run time limit")
+        stdout = ""
+        stderr = err[0] if err else ""
         for secret in (spec.api_key, spec.backup_api_key):
             if secret:
-                stdout = keys.redact(stdout.replace(secret, keys.mask(secret) or "••••"))
                 stderr = keys.redact(stderr.replace(secret, keys.mask(secret) or "••••"))
-        events, result = _parse_jsonl(stdout)
         if result.get("error"):
             raise RuntimeError(keys.redact(str(result["error"])))
         if self._proc.returncode not in (0, None) and not result:
@@ -224,35 +273,70 @@ class ProcessOpenHandsClient:
         if self._cleaned:
             return
         self._cleaned = True
+        with _LIVE_LOCK:
+            if self in _LIVE:
+                _LIVE.remove(self)
         proc = self._proc
         self._proc = None
         if proc and proc.poll() is None:
-            proc.kill()
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                pass
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError, OSError):
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
 
 
-def _parse_jsonl(text: str) -> tuple[list[dict], dict]:
+def _iter_jsonl(
+    lines,
+    on_event: Callable[[dict], None] | None = None,
+    on_cost: Callable[[float], None] | None = None,
+) -> tuple[list[dict], dict]:
     events: list[dict] = []
     result: dict = {}
-    for line in (text or "").splitlines():
-        raw = line.strip()
+    for line in lines or []:
+        raw = (line if isinstance(line, str) else str(line)).strip()
         if not raw:
             continue
         try:
             item = json.loads(raw)
         except json.JSONDecodeError:
-            events.append({"type": "log", "text": keys.redact(raw)})
-            continue
+            item = {"type": "log", "text": keys.redact(raw)}
         if not isinstance(item, dict):
             continue
         if item.get("type") == "result":
             result = item
-        else:
-            events.append(item)
+            continue
+        if item.get("type") == "cost":
+            if on_cost:
+                try:
+                    on_cost(float(item.get("costUsd") or 0))
+                except (TypeError, ValueError):
+                    pass
+            continue
+        events.append(item)
+        if on_event:
+            on_event(item)
     return events, result
+
+
+def _parse_jsonl(text: str) -> tuple[list[dict], dict]:
+    return _iter_jsonl((text or "").splitlines())
 
 
 def docker_available() -> bool:

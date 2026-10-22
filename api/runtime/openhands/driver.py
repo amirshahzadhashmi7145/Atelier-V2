@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
+import time
 from pathlib import Path
 
 
@@ -62,20 +64,108 @@ def _secret(value: str | None):
         return value
 
 
-def _cost(llm, conversation) -> float:
-    for obj in (llm, conversation, getattr(conversation, "conversation_stats", None)):
-        metrics = getattr(obj, "metrics", None)
-        if metrics is None and obj is not None:
-            metrics = obj
+def _metrics(llm, conversation) -> list:
+    rows = []
+    if conversation is not None:
+        for stats in (
+            getattr(conversation, "conversation_stats", None),
+            getattr(getattr(conversation, "state", None), "stats", None),
+        ):
+            getter = getattr(stats, "get_combined_metrics", None) if stats is not None else None
+            if callable(getter):
+                try:
+                    rows.append(getter())
+                except Exception:
+                    pass
+    for obj in (llm, conversation):
+        metrics = getattr(obj, "metrics", None) if obj is not None else None
+        if metrics is not None:
+            rows.append(metrics)
+    return rows
+
+
+def _tokens(llm, conversation) -> tuple[int, int]:
+    inp = out = 0
+    for metrics in _metrics(llm, conversation):
+        usage = getattr(metrics, "accumulated_token_usage", None)
+        if usage is None and isinstance(metrics, dict):
+            usage = metrics.get("accumulated_token_usage")
+        if usage is None:
+            continue
+        try:
+            prompt = int(getattr(usage, "prompt_tokens", None) or (usage.get("prompt_tokens") if isinstance(usage, dict) else 0) or 0)
+            completion = int(getattr(usage, "completion_tokens", None) or (usage.get("completion_tokens") if isinstance(usage, dict) else 0) or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        inp = max(inp, prompt)
+        out = max(out, completion)
+    return inp, out
+
+
+def _cost(llm, conversation, model: str = "") -> float:
+    for metrics in _metrics(llm, conversation):
         amount = getattr(metrics, "accumulated_cost", None)
         if amount is None:
             amount = getattr(metrics, "accumulated_cost_usd", None)
-        if amount is not None:
-            try:
-                return round(float(amount), 6)
-            except (TypeError, ValueError):
-                pass
+        if amount is None and isinstance(metrics, dict):
+            amount = metrics.get("accumulated_cost")
+        try:
+            value = round(float(amount or 0), 6)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    inp, out = _tokens(llm, conversation)
+    if (inp or out) and model:
+        try:
+            import litellm
+
+            value = litellm.completion_cost(model=model, prompt_tokens=inp, completion_tokens=out)
+            return round(float(value or 0), 6)
+        except Exception:
+            pass
     return 0.0
+
+
+def _short_type(value: object) -> str:
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(value or "")).replace("-", "_").lower()
+    for suffix in ("_action", "_observation", "_event"):
+        if text.endswith(suffix):
+            return text[: -len(suffix)]
+    return text.strip("_")
+
+
+def _public(item: dict) -> dict:
+    nested = item.get("action") if isinstance(item.get("action"), dict) else {}
+    args = item.get("args") or item.get("arguments") or nested.get("args") or nested.get("inputs") or {}
+    if not isinstance(args, dict):
+        args = {}
+    content = str(item.get("content") or item.get("text") or item.get("message") or item.get("observation") or "")
+    if len(content) > 1500:
+        content = content[:1500] + "…"
+    action = item.get("action") if isinstance(item.get("action"), str) else (nested.get("kind") or nested.get("action") or item.get("tool_name") or item.get("name") or "")
+    if not action:
+        action = _short_type(item.get("type") or item.get("event_type") or item.get("kind") or "")
+    return {
+        "type": str(item.get("type") or item.get("event_type") or item.get("kind") or "event"),
+        "source": str(item.get("source") or ""),
+        "action": str(action or ""),
+        "path": str(args.get("path") or item.get("path") or nested.get("path") or ""),
+        "command": str(args.get("command") or args.get("cmd") or nested.get("command") or "")[:400],
+        "content": content,
+    }
+
+
+def _emit(item: dict) -> None:
+    sys.stdout.write(json.dumps(_public(item), default=str) + "\n")
+    sys.stdout.flush()
+
+
+def _emit_new(conversation, seen: list[int]) -> None:
+    rows = _events(conversation)
+    while seen[0] < len(rows):
+        _emit(rows[seen[0]])
+        seen[0] += 1
 
 
 def _events(conversation) -> list[dict]:
@@ -125,6 +215,8 @@ def main() -> int:
     backup_key = os.environ.get("LLM_BACKUP_API_KEY") or key
     workspace = Path(spec["workspace"])
     timeout = int(spec.get("timeout_sec") or 2700)
+    # One wall-clock budget for the whole task, shared across provider retries.
+    deadline = time.time() + timeout
     image = spec.get("server_image") or os.environ.get("OPENHANDS_SERVER_IMAGE")
 
     from openhands.sdk import LLM, Agent, Conversation, Tool
@@ -160,7 +252,9 @@ def main() -> int:
         conv = Conversation(agent=agent_obj, workspace=ws)
         conv.send_message(spec.get("prompt") or "")
         done = threading.Event()
+        halt = threading.Event()
         holder: list[BaseException] = []
+        seen = [0]
 
         def _run() -> None:
             try:
@@ -170,19 +264,38 @@ def main() -> int:
             finally:
                 done.set()
 
+        billed = [0.0]
+
+        def _watch() -> None:
+            while not halt.is_set():
+                _emit_new(conv, seen)
+                amount = _cost(llm, conv, str(getattr(llm, "model", None) or model))
+                if amount > billed[0]:
+                    billed[0] = amount
+                    sys.stdout.write(json.dumps({"type": "cost", "costUsd": amount}) + "\n")
+                    sys.stdout.flush()
+                halt.wait(0.2)
+            _emit_new(conv, seen)
+
         thread = threading.Thread(target=_run, daemon=True)
+        watcher = threading.Thread(target=_watch, daemon=True)
         thread.start()
-        if not done.wait(timeout):
-            stop = getattr(conv, "stop", None)
-            if callable(stop):
-                try:
-                    stop()
-                except Exception:
-                    pass
-            raise TimeoutError("OpenHands exceeded the run time limit")
-        if holder:
-            raise holder[0]
-        return conv
+        watcher.start()
+        try:
+            if not done.wait(max(30.0, deadline - time.time())):
+                stop = getattr(conv, "stop", None)
+                if callable(stop):
+                    try:
+                        stop()
+                    except Exception:
+                        pass
+                raise TimeoutError("OpenHands exceeded the run time limit")
+            if holder:
+                raise holder[0]
+            return conv
+        finally:
+            halt.set()
+            watcher.join(timeout=2)
 
     try:
         with DockerWorkspace(
@@ -214,10 +327,8 @@ def main() -> int:
     last = ""
     if events:
         last = str(events[-1].get("content") or events[-1].get("text") or events[-1].get("message") or "")
-    cost = _cost(llm, conversation) if conversation is not None else 0.0
+    cost = _cost(llm, conversation, str(getattr(llm, "model", None) or actual)) if conversation is not None else 0.0
     questions = _questions(events, last)
-    for item in events:
-        sys.stdout.write(json.dumps(item, default=str) + "\n")
     result = {
         "type": "result",
         "costUsd": cost,
