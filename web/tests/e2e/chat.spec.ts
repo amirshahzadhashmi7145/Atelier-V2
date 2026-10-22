@@ -110,6 +110,9 @@ async function openChat(page: import("@playwright/test").Page, project: string, 
 
 async function addMemberById(page: import("@playwright/test").Page, agentId: string) {
   const addMember = page.locator("#add-member")
+  if (!(await addMember.isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: "Project settings" }).click()
+  }
   await expect(addMember.locator(`option[value="${agentId}"]`)).toHaveCount(1, { timeout: 15_000 })
   await addMember.selectOption(agentId)
   const submit = page.getByRole("button", { name: "Add agent to project", exact: true })

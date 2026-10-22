@@ -157,6 +157,13 @@ export const roleHandlers = [
     }
     return HttpResponse.json({ tags })
   }),
+  http.get("/projects/:id/tasks", ({ params }) => {
+    const prefix = `${params.id}:`
+    const items = Object.entries(db.taskBoards)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, board]) => board)
+    return HttpResponse.json({ items })
+  }),
   http.get("/projects/:id/tasks/:taskId", ({ params }) => {
     const key = `${params.id}:${params.taskId}`
     const board = db.taskBoards[key]

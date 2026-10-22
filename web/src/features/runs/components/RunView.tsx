@@ -22,7 +22,7 @@ function latest(events: RunEvent[], type: RunEvent["type"]) {
   return undefined
 }
 
-export function RunView({ id }: { id: string }) {
+export function RunView({ id, embedded }: { id: string; embedded?: boolean }) {
   const queryClient = useQueryClient()
   const { run, events } = useRunEvents(id)
   const cap = useQuery({ queryKey: queryKeys.runSettings, queryFn: getSpendCap })
@@ -79,7 +79,7 @@ export function RunView({ id }: { id: string }) {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] min-h-[32rem] flex-col gap-3">
+    <div className={embedded ? "flex max-h-[60vh] min-h-[24rem] flex-col gap-3 overflow-auto" : "flex h-[calc(100dvh-8rem)] min-h-[32rem] flex-col gap-3"}>
       <PageHeader title="Run" description={current.task.split("\n")[0] ?? current.task} />
       <div className="flex min-h-0 flex-1">
         <div className="min-h-0 shrink-0 overflow-hidden border" style={{ width: leftPane }}>
@@ -108,7 +108,7 @@ export function RunView({ id }: { id: string }) {
           {terminal ? (
             <ResultCard run={current} events={events} zipUrl={zip?.url} />
           ) : (
-            <StatusCard run={current} capUsd={cap.data?.maxSpendPerRunUsd ?? 5} stopping={stop.isPending} onStop={() => stop.mutate()} />
+            <StatusCard run={current} capUsd={cap.data?.maxSpendPerRunUsd ?? 0} stopping={stop.isPending} onStop={() => stop.mutate()} />
           )}
         </div>
       </div>

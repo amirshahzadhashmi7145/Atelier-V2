@@ -1,20 +1,21 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { ErrorState } from "@/components/shared/ErrorState"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   addProjectMember,
   approveProjectPlan,
-  answerChat,
   editProjectPlan,
   closeProject,
   createProject,
   deleteProject,
-  getChatRun,
   getProject,
   patchProject,
   listChatAgents,
@@ -27,13 +28,9 @@ import {
   type ChatMessage,
   type Project,
 } from "@/features/chat/api"
-import { apiBaseUrl } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
-import { bubbleText, placeDelta, type Bubble } from "@/lib/runs/bubbles"
-import { isTerminal, type RunEvent } from "@/lib/runs/events"
-import { readEventStream } from "@/lib/sse/stream"
-
-const running = new Set(["queued", "running", "waiting_client"])
+import { LiveText } from "./LiveText"
+import { RunFollow } from "./RunFollow"
 
 export function ChatScreen({
   projectId,
@@ -62,6 +59,15 @@ export function ChatScreen({
   const [away, setAway] = useState(false)
   const [activity, setActivity] = useState(0)
   const [showPreview, setShowPreview] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+
+  const priorByRun = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of messages.data ?? []) {
+      if (item.role === "user" && item.runId && !map.has(item.runId)) map.set(item.runId, item.text)
+    }
+    return map
+  }, [messages.data])
 
   useEffect(() => {
     const node = threadRef.current
@@ -89,67 +95,83 @@ export function ChatScreen({
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
         {project.data?.localMode ? (
-          <p className="rounded bg-yellow-100 px-3 py-2 text-sm text-yellow-950">
+          <p className="rounded border bg-muted px-3 py-2 text-sm text-foreground">
             DEV LOCAL MODE. Commands run on this machine, inside the project folder only.
           </p>
         ) : null}
         {projectId && project.data ? (
-          <div className="flex shrink-0 flex-col gap-1 overflow-auto">
-          <NeedsYou projectId={projectId} />
-          <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-semibold">{project.data.name}</h1>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" className="xl:hidden" onClick={() => setShowPreview((value) => !value)}>
-                {showPreview ? "Chat" : "Preview"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  void navigator.clipboard.writeText(project.data?.folderPath ?? "")
-                  toast.success("Folder path copied")
-                }}
-              >
-                Open folder
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  if (!projectId) return
-                  void closeProject(projectId)
-                    .then(() => {
-                      toast.success("Preview stopped")
-                      return queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
-                    })
-                    .catch((error) => toast.error(error instanceof Error ? error.message : "Could not stop preview"))
-                }}
-              >
-                Stop preview
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  if (!projectId || !project.data) return
-                  if (!window.confirm(`Delete “${project.data.name}” from the studio? Files on disk are kept.`)) return
-                  void deleteProject(projectId)
-                    .then(async () => {
-                      await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
-                      toast.success("Project deleted")
-                      router.push("/chat")
-                    })
-                    .catch((error) => toast.error(error instanceof Error ? error.message : "Could not delete project"))
-                }}
-              >
-                Delete project
-              </Button>
+          <div className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-auto">
+            <NeedsYou projectId={projectId} />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h1 className="text-lg font-semibold">{project.data.name}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button nativeButton={false} variant="outline" render={<Link href={`/chat/${projectId}/board`} data-project-board />}>
+                  Task board
+                </Button>
+                <Button type="button" variant="outline" className="xl:hidden" onClick={() => setShowPreview((value) => !value)}>
+                  {showPreview ? "Chat" : "Preview"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(project.data?.folderPath ?? "")
+                    toast.success("Folder path copied")
+                  }}
+                >
+                  Open folder
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (!projectId) return
+                    void closeProject(projectId)
+                      .then(() => {
+                        toast.success("Preview stopped")
+                        return queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+                      })
+                      .catch((error) => toast.error(error instanceof Error ? error.message : "Could not stop preview"))
+                  }}
+                >
+                  Stop preview
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-expanded={showSettings}
+                  onClick={() => setShowSettings((value) => !value)}
+                >
+                  {showSettings ? "Hide settings" : "Project settings"}
+                </Button>
+                <span className="h-5 border-l" aria-hidden />
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    if (!projectId || !project.data) return
+                    if (!window.confirm(`Delete “${project.data.name}” from the studio? Files on disk are kept.`)) return
+                    void deleteProject(projectId)
+                      .then(async () => {
+                        await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+                        toast.success("Project deleted")
+                        router.push("/chat")
+                      })
+                      .catch((error) => toast.error(error instanceof Error ? error.message : "Could not delete project"))
+                  }}
+                >
+                  Delete project
+                </Button>
+              </div>
             </div>
-          </div>
-          {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
-          {projectId ? <MemberPanel projectId={projectId} project={project.data} /> : null}
-          {projectId ? <NotesSettings key={projectId} projectId={projectId} project={project.data} /> : null}
-          <SupervisorSteps steps={project.data.supervisorSteps} />
+            {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
+            {showSettings ? (
+              <div className="flex flex-col gap-2">
+                <MemberPanel projectId={projectId} project={project.data} />
+                <NotesSettings key={projectId} projectId={projectId} project={project.data} />
+              </div>
+            ) : null}
+            <SupervisorSteps steps={project.data.supervisorSteps} />
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
@@ -171,10 +193,30 @@ export function ChatScreen({
               }}
               className="flex h-full flex-col gap-3 overflow-y-auto [scrollbar-width:thin]"
             >
+              {projectId && messages.isPending ? (
+                <div className="flex flex-col gap-3" aria-busy="true">
+                  <Skeleton className="h-16 w-2/3 self-end" />
+                  <Skeleton className="h-16 w-2/3" />
+                </div>
+              ) : null}
+              {projectId && messages.isError ? (
+                <ErrorState
+                  message={messages.error instanceof Error ? messages.error.message : "Could not load messages"}
+                  onRetry={() => void messages.refetch()}
+                />
+              ) : null}
+              {projectId && messages.data && messages.data.length === 0 ? (
+                <EmptyState title="No messages yet" description="Describe what you want built and the agent gets to work." />
+              ) : null}
               {(messages.data ?? []).map((message) => {
-                const prior = (messages.data ?? []).find((item) => item.role === "user" && item.runId === message.runId)?.text ?? ""
+                const mine = message.role === "user"
                 return (
-                  <article key={message.id} className="flex flex-col gap-2 rounded border p-3">
+                  <article
+                    key={message.id}
+                    className={`flex w-fit min-w-0 max-w-[85%] flex-col gap-2 rounded border p-3 ${
+                      mine ? "self-end bg-primary/10" : "self-start bg-card"
+                    }`}
+                  >
                     <p className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
                       <span style={message.agentColor ? { color: message.agentColor } : undefined} data-agent={message.agentName}>
                         {message.agentName ?? message.role}
@@ -192,13 +234,11 @@ export function ChatScreen({
                                   : "chat"}
                         </span>
                       ) : null}
+                      <time dateTime={message.createdAt} className="normal-case">
+                        {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </time>
                     </p>
                     <p className="whitespace-pre-wrap text-sm">{message.text}</p>
-                    {message.taskId && projectId ? (
-                      <Link href={`/chat/${projectId}/tasks/${message.taskId}`} className="text-xs underline" data-task-link={message.taskId}>
-                        Task board
-                      </Link>
-                    ) : null}
                     {message.verdict ? (
                       <p className="text-xs font-medium" data-verdict={message.verdict}>
                         {message.verdict === "approve" ? "Approved" : "Changes requested"}
@@ -211,13 +251,17 @@ export function ChatScreen({
                         message={message}
                         renderRun={renderRun}
                         streaming={message.role === "user"}
-                        prior={prior}
+                        prior={priorByRun.get(message.runId) ?? ""}
                         onActivity={() => setActivity((value) => value + 1)}
                       />
                     ) : null}
                   </article>
                 )
               })}
+              <LiveWork
+                steps={project.data?.supervisorSteps}
+                threadRunIds={new Set((messages.data ?? []).map((item) => item.runId).filter((id): id is string => Boolean(id)))}
+              />
             </div>
           )}
           {away && !showPreview ? (
@@ -236,7 +280,7 @@ export function ChatScreen({
             </button>
           ) : null}
         </div>
-        {projectId ? <Composer projectId={projectId} /> : null}
+        {projectId ? <Composer projectId={projectId} project={project.data} /> : null}
       </section>
       <aside className="hidden h-full min-h-0 w-72 shrink-0 flex-col border-l p-3 xl:flex">
         <h2 className="mb-2 text-sm font-medium">Preview</h2>
@@ -248,6 +292,7 @@ export function ChatScreen({
 
 function PlanCard({ projectId, message }: { projectId: string; message: ChatMessage }) {
   const queryClient = useQueryClient()
+  const approved = message.verdict === "approve"
   const [items, setItems] = useState(() => (message.planItems ?? []).map((item) => ({ ...item })))
   const approve = useMutation({
     mutationFn: () => approveProjectPlan(projectId, message.planId ?? "", items),
@@ -269,16 +314,13 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
     <div className="flex flex-col gap-2 rounded border p-2" data-plan={message.planId}>
       {items.map((item, index) => (
         <label key={item.taskId} className="flex flex-col gap-1 text-sm">
-          <span>
-            {`${index + 1}. ${item.agentName || "Agent"}`}{" "}
-            <Link href={`/chat/${projectId}/tasks/${item.taskId}`} className="text-xs underline">
-              board
-            </Link>
-          </span>
+          <span>{`${index + 1}. ${item.agentName || "Agent"}`}</span>
           <textarea
             className="min-h-16 rounded border px-2 py-1 text-sm"
             value={item.text}
+            readOnly={approved}
             onChange={(event) => {
+              if (approved) return
               const next = items.slice()
               next[index] = { ...item, text: event.target.value }
               setItems(next)
@@ -286,14 +328,16 @@ function PlanCard({ projectId, message }: { projectId: string; message: ChatMess
           />
         </label>
       ))}
-      <div className="flex gap-2">
-        <Button type="button" variant="outline" disabled={edit.isPending} onClick={() => edit.mutate()}>
-          {edit.isPending ? "Saving…" : "Edit"}
-        </Button>
-        <Button type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
-          {approve.isPending ? "Starting…" : "Approve"}
-        </Button>
-      </div>
+      {approved ? null : (
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" disabled={edit.isPending} onClick={() => edit.mutate()}>
+            {edit.isPending ? "Saving…" : "Edit"}
+          </Button>
+          <Button type="button" disabled={approve.isPending} onClick={() => approve.mutate()}>
+            {approve.isPending ? "Starting…" : "Approve"}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
@@ -310,15 +354,36 @@ function SupervisorSteps({ steps }: { steps?: Project["supervisorSteps"] }) {
   if (!steps?.length) return null
   return (
     <div className="rounded border p-2 text-sm" data-supervisor-steps>
-      <p className="mb-1 font-medium">Supervisor steps</p>
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-wrap gap-x-4 gap-y-1">
         {steps.map((item) => (
           <li key={item.taskId} data-supervisor-step={item.step} data-task-id={item.taskId}>
-            <span className="font-medium">{STEP_LABEL[item.step] ?? item.step}</span>
+            <span className="font-medium">
+              {item.agentName ? `${item.agentName} · ` : ""}
+              {STEP_LABEL[item.step] ?? item.step}
+            </span>
             {item.label ? <span className="text-muted-foreground"> — {item.label}</span> : null}
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+function LiveWork({ steps, threadRunIds }: { steps?: Project["supervisorSteps"]; threadRunIds?: Set<string> }) {
+  const live = (steps ?? []).filter((item) => (item.step === "working" || item.step === "reviewing") && item.runId)
+  if (!live.length) return null
+  return (
+    <div className="flex flex-col gap-2 rounded border p-3" data-live-work>
+      {live.map((item) => (
+        <div key={item.taskId} className="flex flex-col gap-1">
+          <p className="flex items-center gap-2 text-xs font-medium">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden />
+            {item.agentName || "Agent"} · {STEP_LABEL[item.step] ?? item.step}
+            {item.label ? ` — ${item.label}` : ""}
+          </p>
+          {item.runId && !threadRunIds?.has(item.runId) ? <LiveText key={item.runId} runId={item.runId} /> : null}
+        </div>
+      ))}
     </div>
   )
 }
@@ -389,7 +454,7 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
             </p>
             <p className="text-xs text-muted-foreground">
               {member.lastTask && member.lastTaskId ? (
-                <Link href={`/chat/${projectId}/tasks/${member.lastTaskId}`} className="underline">
+                <Link href={`/chat/${projectId}/board#${member.lastTaskId}`} className="underline">
                   Last: {member.lastTask}
                 </Link>
               ) : member.lastTask ? (
@@ -405,7 +470,7 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
                   <li
                     key={zone}
                     data-zone-overlap={clash || undefined}
-                    className={clash ? "rounded bg-red-100 px-1 text-xs text-red-700" : "rounded bg-muted px-1 text-xs"}
+                    className={clash ? "rounded bg-destructive/10 px-1 text-xs text-destructive" : "rounded bg-muted px-1 text-xs"}
                   >
                     {zone}
                   </li>
@@ -416,7 +481,7 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
         ))}
       </ul>
       {overlap ? (
-        <p className="mt-2 text-xs text-red-700" data-zone-overlap="true">
+        <p className="mt-2 text-xs text-destructive" data-zone-overlap="true">
           {overlap}
         </p>
       ) : null}
@@ -451,6 +516,12 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
   )
 }
 
+const NEED_KIND: Record<string, { label: string; className: string }> = {
+  budget: { label: "budget", className: "border-destructive/50 bg-destructive/10 text-destructive" },
+  escalate: { label: "escalated", className: "border-destructive/50 text-destructive" },
+  question: { label: "question", className: "bg-muted text-muted-foreground" },
+}
+
 function NeedsYou({ projectId }: { projectId: string }) {
   const queryClient = useQueryClient()
   const needs = useQuery({
@@ -473,37 +544,45 @@ function NeedsYou({ projectId }: { projectId: string }) {
     <section className="rounded border p-3" data-needs-you>
       <h2 className="text-sm font-semibold">Needs you</h2>
       <ul className="mt-2 flex flex-col gap-3">
-        {rows.map((item) => (
-          <li key={item.id} className="flex flex-col gap-2 text-sm">
-            {item.taskId ? (
-              <Link href={`/chat/${projectId}/tasks/${item.taskId}`} className="text-xs underline">
-                Task history
-              </Link>
-            ) : null}
-            <p>{item.question}</p>
-            <form
-              className="flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault()
-                const text = (drafts[item.id] || "").trim()
-                if (text) answer.mutate({ id: item.id, text })
-              }}
-            >
-              <label className="sr-only" htmlFor={`need-${item.id}`}>
-                Answer
-              </label>
-              <input
-                id={`need-${item.id}`}
-                className="flex-1 rounded border px-2 py-1"
-                value={drafts[item.id] ?? ""}
-                onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
-              />
-              <Button type="submit" disabled={answer.isPending}>
-                {answer.isPending ? "Sending…" : "Answer"}
-              </Button>
-            </form>
-          </li>
-        ))}
+        {rows.map((item) => {
+          const kind = NEED_KIND[item.kind] ?? NEED_KIND.question
+          return (
+            <li key={item.id} className="flex flex-col gap-2 text-sm">
+              <p className="flex items-center gap-2">
+                <span data-need-kind={item.kind} className={`rounded-full border px-2 py-0.5 text-xs font-medium ${kind.className}`}>
+                  {kind.label}
+                </span>
+                {item.taskId ? (
+                  <Link href={`/chat/${projectId}/board#${item.taskId}`} className="text-xs underline">
+                    On the board
+                  </Link>
+                ) : null}
+              </p>
+              <p>{item.question}</p>
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const text = (drafts[item.id] || "").trim()
+                  if (text) answer.mutate({ id: item.id, text })
+                }}
+              >
+                <label className="sr-only" htmlFor={`need-${item.id}`}>
+                  Answer
+                </label>
+                <input
+                  id={`need-${item.id}`}
+                  className="flex-1 rounded border px-2 py-1"
+                  value={drafts[item.id] ?? ""}
+                  onChange={(event) => setDrafts((current) => ({ ...current, [item.id]: event.target.value }))}
+                />
+                <Button type="submit" disabled={answer.isPending}>
+                  {answer.isPending ? "Sending…" : "Answer"}
+                </Button>
+              </form>
+            </li>
+          )
+        })}
       </ul>
     </section>
   )
@@ -577,9 +656,9 @@ function NewProject() {
   )
 }
 
-function Composer({ projectId }: { projectId: string }) {
+function Composer({ projectId, project }: { projectId: string; project?: Project }) {
   const queryClient = useQueryClient()
-  const project = useQuery({ queryKey: queryKeys.project(projectId), queryFn: () => getProject(projectId), refetchInterval: 1000 })
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const [text, setText] = useState("")
   const send = useMutation({
     mutationFn: () => postMessage(projectId, text),
@@ -587,43 +666,64 @@ function Composer({ projectId }: { projectId: string }) {
       setText("")
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.needs(projectId) })
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send"),
   })
   const stop = useMutation({
-    mutationFn: () => stopChatRun(project.data?.activeRunId ?? ""),
+    mutationFn: () => stopChatRun(project?.activeRunId ?? ""),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not stop"),
   })
-  const working = Boolean(project.data?.activeRunId)
+  useEffect(() => {
+    const node = inputRef.current
+    if (!node) return
+    node.style.height = "auto"
+    node.style.height = `${Math.min(node.scrollHeight, 160)}px`
+  }, [text])
+  const working = Boolean(project?.activeRunId)
+  const live = (project?.supervisorSteps ?? []).find((item) => item.step === "working" || item.step === "reviewing")
+  const workingLabel = live?.agentName ? `${live.agentName} is ${live.step}` : "agent is working"
+  const submit = () => {
+    if (text.trim() && !send.isPending) send.mutate()
+  }
   return (
     <form
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault()
-        if (text.trim()) send.mutate()
+        submit()
       }}
     >
       {working ? (
         <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>agent is working</span>
+          <span>{workingLabel}</span>
           <Button type="button" variant="outline" disabled={stop.isPending} onClick={() => stop.mutate()}>
             {stop.isPending ? "Stopping…" : "Stop"}
           </Button>
         </div>
       ) : null}
-      <div className="flex gap-2">
+      <div className="flex items-end gap-2">
         <label className="sr-only" htmlFor="chat-message">
           Message
         </label>
-        <input
+        <textarea
           id="chat-message"
-          className="flex-1 rounded border px-2 py-1"
+          ref={inputRef}
+          rows={1}
+          className="max-h-40 flex-1 resize-none rounded border bg-background px-2 py-1.5 text-sm"
           value={text}
+          disabled={send.isPending}
           onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault()
+              submit()
+            }
+          }}
         />
         <Button type="submit" disabled={send.isPending || !text.trim()}>
           {send.isPending ? "Sending…" : "Send"}
@@ -665,291 +765,4 @@ function PreviewPane({ url }: { url?: string | null }) {
       <iframe key={url} title="Project preview" src={url} className="min-h-48 w-full flex-1 rounded border" />
     </div>
   )
-}
-
-function toolLine(name: string, args: unknown) {
-  const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {}
-  if (name === "package_install") return `running npm install ${String(record.name ?? "")}`.trim()
-  if (name === "files") {
-    const op = String(record.op ?? "write")
-    return `${op} ${String(record.path ?? "a file")}`
-  }
-  if (name === "headless_browser") return "taking screenshots"
-  if (name === "shell") return `running: ${String(record.command ?? "").slice(0, 80)}`
-  return `running ${name}`
-}
-
-function Elapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(since)
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  return <>{Math.max(0, Math.floor((now - since) / 1000))}s</>
-}
-
-function modelWaitHint(model?: { provider?: string; name?: string }) {
-  const provider = model?.provider ?? "openai"
-  const name = model?.name?.trim()
-  if (provider === "ollama") return "Ollama (can take 30–120s on CPU)"
-  if (provider === "gemini") return name ? `Gemini · ${name}` : "Gemini"
-  return name ? `${provider} · ${name}` : provider
-}
-
-function LiveText({
-  runId,
-  model,
-  onActivity,
-}: {
-  runId: string
-  model?: { provider?: string; name?: string }
-  onActivity?: () => void
-}) {
-  const [bubbles, setBubbles] = useState<Bubble[]>([])
-  const [active, setActive] = useState(true)
-  const [tools, setTools] = useState<{ name: string; args: unknown; done: boolean; started: number; note?: string }[]>([])
-  const [started] = useState(() => Date.now())
-  const [retrying, setRetrying] = useState(false)
-  const [phase, setPhase] = useState("Starting run…")
-  const seen = useRef(new Set<string>())
-  const sealed = useRef(new Set<string>())
-  const notify = useRef(onActivity)
-  const waitHint = modelWaitHint(model)
-  const waitHintRef = useRef(waitHint)
-  useEffect(() => {
-    waitHintRef.current = waitHint
-  }, [waitHint])
-  useEffect(() => {
-    notify.current = onActivity
-  }, [onActivity])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let seq = 0
-    const take = (event: RunEvent) => {
-      if (seen.current.has(event.id)) return
-      seen.current.add(event.id)
-      if (event.type !== "MODEL_DELTA") seq = Math.max(seq, event.seq)
-      if (event.type === "MODEL_DELTA") {
-        const callId = String(event.payload.modelCallId ?? event.payload.callId ?? "call")
-        if (sealed.current.has(callId)) return
-        setPhase("Model responding…")
-        const index = Number(event.payload.index ?? 0)
-        setBubbles((current) => placeDelta(current, callId, index, String(event.payload.text ?? "")))
-        notify.current?.()
-      }
-      if (event.type === "MODEL_OUTPUT") {
-        const callId = String(event.payload.modelCallId ?? event.payload.callId ?? "call")
-        const text = String(event.payload.text ?? "")
-        sealed.current.add(callId)
-        setBubbles((current) => {
-          const index = current.findIndex((item) => item.callId === callId)
-          if (index === -1) return placeDelta(current, callId, 1, text)
-          const copy = current.slice()
-          const existing = bubbleText(copy[index])
-          copy[index] = { callId, parts: new Map([[1, text.length >= existing.length ? text : existing]]) }
-          return copy
-        })
-        notify.current?.()
-      }
-      if (event.type === "MODEL_STARTED") {
-        setPhase(`Turn ${String(event.payload.iteration ?? "?")}: waiting for ${waitHintRef.current}…`)
-        notify.current?.()
-      }
-      if (event.type === "TOOL_CALLED") {
-        const name = String(event.payload.name ?? "")
-        setPhase(toolLine(name, event.payload.arguments))
-        setTools((current) => [...current, { name, args: event.payload.arguments, done: false, started: Date.now() }])
-        notify.current?.()
-      }
-      if (event.type === "TOOL_RESULT") {
-        setTools((current) => {
-          const copy = current.slice()
-          for (let index = copy.length - 1; index >= 0; index -= 1) {
-            if (copy[index].name === event.payload.name && !copy[index].done) {
-              copy[index] = { ...copy[index], done: true }
-              break
-            }
-          }
-          return copy
-        })
-        setPhase("Model thinking…")
-        notify.current?.()
-      }
-      if (event.type === "TOOL_REFUSED") {
-        const name = String(event.payload.name ?? "")
-        const reason = String(event.payload.reason ?? "refused")
-        setPhase(`${name} refused: ${reason}`)
-        setTools((current) => [
-          ...current,
-          { name, args: event.payload.arguments, done: true, started: Date.now(), note: reason },
-        ])
-        notify.current?.()
-      }
-      if (event.type === "MODEL_RETRY") {
-        setRetrying(true)
-        notify.current?.()
-      }
-      if (event.type === "MODEL_OUTPUT" || event.type === "MODEL_CALLED") {
-        setRetrying(false)
-      }
-      if (event.type === "RUN_COMPLETED" || event.type === "RUN_FAILED" || (event.type === "STATE_CHANGED" && event.payload.status === "cancelled")) {
-        setActive(false)
-      }
-    }
-    const pump = async () => {
-      let delay = 500
-      while (!controller.signal.aborted) {
-        try {
-          await readEventStream(
-            `${apiBaseUrl()}/runs/${runId}/events`,
-            seq,
-            (frame) => take(JSON.parse(frame.data) as RunEvent),
-            controller.signal,
-          )
-          setActive(false)
-          return
-        } catch {
-          if (controller.signal.aborted) return
-          await new Promise((resolve) => setTimeout(resolve, delay))
-          delay = Math.min(delay * 2, 8000)
-        }
-      }
-    }
-    void pump()
-    return () => controller.abort()
-  }, [runId])
-
-  const finished = tools.filter((item) => item.done)
-  const runningTools = tools.filter((item) => !item.done)
-  return (
-    <div className="flex flex-col gap-1 text-sm" data-streaming={active || bubbles.length ? "" : undefined}>
-      {active ? (
-        <p data-thinking="" className="text-muted-foreground">
-          {retrying ? "Retrying model" : phase} · <Elapsed since={started} />
-        </p>
-      ) : null}
-      {bubbles.map((bubble) => (
-        <p key={bubble.callId} data-bubble={bubble.callId}>
-          {bubbleText(bubble)}
-          {active ? <span className="ml-0.5 inline-block animate-pulse">▍</span> : null}
-        </p>
-      ))}
-      {finished.map((item, index) => (
-        <p key={`done-${item.name}-${index}`} className="text-xs text-muted-foreground">
-          ✓ {toolLine(item.name, item.args)}
-          {item.note ? ` — ${item.note}` : null}
-        </p>
-      ))}
-      {runningTools.map((item, index) => (
-        <p key={`run-${item.name}-${index}`} className="text-xs font-medium text-foreground">
-          → {toolLine(item.name, item.args)} <Elapsed since={item.started} />
-        </p>
-      ))}
-    </div>
-  )
-}
-
-function RunFollow({
-  message,
-  renderRun,
-  streaming,
-  prior,
-  onActivity,
-}: {
-  message: ChatMessage
-  renderRun?: (id: string) => ReactNode
-  streaming?: boolean
-  prior?: string
-  onActivity?: () => void
-}) {
-  const queryClient = useQueryClient()
-  const [expanded, setExpanded] = useState(false)
-  const [answer, setAnswer] = useState("")
-  const runId = message.runId ?? ""
-  const run = useQuery({
-    queryKey: queryKeys.runs.detail(runId),
-    queryFn: () => getChatRun(runId),
-    enabled: Boolean(runId),
-    refetchInterval: (query) => (query.state.data && isTerminal(query.state.data.status) ? false : 1000),
-  })
-  const reply = useMutation({
-    mutationFn: () => answerChat(runId, answer),
-    onSuccess: async () => {
-      setAnswer("")
-      await queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(runId) })
-      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(message.projectId) })
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send the answer"),
-  })
-  const retry = useMutation({
-    mutationFn: () => {
-      const base = (prior ?? message.text).split("\n\nPrevious attempt failed:")[0]?.trim() ?? message.text
-      const note = (run.data?.terminalCause ?? "error").slice(0, 80)
-      return postMessage(message.projectId, `${base}\n\nPrevious attempt failed: ${note}`)
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.messages(message.projectId) })
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not try again"),
-  })
-  const runModel = run.data?.model
-  if (streaming) {
-    return (
-      <div className="flex flex-col gap-2">
-        <LiveText runId={runId} model={runModel} onActivity={onActivity} />
-        {run.data && running.has(run.data.status) ? (
-          <Button type="button" variant="outline" onClick={() => setExpanded((value) => !value)}>
-            {expanded ? "Collapse" : "Working"}
-          </Button>
-        ) : null}
-        {expanded && renderRun ? renderRun(runId) : null}
-      </div>
-    )
-  }
-  if (!run.data) return null
-  if (message.role === "agent" && run.data.status === "failed") {
-    return (
-      <Button type="button" variant="outline" disabled={retry.isPending} onClick={() => retry.mutate()}>
-        {retry.isPending ? "Trying…" : "Try again"}
-      </Button>
-    )
-  }
-  if (message.role === "agent" && run.data.status === "waiting_user") {
-    return (
-      <form
-        className="flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (answer.trim()) reply.mutate()
-        }}
-      >
-        <label className="sr-only" htmlFor={`answer-${runId}`}>
-          Answer
-        </label>
-        <input id={`answer-${runId}`} className="flex-1 rounded border px-2 py-1" value={answer} onChange={(event) => setAnswer(event.target.value)} />
-        <Button type="submit" disabled={reply.isPending}>
-          Send answer
-        </Button>
-      </form>
-    )
-  }
-  if (message.role === "agent" && run.data.status === "completed" && run.data.summary) {
-    return (
-      <div className="flex flex-col gap-1 text-sm">
-        <p>Files changed: {run.data.summary.filesChanged.join(", ") || "none"}</p>
-        {run.data.previewUrl ? (
-          <a className="underline" href={run.data.previewUrl}>
-            Preview
-          </a>
-        ) : null}
-        {run.data.prUrl ? (
-          <a className="underline" href={run.data.prUrl}>
-            Pull request
-          </a>
-        ) : null}
-      </div>
-    )
-  }
-  return null
 }

@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/shared/PageHeader"
 import { QueryBody } from "@/components/shared/QueryBody"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { getRunSettings, saveRunSettings } from "@/features/settings/api"
 import { queryKeys } from "@/lib/api/query-keys"
@@ -43,8 +43,8 @@ export function RunsForm() {
           const maxMinutes = Number(minutes ?? current.maxMinutes)
           const loopDetection = loop ?? current.loopDetection
           const recordModelRequests = recordRequests ?? current.recordModelRequests ?? false
-          const maxSpendPerDayUsd = Number(daily ?? current.maxSpendPerDayUsd ?? 20)
-          const maxSpendPerReviewUsd = Number(reviewSpend ?? current.maxSpendPerReviewUsd ?? 1)
+          const maxSpendPerDayUsd = Number(daily ?? current.maxSpendPerDayUsd ?? 0)
+          const maxSpendPerReviewUsd = Number(reviewSpend ?? current.maxSpendPerReviewUsd ?? 0)
           const approvePlansBeforeRunning = approvePlans ?? current.approvePlansBeforeRunning ?? false
           const maxLessonsPerRole = Number(lessonCap ?? current.maxLessonsPerRole ?? 20)
           return (
@@ -61,9 +61,10 @@ export function RunsForm() {
                     type="number"
                     min={0}
                     step="0.01"
-                    value={daily ?? String(current.maxSpendPerDayUsd ?? 20)}
+                    value={daily ?? String(current.maxSpendPerDayUsd ?? 0)}
                     onChange={(event) => setDaily(event.target.value)}
                   />
+                  <FieldDescription>0 means no cap.</FieldDescription>
                 </Field>
                 <Field orientation="horizontal">
                   <input
@@ -91,9 +92,10 @@ export function RunsForm() {
                     type="number"
                     min={0}
                     step="0.01"
-                    value={reviewSpend ?? String(current.maxSpendPerReviewUsd ?? 1)}
+                    value={reviewSpend ?? String(current.maxSpendPerReviewUsd ?? 0)}
                     onChange={(event) => setReviewSpend(event.target.value)}
                   />
+                  <FieldDescription>0 means no cap.</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="max-spend">Max spend per run</FieldLabel>
@@ -105,6 +107,7 @@ export function RunsForm() {
                     value={spend ?? String(current.maxSpendPerRunUsd)}
                     onChange={(event) => setSpend(event.target.value)}
                   />
+                  <FieldDescription>0 means no cap.</FieldDescription>
                 </Field>
                 <details className="flex flex-col gap-4">
                   <summary className="cursor-pointer text-sm font-medium">Advanced</summary>

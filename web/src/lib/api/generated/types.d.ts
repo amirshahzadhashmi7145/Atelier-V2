@@ -953,6 +953,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get: operations["listProjectTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/tasks/{taskId}": {
         parameters: {
             query?: never;
@@ -1446,8 +1464,15 @@ export interface components {
             modelsCachedAt: string | null;
         };
         RunSettings: {
+            /**
+             * @description USD cap for a worker or eval run. 0 means no cap.
+             * @default 0
+             */
             maxSpendPerRunUsd: number;
-            /** @default 20 */
+            /**
+             * @description USD cap for a project per calendar day. 0 means no cap.
+             * @default 0
+             */
             maxSpendPerDayUsd: number;
             maxIterations: number;
             maxMinutes: number;
@@ -1456,7 +1481,10 @@ export interface components {
             approvePlansBeforeRunning: boolean;
             /** @default 20 */
             maxLessonsPerRole: number;
-            /** @default 1 */
+            /**
+             * @description USD cap for a Team Lead review run. 0 means no cap.
+             * @default 0
+             */
             maxSpendPerReviewUsd: number;
             /**
              * @description When true, write redacted model request/response JSON under api/debug/runs/{runId}/.
@@ -1686,6 +1714,8 @@ export interface components {
             /** @enum {string} */
             step: "planning" | "working" | "reviewing" | "escalated" | "done";
             label?: string | null;
+            runId?: string | null;
+            agentName?: string | null;
         };
         ProjectMember: {
             agentId: string;
@@ -1831,6 +1861,10 @@ export interface components {
             task: components["schemas"]["Task"];
             events: components["schemas"]["TaskBoardEvent"][];
             sessionLogs?: components["schemas"]["SessionLog"][];
+            agentName?: string;
+        };
+        ProjectTaskBoard: {
+            items: components["schemas"]["TaskBoard"][];
         };
         SessionLog: {
             runId: string;
@@ -3640,6 +3674,29 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+        };
+    };
+    listProjectTasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every live task on the project with handoff and review history */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTaskBoard"];
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     getProjectTask: {

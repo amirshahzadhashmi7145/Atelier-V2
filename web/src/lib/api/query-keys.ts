@@ -17,6 +17,7 @@ export const queryKeys = {
   suggestion: (id: string) => ["roles", id, "suggestion"] as const,
   needs: (id: string) => ["projects", id, "needs"] as const,
   taskBoard: (projectId: string, taskId: string) => ["projects", projectId, "tasks", taskId] as const,
+  projectBoard: (projectId: string) => ["projects", projectId, "tasks"] as const,
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
   messages: (id: string) => ["projects", id, "messages"] as const,
