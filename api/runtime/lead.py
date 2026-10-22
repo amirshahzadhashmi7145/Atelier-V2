@@ -349,7 +349,12 @@ def review_packet(child: dict, author_run: dict | None) -> str:
     ]
     if packet:
         lines.append(packet)
-    lines.append("Call record_review(approve or changes_requested, notes). Do not write files. Do not ask anyone to proceed.")
+    lines.append(
+        "Judge only from the evidence above: the git diff and the build_test output. Do not start servers, "
+        "use a browser, or raise clarifications. If evidence is insufficient, record changes_requested naming "
+        "exactly what evidence is missing. Call record_review(approve or changes_requested, notes). "
+        "Do not write files. Do not ask anyone to proceed."
+    )
     return "\n".join(lines)
 
 
