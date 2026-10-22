@@ -15,11 +15,15 @@ def zones_of(agent: dict) -> list[str]:
     return list((agent.get("scope") or {}).get("zones") or agent.get("zones") or [])
 
 
+# Repo housekeeping any role may touch; rejecting a run over .gitignore wastes the whole attempt.
+HOUSEKEEPING = {".gitignore", ".gitattributes", ".nvmrc", ".editorconfig"}
+
+
 def zone_violation(agent: dict, files: list[str]) -> str | None:
     zones = zones_of(agent)
     if not zones:
         return None
-    bad = [path for path in files if not tools._in_zones(path, zones)]
+    bad = [path for path in files if path not in HOUSEKEEPING and not tools._in_zones(path, zones)]
     if not bad:
         return None
     return "changed files outside the role zones: " + ", ".join(bad)
