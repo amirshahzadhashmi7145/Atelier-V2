@@ -1466,12 +1466,27 @@ def _zip(run_id: str):
     return record
 
 
+def _preview_alive(preview: dict) -> bool:
+    """A dead preview must not be offered: a stale url is worse than none."""
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(preview.get("url") or "")
+        if not parsed.hostname or not parsed.port:
+            return False
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
 def _project_view(project: dict) -> dict:
     from runtime import notes, project_runs
 
     project = notes.defaults({**project, "localMode": bridge.local_mode()})
     preview = db.get("preview", project["id"])
-    if preview:
+    if preview and _preview_alive(preview):
         project["previewUrl"] = preview["url"]
     active = project_runs.working(project["id"])
     project["activeRunId"] = active["id"] if active else None
