@@ -50,7 +50,7 @@ test("start a run, answer it, and open the summary", async ({ page }) => {
   await page.getByRole("button", { name: "Test run" }).click()
   await expect(page.getByRole("heading", { name: "New run" })).toBeVisible()
   await expect(page.getByLabel("Task")).toHaveValue("Add a primary button")
-  await expect(page.getByText("Spend cap $5.00")).toBeVisible()
+  await expect(page.getByText("No spend cap")).toBeVisible()
   const form = await new AxeBuilder({ page }).analyze()
   expect(form.violations).toEqual([])
 

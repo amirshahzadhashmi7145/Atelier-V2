@@ -49,18 +49,20 @@ export function StatusCard({
         <p className="text-sm">
           {run.tokensIn + run.tokensOut} tokens · {run.model.name} · {run.promptVersionId}
         </p>
-        <div
-          role="progressbar"
-          aria-label="Spend of cap"
-          aria-valuemin={0}
-          aria-valuemax={capUsd}
-          aria-valuenow={run.costUsd}
-          className="h-2 overflow-hidden rounded-full bg-muted"
-        >
-          <div className="h-full bg-primary" style={{ width: `${ratio}%` }} />
-        </div>
+        {capUsd > 0 ? (
+          <div
+            role="progressbar"
+            aria-label="Spend of cap"
+            aria-valuemin={0}
+            aria-valuemax={capUsd}
+            aria-valuenow={run.costUsd}
+            className="h-2 overflow-hidden rounded-full bg-muted"
+          >
+            <div className="h-full bg-primary" style={{ width: `${ratio}%` }} />
+          </div>
+        ) : null}
         <p className="text-sm text-muted-foreground">
-          ${run.costUsd.toFixed(2)} of ${capUsd.toFixed(2)}
+          {capUsd > 0 ? `$${run.costUsd.toFixed(2)} of $${capUsd.toFixed(2)}` : `$${run.costUsd.toFixed(2)}`}
           {run.costSource === "openhands" ? " · cost from the OpenHands process" : ""}
         </p>
         {isTerminal(run.status) ? null : confirming ? (

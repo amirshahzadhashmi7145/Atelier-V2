@@ -202,7 +202,9 @@ export function NewRun() {
         ))}
       </fieldset>
       <p className="text-sm">
-        Spend cap ${Number(cap.data?.maxSpendPerRunUsd ?? 5).toFixed(2)}{" "}
+        {Number(cap.data?.maxSpendPerRunUsd ?? 0) > 0
+          ? `Spend cap $${Number(cap.data?.maxSpendPerRunUsd).toFixed(2)} `
+          : "No spend cap "}
         <Link href="/settings/runs" className="underline">
           Settings
         </Link>

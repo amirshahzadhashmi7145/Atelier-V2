@@ -41,6 +41,10 @@ export async function getProjectTask(id: string, taskId: string) {
   return unwrap(await api.GET("/projects/{id}/tasks/{taskId}", { params: { path: { id, taskId } } }))
 }
 
+export async function listProjectTasks(id: string) {
+  return unwrap(await api.GET("/projects/{id}/tasks", { params: { path: { id } } }))
+}
+
 export async function postMessage(id: string, text: string) {
   return unwrap(await api.POST("/projects/{id}/messages", { params: { path: { id } }, body: { text } }))
 }
