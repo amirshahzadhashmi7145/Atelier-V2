@@ -155,14 +155,51 @@ def rework_packet(task: dict | None) -> str:
                 f"{item.get('targetKind') or 'criterion'} {item.get('target') or ''}: "
                 f"{item.get('wrong') or ''} (expected {item.get('expected') or ''})"
             )
+    answers = sorted(
+        [item for item in db.listing("user-answer") if item.get("taskId") in set(lineage_ids(task))],
+        key=lambda item: item.get("createdAt") or "",
+    )
+    if answers:
+        lines.append("# User answers")
+        for item in answers[-3:]:
+            lines.append(item.get("summary") or "")
     return "\n".join(lines)
 
 
-def detail(project_id: str, task_id: str) -> dict | None:
+def detail(project_id: str, task_id: str, logs: bool = True) -> dict | None:
     task = db.get("task", task_id)
     if task is None or task.get("projectId") != project_id:
         return None
     origin = db.get("task", task.get("originTaskId") or task["id"]) or task
-    from runtime.openhands.runner import session_logs
+    agent = db.get("agent", origin.get("assignedAgentId") or "") or {}
+    row = {
+        "task": origin,
+        "events": timeline(task),
+    }
+    if logs:
+        from runtime.openhands.runner import session_logs
 
-    return {"task": origin, "events": timeline(task), "sessionLogs": session_logs(task)}
+        row["sessionLogs"] = session_logs(task)
+    if agent.get("name"):
+        row["agentName"] = agent["name"]
+    return row
+
+
+def project_board(project_id: str) -> dict:
+    rows = [
+        item
+        for item in db.listing("task")
+        if item.get("projectId") == project_id and not item.get("supersededBy")
+    ]
+    rows.sort(key=lambda item: (item.get("createdAt") or "", item.get("id") or ""))
+    items = []
+    seen: set[str] = set()
+    for task in rows:
+        origin_id = task.get("originTaskId") or task["id"]
+        if origin_id in seen:
+            continue
+        seen.add(origin_id)
+        row = detail(project_id, task["id"], logs=False)
+        if row:
+            items.append(row)
+    return {"items": items}

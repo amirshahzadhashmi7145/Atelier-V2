@@ -4,7 +4,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import String, create_engine, select
+from sqlalchemy import String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +37,13 @@ def engine():
                 conn.exec_driver_sql("PRAGMA journal_mode=WAL")
                 conn.commit()
         Base.metadata.create_all(_engine)
+        if url.startswith("sqlite"):
+            with _engine.connect() as conn:
+                conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS idx_event_run "
+                    "ON documents(json_extract(data,'$.runId')) WHERE kind='event'"
+                )
+                conn.commit()
         seed()
         sync_builtin_tools()
         sync_providers()
@@ -216,15 +223,15 @@ def seed() -> None:
         "settings",
         "runs",
         {
-            "maxSpendPerRunUsd": 5,
-            "maxSpendPerDayUsd": 20,
+            "maxSpendPerRunUsd": 0,
+            "maxSpendPerDayUsd": 0,
             "maxIterations": 60,
             "maxMinutes": 45,
             "loopDetection": True,
             "recordModelRequests": False,
             "approvePlansBeforeRunning": False,
             "maxLessonsPerRole": 20,
-            "maxSpendPerReviewUsd": 1,
+            "maxSpendPerReviewUsd": 0,
         },
     )
     put("meta", "seeded", {"ok": True})
@@ -306,9 +313,20 @@ def library() -> dict:
     return json.loads(SEED_PATH.read_text())["library"]
 
 
+def _run_events(run_id: str) -> list[dict]:
+    """Events for one run, filtered in SQL so the whole event table is never deserialised."""
+    if engine().dialect.name == "sqlite":
+        with LOCK, session() as db:
+            rows = db.scalars(
+                select(Document).where(Document.kind == "event", func.json_extract(Document.data, "$.runId") == run_id)
+            ).all()
+            return [json.loads(row.data) for row in rows]
+    return [item for item in listing("event") if item["runId"] == run_id]
+
+
 def append_event(run_id: str, event_type: str, payload: dict | None = None, cost: dict | None = None, actor: str = "agent") -> dict:
     with LOCK:
-        existing = [item for item in listing("event") if item["runId"] == run_id]
+        existing = _run_events(run_id)
         seq = max((item["seq"] for item in existing), default=0) + 1
         event = {
             "id": nid("evt"),
@@ -328,7 +346,7 @@ def append_event(run_id: str, event_type: str, payload: dict | None = None, cost
 def merge_deltas(run_id: str, call_id: str, text: str) -> dict:
     """Fold one model call's deltas into a single MODEL_OUTPUT and keep seqs contiguous."""
     with LOCK:
-        rows = sorted((item for item in listing("event") if item["runId"] == run_id), key=lambda item: item["seq"])
+        rows = sorted(_run_events(run_id), key=lambda item: item["seq"])
         kept = []
         for item in rows:
             payload = item.get("payload") or {}
@@ -353,5 +371,5 @@ def merge_deltas(run_id: str, call_id: str, text: str) -> dict:
 
 
 def events_for(run_id: str, after: int = 0) -> list[dict]:
-    rows = [item for item in listing("event") if item["runId"] == run_id and item["seq"] > after]
+    rows = [item for item in _run_events(run_id) if item["seq"] > after]
     return sorted(rows, key=lambda item: item["seq"])

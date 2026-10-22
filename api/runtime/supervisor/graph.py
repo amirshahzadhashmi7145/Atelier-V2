@@ -96,9 +96,8 @@ def resume_supervisor(parent_task_id: str, value=True) -> None:
         return
     with _lock:
         live = _threads.get(parent_task_id)
-    if live is not None and live.is_alive():
-        live.join(timeout=5)
-    with _lock:
+        if live is not None and live.is_alive():
+            return
         thread = threading.Thread(
             target=_invoke_resume,
             args=(parent_task_id, value),
@@ -150,8 +149,29 @@ def _invoke_resume(parent_task_id: str, value) -> None:
 def _record_error(parent_task_id: str | None, exc: Exception) -> None:
     if not parent_task_id:
         return
-    db.put(
-        "supervisor-error",
-        parent_task_id,
-        {"id": parent_task_id, "error": f"{type(exc).__name__}: {exc}"},
-    )
+    text = f"{type(exc).__name__}: {exc}"
+    db.put("supervisor-error", parent_task_id, {"id": parent_task_id, "error": text})
+    _surface_error(parent_task_id, text)
+
+
+def _surface_error(parent_task_id: str, text: str) -> None:
+    """A dead graph must look dead: fail its runs, fail the task, ask the user."""
+    from runtime import needs, project_runs
+
+    task = db.get("task", parent_task_id) or {}
+    project_id = task.get("projectId")
+    message = f"The supervisor stopped with an error: {text}"
+    lead_run_id = None
+    for run in db.listing("run"):
+        if run.get("taskId") != parent_task_id or run.get("status") not in project_runs.ACTIVE:
+            continue
+        lead_run_id = run["id"]
+        run["status"] = "failed"
+        run["terminalCause"] = "error"
+        run["endedAt"] = db.now()
+        db.put("run", run["id"], run)
+        db.append_event(run["id"], "RUN_FAILED", {"cause": "error", "text": message})
+    if task and task.get("status") in {"running", "queued", "waiting_review"}:
+        task["status"] = "failed"
+        db.put("task", parent_task_id, task)
+    needs.write(project_id, parent_task_id, "escalate", message, lead_run_id)

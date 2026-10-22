@@ -694,7 +694,7 @@ def list_runs(agentId: str | None = None, status: str | None = None, page: int =
         rows = [item for item in rows if item["agentId"] == agentId]
     if status:
         rows = [item for item in rows if item["status"] == status]
-    rows.sort(key=lambda item: item["startedAt"], reverse=True)
+    rows.sort(key=lambda item: item.get("startedAt") or "", reverse=True)
     start = (page - 1) * 20
     return {"items": rows[start : start + 20], "page": page, "total": len(rows)}
 
@@ -743,6 +743,7 @@ def run_events(id: str, after: int = 0):
 
         yielded: set[str] = set()
         inbox = live.subscribe(id)
+        last_beat = time.time()
         try:
             while True:
                 pending = [event for event in db.events_for(id, after) if event["id"] not in yielded]
@@ -757,9 +758,16 @@ def run_events(id: str, after: int = 0):
                     yielded.add(live_event["id"])
                     yield _frame(live_event)
                 run = db.get("run", id)
-                leftover = [event for event in db.events_for(id, after) if event["id"] not in yielded]
-                if run and run["status"] in ("completed", "failed", "cancelled") and not leftover and inbox.empty():
+                if run and run["status"] in ("completed", "failed", "cancelled") and live_event is None and inbox.empty():
+                    for event in db.events_for(id, after):
+                        if event["id"] not in yielded:
+                            yielded.add(event["id"])
+                            yield _frame(event)
                     break
+                if time.time() - last_beat > 15:
+                    last_beat = time.time()
+                    # SSE comment keeps proxies from dropping the connection during long model calls.
+                    yield ": ping\n\n"
         finally:
             live.unsubscribe(id, inbox)
 
@@ -814,6 +822,9 @@ def answer_run(id: str, body: dict):
         return error(409, "invalid", "The run is not waiting for an answer")
     db.put("answer", id, {"text": body["text"]})
     if run.get("projectId"):
+        from runtime import needs
+
+        needs.resolve_open(run["projectId"], body["text"], run_id=id, resume=False)
         _chat(run["projectId"], "user", body["text"], run.get("taskId"), run["id"])
     db.append_event(id, "STATE_CHANGED", {"status": "running"})
     run["status"] = "running"
@@ -968,12 +979,20 @@ def list_messages(id: str):
     if db.get("project", id) is None:
         return missing()
     rows = [item for item in db.listing("message") if item["projectId"] == id]
+    for item in rows:
+        plan_id = item.get("planId")
+        if not plan_id or item.get("verdict"):
+            continue
+        plan = db.get("plan", plan_id)
+        if plan and plan.get("status") == "approved":
+            item["verdict"] = "approve"
     return sorted(rows, key=lambda item: item["createdAt"])
 
 
 @router.post("/projects/{id}/messages", status_code=201)
 def post_message(id: str, body: dict):
     from runtime import classify as labeling
+    from runtime import lead as leadlib
     from runtime import project_runs
 
     project = db.get("project", id)
@@ -982,6 +1001,18 @@ def post_message(id: str, body: dict):
     if not body.get("text"):
         return error(422, "invalid", "text is required")
     message_id = db.nid("msg")
+    from runtime import needs as needslib
+
+    waiting = [
+        item
+        for item in db.listing("run")
+        if item.get("projectId") == id and item.get("status") == "waiting_user"
+    ]
+    if waiting and not bridge.is_preview_stop(body["text"]) and not bridge.is_control(body["text"]):
+        latest = waiting[-1]
+        user = _chat(id, "user", body["text"], latest.get("taskId"), latest["id"], message_id)
+        needslib.resolve_open(id, body["text"])
+        return user
     if bridge.is_preview_stop(body["text"]):
         user = _chat(id, "user", body["text"], None, None, message_id, "chat")
         had_preview = bool(db.get("preview", id))
@@ -992,8 +1023,10 @@ def post_message(id: str, body: dict):
     if bridge.is_control(body["text"]):
         user = _chat(id, "user", body["text"], None, None, message_id)
         project_runs.stop_all(id)
+        needslib.resolve_open(id, body["text"])
         _chat(id, "agent", "stopped", None, None)
         return user
+    needslib.resolve_open(id, body["text"])
     task = {
         "id": db.nid("task"),
         "projectId": id,
@@ -1009,9 +1042,8 @@ def post_message(id: str, body: dict):
     bridge.route_task(project, task)
     work_text = task.get("text") or body["text"]
     if task.get("children"):
-        settings = db.get("settings", "runs") or {}
-        cap = float(settings.get("maxSpendPerDayUsd") or 20)
-        if project_runs.spend_today(id) >= cap:
+        cap = leadlib.spend_cap((db.get("settings", "runs") or {}).get("maxSpendPerDayUsd"), 0)
+        if cap is not None and project_runs.spend_today(id) >= cap:
             return error(429, "budget", "The daily spend cap for this project was reached.")
         task["label"] = "task"
         db.put("task", task["id"], task)
@@ -1043,7 +1075,6 @@ def post_message(id: str, body: dict):
             db.put("message", user["id"], user)
         return user
     agent = db.get("agent", task["assignedAgentId"]) or {}
-    from runtime import lead as leadlib
 
     kind = bridge.classify(agent, work_text, id) if agent else "task"
     if leadlib.is_lead(agent) and kind == "out":
@@ -1068,12 +1099,20 @@ def post_message(id: str, body: dict):
         task["summary"] = reply
         db.put("task", task["id"], task)
         return user
-    settings = db.get("settings", "runs") or {}
-    cap = float(settings.get("maxSpendPerDayUsd") or 20)
-    if project_runs.spend_today(id) >= cap:
+    cap = leadlib.spend_cap((db.get("settings", "runs") or {}).get("maxSpendPerDayUsd"), 0)
+    if cap is not None and project_runs.spend_today(id) >= cap:
         return error(429, "budget", "The daily spend cap for this project was reached.")
     kind = "lead" if leadlib.is_lead(agent) else None
     return _start_project_run(project, agent, task, work_text, message_id, labeling.prior_context(id), kind=kind)
+
+
+@router.get("/projects/{id}/tasks")
+def list_task_board(id: str):
+    from runtime import board as boardlib
+
+    if db.get("project", id) is None:
+        return missing()
+    return boardlib.project_board(id)
 
 
 @router.get("/projects/{id}/tasks/{taskId}")

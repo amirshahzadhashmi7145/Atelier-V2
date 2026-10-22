@@ -36,11 +36,9 @@ def drive(run_id: str) -> None:
     agent = db.get("agent", run["agentId"]) or {}
     settings = db.get("settings", "runs") or {}
     if run.get("kind") == "review":
-        raw_cap = settings.get("maxSpendPerReviewUsd")
-        cap = float(1 if raw_cap is None else raw_cap)
+        cap = leadlib.spend_cap(settings.get("maxSpendPerReviewUsd"), 0)
     else:
-        raw_cap = settings.get("maxSpendPerRunUsd")
-        cap = float(5 if raw_cap is None else raw_cap)
+        cap = leadlib.spend_cap(settings.get("maxSpendPerRunUsd"), 0)
     max_iterations = int(settings.get("maxIterations") or 60)
     max_minutes = int(settings.get("maxMinutes") or 45)
     detect_loops = settings.get("loopDetection", True)
@@ -58,7 +56,8 @@ def drive(run_id: str) -> None:
             return
     started = time.time()
     unchanged = 0
-    answer = None
+    # A relaunch after a restart picks up the clarification answer the dead thread never saw.
+    answer = (db.get("answer", run_id) or {}).get("text")
     recent: list[str] = []
     last_key = None
     streak = 0
@@ -78,6 +77,7 @@ def drive(run_id: str) -> None:
         turn = {"content": "", "tool_calls": [], "usage": {"input_tokens": 0, "output_tokens": 0}, "usd": 0}
         opened: list[str] = []
         counts: dict[str, int] = {}
+        db.append_event(run_id, "MODEL_STARTED", {"iteration": run["iterations"] + 1, "model": run["model"]["name"]})
         try:
             stream = openai_gateway.stream_turn(
                 run["model"]["name"],
@@ -137,7 +137,7 @@ def drive(run_id: str) -> None:
         run["iterations"] += 1
         if not _persist_run(run):
             return
-        if run["costUsd"] > cap:
+        if cap is not None and run["costUsd"] > cap:
             message = "The review exceeded its spend cap." if run.get("kind") == "review" else "The run exceeded the spend cap."
             _fail(run, "budget", message, recent)
             return
@@ -154,6 +154,9 @@ def drive(run_id: str) -> None:
         )
         for call in calls:
             if _cancelled(run_id):
+                return
+            if time.time() - started > max_minutes * 60:
+                _fail(run, "timeout", "The run exceeded the time limit.", recent)
                 return
             db.append_event(run_id, "TOOL_CALLED", {"name": call["name"], "arguments": call["arguments"]})
             result = tools.dispatch(run, call["name"], call["arguments"], lambda: _cancelled(run_id))
@@ -386,6 +389,14 @@ def _messages(run: dict, agent: dict, answer: str | None, track: dict | None = N
             prefix.append({"role": "user", "content": "Conversation so far: " + project["summary"]})
         for item in history[-20:]:
             prefix.append({"role": "user" if item["role"] == "user" else "assistant", "content": item["text"]})
+    elif run.get("kind") == "lead":
+        # A planning lead must see the conversation: a bare "yes" task is meaningless without it.
+        history = [item for item in db.listing("message") if item.get("projectId") == run.get("projectId")]
+        history.sort(key=lambda item: item["createdAt"])
+        recent = history[-12:]
+        if recent:
+            lines = "\n".join(f"{item['role']}: {(item.get('text') or '').strip()[:300]}" for item in recent)
+            prefix.append({"role": "user", "content": "Recent conversation (oldest first):\n" + lines})
     prefix.append({"role": "user", "content": run["task"]})
     suffix: list[dict] = []
     if answer:
@@ -601,8 +612,14 @@ def _git(folder: Path, args: list[str]) -> str:
         "GIT_AUTHOR_EMAIL": "agent@localhost",
         "GIT_COMMITTER_NAME": "Agent Studio",
         "GIT_COMMITTER_EMAIL": "agent@localhost",
+        "GIT_TERMINAL_PROMPT": "0",
     }
-    result = subprocess.run(["git", "-c", "safe.directory=*", *args], cwd=folder, capture_output=True, text=True, env=env)
+    try:
+        result = subprocess.run(
+            ["git", "-c", "safe.directory=*", *args], cwd=folder, capture_output=True, text=True, env=env, timeout=120
+        )
+    except subprocess.TimeoutExpired:
+        return f"git {args[0]} timed out"
     return result.stdout + result.stderr
 
 

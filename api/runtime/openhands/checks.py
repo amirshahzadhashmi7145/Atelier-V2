@@ -56,7 +56,7 @@ def snapshot_packages(folder: Path) -> set[str]:
 
 
 def build_violation(run: dict, folder: Path) -> str | None:
-    if not (folder / "package.json").exists():
+    if tools._package_root(folder) is None:
         run["buildTest"] = {"ok": True, "output": "no package.json"}
         return None
     result = tools._build(run, folder, lambda: False)

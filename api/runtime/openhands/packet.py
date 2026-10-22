@@ -93,10 +93,38 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
     taught = lessons.for_prompt(agent.get("roleKey") or "")
     if taught:
         lines.append(taught)
+    lines.append("Stay in your zones. Do not search the filesystem for skills or scan unrelated git history.")
+    allowed = _allowed_packages(agent)
+    if allowed:
+        lines.append(
+            "New npm packages must come from this allow-list (wildcards included): "
+            + ", ".join(allowed)
+            + ". The platform enforces this list; it is not a file in the workspace, so do not search for or try to edit it."
+        )
+    if _needs_preview(agent):
+        lines.append(
+            "Start the app's development server in the background, open it in the browser to "
+            "verify your work, and stop that server before you finish."
+        )
+    else:
+        lines.append("Run the tests for the code you changed. Do not start a dev server or open a browser.")
     lines.append(
-        "Start the app's development server in the background, open it in the browser to "
-        "verify your work, and stop that server before you finish. Commit your work on this "
-        "branch. If you are blocked or need a decision, state the open question; do not ask "
+        "Commit your work on this branch. If you are blocked or need a decision, state the open question; do not ask "
         "the user. Do not edit the project notes file."
     )
     return "\n".join(lines).strip()
+
+
+def _allowed_packages(agent: dict) -> list[str]:
+    stacks = {item["id"]: item for item in db.listing("stack")}
+    names: list[str] = []
+    for stack_id in agent.get("stackIds") or []:
+        for name in (stacks.get(stack_id) or {}).get("packageAllowList") or []:
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def _needs_preview(agent: dict) -> bool:
+    blob = " ".join(str(item) for item in ((agent.get("scope") or {}).get("zones") or agent.get("zones") or [])).lower()
+    return any(token in blob for token in ("src/", "src/**", "app/", "public/", "index.html", ".tsx", ".jsx"))

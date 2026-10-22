@@ -241,6 +241,7 @@ def test_react_stack_allows_lucide_and_tailwind_globs(client: TestClient):
 
 
 def test_spend_cap_stops_the_run(client: TestClient):
+    client.put("/settings/runs", json={"maxSpendPerRunUsd": 5})
     openai_gateway.SCRIPTS.append({"content": "thinking", "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 600000}})
     run = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Spend"}).json()
     finished = wait_status(client, run["id"], {"failed"})
@@ -686,7 +687,7 @@ def test_eval_pass_rules(client: TestClient):
     assert failed.json()["evalResults"][0]["status"] == "fail"
     assert client.post(f"/agents/{failed_agent}/versions/{failed_version}/activate").status_code == 409
 
-    client.put("/settings/runs", json={"maxSpendPerRunUsd": 0})
+    client.put("/settings/runs", json={"maxSpendPerRunUsd": 0.0001})
     capped_agent, capped_version = _eval_agent(client, "build_and_tests")
     capped = client.post(f"/agents/{capped_agent}/versions/{capped_version}/evals/run")
     assert capped.json()["evalResults"][0]["status"] == "fail"

@@ -1268,6 +1268,21 @@ paths:
           $ref: "#/components/responses/Error"
         "409":
           $ref: "#/components/responses/Error"
+  /projects/{id}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listProjectTasks
+      tags: [projects]
+      responses:
+        "200":
+          description: Every live task on the project with handoff and review history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectTaskBoard"
+        "404":
+          $ref: "#/components/responses/Error"
   /projects/{id}/tasks/{taskId}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2343,10 +2358,13 @@ components:
         maxSpendPerRunUsd:
           type: number
           minimum: 0
+          default: 0
+          description: USD cap for a worker or eval run. 0 means no cap.
         maxSpendPerDayUsd:
           type: number
           minimum: 0
-          default: 20
+          default: 0
+          description: USD cap for a project per calendar day. 0 means no cap.
         maxIterations:
           type: integer
           minimum: 1
@@ -2365,7 +2383,8 @@ components:
         maxSpendPerReviewUsd:
           type: number
           minimum: 0
-          default: 1
+          default: 0
+          description: USD cap for a Team Lead review run. 0 means no cap.
         recordModelRequests:
           type: boolean
           default: false
@@ -2863,6 +2882,10 @@ components:
           enum: [planning, working, reviewing, escalated, done]
         label:
           type: [string, "null"]
+        runId:
+          type: [string, "null"]
+        agentName:
+          type: [string, "null"]
     ProjectMember:
       type: object
       additionalProperties: false
@@ -3181,6 +3204,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SessionLog"
+        agentName:
+          type: string
+    ProjectTaskBoard:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskBoard"
     SessionLog:
       type: object
       additionalProperties: false

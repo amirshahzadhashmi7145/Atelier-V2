@@ -86,6 +86,22 @@ def test_unmapped_tool_blocks_run_at_start(client: TestClient, monkeypatch):
     assert any("no handler" in str((item.get("payload") or {}).get("text") or "") for item in events)
 
 
+def test_worker_compile_preview_omits_atelier_builtins(client: TestClient):
+    agent_id = frontend_agent(client)["id"]
+    preview = client.post(
+        f"/agents/{agent_id}/compile-preview",
+        json={
+            "sections": {"role": "Dev", "goal": "G", "instructions": "Work", "constraints": "C", "output": "O"},
+            "toolIds": ["files", "shell", "build_test"],
+            "skillIds": [],
+            "stackIds": [],
+        },
+    ).json()
+    text = preview["compiled"]
+    assert "# Tools" not in text
+    assert "Prefer files.edit" not in text
+
+
 def test_live_get_runner_is_openhands():
     set_runner(None)
     try:

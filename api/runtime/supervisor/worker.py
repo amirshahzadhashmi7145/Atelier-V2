@@ -99,12 +99,17 @@ def _start_worker(project_id: str, task: dict) -> str | None:
 def _wait_run(run_id: str | None) -> str:
     if not run_id:
         return "failed"
+    settings = db.get("settings", "runs") or {}
+    minutes = int(settings.get("maxMinutes") or 45)
+    deadline = time.time() + minutes * 60 * (board.MAX_REWORKS + 1) + 600
     while True:
         run = db.get("run", run_id)
         if run is None:
             return "failed"
         if run.get("status") not in ACTIVE:
             return run.get("status") or "failed"
+        if time.time() > deadline:
+            return "failed"
         time.sleep(0.05)
 
 

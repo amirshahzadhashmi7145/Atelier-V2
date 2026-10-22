@@ -117,9 +117,16 @@ def test_team_lead_template_imports_with_scope_evals_and_supervisor_tag(client: 
 
 
 def test_run_settings_default_approve_plans_and_review_cap(client: TestClient):
+    from runtime.lead import spend_cap
+
     settings = client.get("/settings/runs").json()
     assert settings["approvePlansBeforeRunning"] is False
-    assert settings["maxSpendPerReviewUsd"] == 1
+    assert settings["maxSpendPerReviewUsd"] == 0
+    assert settings["maxSpendPerRunUsd"] == 0
+    assert settings["maxSpendPerDayUsd"] == 0
+    assert spend_cap(0, 0) is None
+    assert spend_cap(None, 0) is None
+    assert spend_cap(1, 0) == 1.0
 
 
 def test_messages_route_to_the_lead(client: TestClient):
@@ -160,6 +167,22 @@ def test_plan_is_shown_before_any_child_run(client: TestClient):
     assert all(item["status"] == "planned" for item in children)
     parent = db.get("task", posted["taskId"])
     assert parent["status"] == "waiting_plan"
+
+
+def test_second_plan_approve_does_not_resume_the_graph(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    resumes: list[object] = []
+    monkeypatch.setattr("runtime.supervisor.graph.resume_supervisor", lambda *args, **kwargs: resumes.append(args))
+    project, _front, _back, _lead = led_project(client)
+    posted = client.post(f"/projects/{project['id']}/messages", json={"text": "build a todo app with login"}).json()
+    wait_status(client, posted["runId"], {"completed", "failed"}, timeout=20)
+    plan = wait_plan(client, project["id"])
+    assert client.post(f"/projects/{project['id']}/plans/{plan['planId']}/approve").status_code == 200
+    assert len(resumes) == 1
+    assert client.post(f"/projects/{project['id']}/plans/{plan['planId']}/approve").status_code == 200
+    assert len(resumes) == 1
+    rows = client.get(f"/projects/{project['id']}/messages").json()
+    plan_msg = next(item for item in rows if item.get("planId") == plan["planId"])
+    assert plan_msg.get("verdict") == "approve"
 
 
 def test_approve_plan_advances_and_parent_completes_after_all_approvals(client: TestClient):
@@ -268,6 +291,9 @@ def test_lead_cannot_write_files(client: TestClient):
 
 
 def test_review_spend_cap_is_reported_not_retried(client: TestClient):
+    settings = client.get("/settings/runs").json()
+    settings["maxSpendPerReviewUsd"] = 1
+    assert client.put("/settings/runs", json=settings).status_code == 200
     project, _front, back, _lead = led_project(client)
     openai_gateway.SCRIPTS.append(_one_child_plan(back["id"], "Ship the health endpoint", ["health returns ok"]))
     posted = client.post(f"/projects/{project['id']}/messages", json={"text": "add health"}).json()

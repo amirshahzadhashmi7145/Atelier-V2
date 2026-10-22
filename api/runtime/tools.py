@@ -275,25 +275,55 @@ def _install(run: dict, folder: Path | None, name: str, should_stop) -> dict:
     return _shell(folder, f"npm install {name}", should_stop)
 
 
+def _package_root(folder: Path | None) -> Path | None:
+    if folder is None:
+        return None
+    if (folder / "package.json").is_file():
+        return folder
+    try:
+        kids = sorted(path for path in folder.iterdir() if path.is_dir() and path.name not in {".git", "node_modules", ".venv", ".artifacts"})
+    except OSError:
+        return None
+    found = None
+    for path in kids:
+        manifest = path / "package.json"
+        if not manifest.is_file():
+            continue
+        try:
+            scripts = (json.loads(manifest.read_text()) or {}).get("scripts") or {}
+        except (OSError, json.JSONDecodeError):
+            scripts = {}
+        if "build" in scripts and "test" in scripts:
+            return path
+        if found is None or "test" in scripts or "build" in scripts:
+            found = path
+    return found
+
+
 def _build(run: dict, folder: Path | None, should_stop) -> dict:
     log = ""
     ok = False
-    if folder is not None and (folder / "package.json").exists():
+    root = _package_root(folder)
+    if root is not None:
         try:
-            package = json.loads((folder / "package.json").read_text())
+            package = json.loads((root / "package.json").read_text())
         except json.JSONDecodeError:
             package = None
         if not isinstance(package, dict):
             log = "package.json is not valid JSON; rewrite it with files.write"
             package = {}
         scripts = package.get("scripts") or {}
-        ok = "build" in scripts and "test" in scripts and not log
-        for script in ("build", "test"):
+        nested = root != folder
+        needed = ["build", "test"]
+        if nested and "test" in scripts and "build" not in scripts:
+            needed = ["test"]
+        ok = all(name in scripts for name in needed) and not log
+        for script in needed:
             if script not in scripts:
                 ok = False
                 log += f'package.json has no "{script}" script; add one under "scripts"\n'
                 continue
-            code, output = sandbox.run_command(folder, f"npm run {script}", should_stop)
+            code, output = sandbox.run_command(root, f"npm run {script}", should_stop)
             log += output
             if code:
                 ok = False

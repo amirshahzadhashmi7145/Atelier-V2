@@ -222,12 +222,18 @@ def _wait_run(run_id: str | None) -> dict | None:
 
     if not run_id:
         return None
+    settings = db.get("settings", "runs") or {}
+    minutes = int(settings.get("maxMinutes") or 45)
+    # Worst legitimate case: the worker retries up to MAX_REWORKS times, each bounded by maxMinutes.
+    deadline = time.time() + minutes * 60 * (board.MAX_REWORKS + 1) + 600
     while True:
         run = db.get("run", run_id)
         if run is None:
             return None
         if run.get("status") not in project_runs.ACTIVE:
             return run
+        if time.time() > deadline:
+            return None
         time.sleep(0.05)
 
 

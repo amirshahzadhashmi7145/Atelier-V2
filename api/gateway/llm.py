@@ -300,6 +300,8 @@ def _litellm_kwargs(
         "messages": messages,
         "stream": stream,
         "api_key": resolve_api_key(provider),
+        # Bound each provider request so a hung connection fails over instead of stalling the run.
+        "timeout": float(os.environ.get("LLM_REQUEST_TIMEOUT_SEC", "300")),
     }
     if tools:
         kwargs["tools"] = tools

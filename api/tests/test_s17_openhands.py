@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import pytest
@@ -115,6 +116,18 @@ def test_task_input_includes_task_criteria_handoff_and_feedback(client: TestClie
     assert "development server in the background" in prompt
     assert "open it in the browser" in prompt
     assert "stop that server before you finish" in prompt
+    assert "Do not search the filesystem for skills" in prompt
+
+
+def test_backend_packet_skips_browser_and_skill_hunt(client: TestClient):
+    agent = _agent(client, roleKey="backend-engineer", zones=["server/**"], stackIds=[])
+    project, task = _workspace(client, agent)
+    fake = FakeOpenHands(files={"server/index.js": "module.exports = {}\n"})
+    _run(project, task, fake)
+    prompt = fake.last_spec.prompt if fake.last_spec else ""
+    assert "Do not start a dev server" in prompt
+    assert "development server in the background" not in prompt
+    assert "Do not search the filesystem for skills" in prompt
 
 
 def test_openhands_driver_registers_browser_toolset():
@@ -122,6 +135,131 @@ def test_openhands_driver_registers_browser_toolset():
     assert "BrowserToolSet" in text
     assert "mount_dir=" not in text
     assert "volumes=" in text or "volumes=[" in text
+    assert "stdout.flush" in text
+    assert "_watch" in text
+    assert "get_combined_metrics" in text
+    assert '"type": "cost"' in text
+
+
+def test_openhands_cost_events_update_spend():
+    from runtime.openhands.client import _iter_jsonl
+
+    recorded: list[float] = []
+    _events, result = _iter_jsonl(
+        [
+            json.dumps({"type": "cost", "costUsd": 0.12}),
+            json.dumps({"type": "action", "action": "edit", "path": "src/App.tsx"}),
+            json.dumps({"type": "result", "costUsd": 0.15, "summary": "done"}),
+        ],
+        on_cost=recorded.append,
+    )
+    assert recorded == [0.12]
+    assert result["costUsd"] == 0.15
+
+
+def test_openhands_terminal_events_are_named_and_deduped(client: TestClient):
+    from runtime.openhands.runner import _publish_oh_event
+
+    db.put("run", "run_ev", {"id": "run_ev", "status": "running"})
+    n = [0]
+    run = db.get("run", "run_ev")
+    _publish_oh_event(run, {"type": "TerminalAction", "command": "ls -la"}, n)
+    _publish_oh_event(run, {"type": "TerminalAction", "command": "ls -la"}, n)
+    _publish_oh_event(run, {"type": "CmdOutputObservation", "command": "ls -la", "content": "ok"}, n)
+    events = db.events_for("run_ev")
+    called = [item for item in events if item["type"] == "TOOL_CALLED"]
+    assert len(called) == 1
+    assert called[0]["payload"]["name"] == "terminal"
+    assert called[0]["payload"]["arguments"]["command"] == "ls -la"
+    assert any(item["type"] == "TOOL_RESULT" and item["payload"]["name"] == "terminal" for item in events)
+
+
+def test_openhands_events_are_appended_while_running(client: TestClient):
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    fake = FakeOpenHands(
+        files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"},
+        events=[{"type": "action", "action": "edit", "path": "src/App.tsx"}, {"type": "message", "content": "Drew the board."}],
+    )
+    result = _run(project, task, fake)
+    events = db.events_for(result["runId"])
+    assert any(item["type"] == "TOOL_CALLED" and (item.get("payload") or {}).get("name") == "edit" for item in events)
+    assert any(item["type"] == "MODEL_OUTPUT" and "board" in str((item.get("payload") or {}).get("text") or "") for item in events)
+
+
+def test_openhands_does_not_start_a_second_worker_for_the_same_task(client: TestClient):
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowFake(FakeOpenHands):
+        def run(self, spec):
+            started.set()
+            release.wait(5)
+            return super().run(spec)
+
+    fake = SlowFake(files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
+    set_client_factory(lambda: fake)
+    runner = OpenHandsWorkerRunner()
+    payload = {"project_id": project["id"], "task_id": task["id"], "text": task["text"]}
+    results: list[dict] = []
+
+    def go() -> None:
+        results.append(runner.run(payload))
+
+    first = threading.Thread(target=go)
+    second = threading.Thread(target=go)
+    first.start()
+    assert started.wait(5)
+    second.start()
+    release.set()
+    first.join(timeout=10)
+    second.join(timeout=10)
+    workers = [item for item in db.listing("run") if item.get("taskId") == task["id"] and item.get("kind") == "worker"]
+    assert len(workers) == 1
+    assert len(results) == 2
+    assert results[0]["runId"] == results[1]["runId"] == workers[0]["id"]
+
+
+def test_reap_orphans_fails_stuck_running_workers(client: TestClient):
+    from runtime import project_runs
+
+    db.put(
+        "run",
+        "run_stuck",
+        {"id": "run_stuck", "status": "running", "kind": "worker", "taskId": "task_stuck", "startedAt": db.now(), "costUsd": 0},
+    )
+    db.put("task", "task_stuck", {"id": "task_stuck", "status": "running", "text": "stuck"})
+    db.put(
+        "run",
+        "run_wait",
+        {"id": "run_wait", "status": "waiting_user", "kind": "lead", "taskId": "task_wait", "startedAt": db.now()},
+    )
+    assert project_runs.reap_orphans() >= 1
+    assert db.get("run", "run_stuck")["status"] == "failed"
+    assert db.get("task", "task_stuck")["status"] == "failed"
+    assert db.get("run", "run_wait")["status"] == "waiting_user"
+
+
+def test_supervisor_steps_stop_saying_working_after_orphan_reap(client: TestClient):
+    from runtime import project_runs
+    from runtime.supervisor import steps as steplib
+
+    db.put(
+        "run",
+        "run_stuck2",
+        {"id": "run_stuck2", "status": "running", "kind": "worker", "taskId": "task_stuck2", "projectId": "prj_stuck", "startedAt": db.now()},
+    )
+    db.put("task", "task_stuck2", {"id": "task_stuck2", "status": "running", "text": "stuck", "assignedAgentId": ""})
+    db.put(
+        "supervisor-run",
+        "parent_stuck",
+        {"id": "parent_stuck", "projectId": "prj_stuck", "steps": [{"taskId": "task_stuck2", "step": "working", "runId": "run_stuck2"}]},
+    )
+    project_runs.reap_orphans()
+    rows = steplib.steps_for_project("prj_stuck")
+    assert rows and rows[0]["step"] != "working"
 
 
 def test_zone_violation_rejects(client: TestClient):
@@ -178,6 +316,23 @@ def test_rejection_becomes_rework_with_automatic_feedback(client: TestClient):
     feedback = board.latest_feedback(row)
     assert feedback["verdict"] == "changes_requested"
     assert "Automatic check" in (feedback.get("notes") or "")
+
+
+def test_committed_openhands_files_still_count_as_changed(client: TestClient):
+    from runtime.openhands import sandbox
+
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    work = sandbox.prepare(project, task)
+    try:
+        target = work.folder / "src" / "App.tsx"
+        target.write_text("export default function App() { return <h1>Hi</h1> }\n")
+        sandbox.git(work.folder, ["add", "-A"])
+        sandbox.git(work.folder, ["commit", "-m", "agent"])
+        assert "src/App.tsx" not in sandbox.changed_files(work.folder, project)
+        assert "src/App.tsx" in sandbox.changed_files(work.folder, project, baseline=work.baseline)
+    finally:
+        work.cleanup()
 
 
 def test_files_changed_come_from_the_diff(client: TestClient):
@@ -482,9 +637,6 @@ def test_real_contact_page_openhands_qa(client: TestClient, monkeypatch, attempt
 
     set_runner(None)
     gate_plans(client, False)
-    settings = client.get("/settings/runs").json()
-    settings["maxSpendPerReviewUsd"] = 5
-    assert client.put("/settings/runs", json=settings).status_code == 200
     model = {"provider": "gemini", "name": os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash", "config": {}}
     if not openai_gateway.gemini_api_key():
         model = _live_model()

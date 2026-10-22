@@ -81,4 +81,14 @@ def _bootstrap_gemini() -> None:
 @app.on_event("startup")
 def startup() -> None:
     db.engine()
+    from runtime import project_runs
+
+    project_runs.reap_orphans()
     _bootstrap_gemini()
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    from runtime.openhands.client import cleanup_live_clients
+
+    cleanup_live_clients()

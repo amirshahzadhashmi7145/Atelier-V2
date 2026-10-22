@@ -28,13 +28,26 @@ def lead_of(project: dict | None) -> dict | None:
     return ranked[0][1]
 
 
+def spend_cap(raw, default: float | None = 0) -> float | None:
+    """Return a USD cap, or None when spend is unlimited.
+
+    Missing values use `default`. 0 or negative means no cap.
+    """
+    if raw is None:
+        raw = default
+    if raw is None:
+        return None
+    value = float(raw)
+    return None if value <= 0 else value
+
+
 def settings() -> dict:
     current = db.get("settings", "runs") or {}
     current.setdefault("approvePlansBeforeRunning", False)
     current.setdefault("maxLessonsPerRole", 20)
-    current.setdefault("maxSpendPerReviewUsd", 1)
-    current.setdefault("maxSpendPerRunUsd", 5)
-    current.setdefault("maxSpendPerDayUsd", 20)
+    current.setdefault("maxSpendPerReviewUsd", 0)
+    current.setdefault("maxSpendPerRunUsd", 0)
+    current.setdefault("maxSpendPerDayUsd", 0)
     return current
 
 
@@ -135,6 +148,13 @@ def _apply_item_edits(plan: dict, edits: list[dict] | None) -> None:
     plan["items"] = updated
 
 
+def _stamp_plan_verdict(plan_id: str) -> None:
+    for item in db.listing("message"):
+        if item.get("planId") == plan_id:
+            item["verdict"] = "approve"
+            db.put("message", item["id"], item)
+
+
 def mark_plan_approved(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
     plan = db.get("plan", plan_id)
     if plan is None or plan.get("projectId") != project_id:
@@ -146,11 +166,18 @@ def mark_plan_approved(project_id: str, plan_id: str, edits: list[dict] | None =
     if parent:
         parent["status"] = "running"
         db.put("task", parent["id"], parent)
+    _stamp_plan_verdict(plan_id)
     return plan
 
 
 def approve_plan(project_id: str, plan_id: str, edits: list[dict] | None = None) -> dict:
+    existing = db.get("plan", plan_id)
+    if existing is None or existing.get("projectId") != project_id:
+        raise KeyError("plan")
+    already = existing.get("status") == "approved"
     plan = mark_plan_approved(project_id, plan_id, edits)
+    if already:
+        return plan
     from runtime.supervisor.graph import resume_supervisor
 
     resume_supervisor(plan["parentTaskId"], {"approved": True})
