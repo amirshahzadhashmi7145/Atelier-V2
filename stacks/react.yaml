@@ -12,7 +12,10 @@ packageAllowList:
   - react-dom
   - lucide-react
   - "@types/react"
+  - "@types/react-dom"
   - next
+  - vite
+  - jsdom
   - tailwindcss
   - "@tailwindcss/*"
   - zod
