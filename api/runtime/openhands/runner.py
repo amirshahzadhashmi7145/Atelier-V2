@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from pathlib import Path
@@ -249,6 +250,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
             return {"taskId": task["id"], "runId": run["id"], "handoffId": None, "status": "failed"}
         sandbox.sync_back(work)
         sha = sandbox.commit_work(work.source, task["id"])
+        _serve_preview(project, agent, run)
         summary = {
             "description": result.summary or "OpenHands finished the task.",
             "filesChanged": files,
@@ -294,6 +296,20 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 work.cleanup()
             except Exception:
                 pass
+
+
+def _serve_preview(project: dict, agent: dict, run: dict) -> None:
+    """Serve the synced project folder after completion; the sandbox preview dies with the run."""
+    from runtime import tools
+
+    if os.environ.get("GATEWAY_MOCK") == "1" or not packet._needs_preview(agent):
+        return
+    folder = Path(project.get("folderPath") or "")
+    try:
+        if folder.is_dir():
+            tools._preview(run, folder)
+    except Exception:
+        pass
 
 
 def _price_events(events: list[dict], model: str) -> float:

@@ -441,6 +441,8 @@ def _preview(run: dict, folder: Path | None) -> dict:
         return {"output": "no workspace"}
     import socket
 
+    if run.get("projectId"):
+        stop_preview(run["projectId"])
     folder.mkdir(parents=True, exist_ok=True)
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -448,6 +450,9 @@ def _preview(run: dict, folder: Path | None) -> dict:
     sock.close()
     if (folder / "package.json").exists():
         command = f"npm run dev -- --port {port} --host 127.0.0.1"
+        if not (folder / "node_modules").is_dir():
+            # A freshly synced project folder has no dependencies yet; install before serving.
+            command = f"npm install --prefer-offline --no-audit && {command}"
     else:
         command = f"python3 -m http.server {port}"
     url = f"http://127.0.0.1:{port}"
