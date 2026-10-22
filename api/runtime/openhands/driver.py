@@ -265,31 +265,47 @@ def main() -> int:
                 done.set()
 
         billed = [0.0]
+        stall_sec = float(os.environ.get("OH_STALL_SEC", "360"))
+        last_activity = [time.time()]
 
         def _watch() -> None:
             while not halt.is_set():
+                before = seen[0]
                 _emit_new(conv, seen)
+                if seen[0] != before:
+                    last_activity[0] = time.time()
                 amount = _cost(llm, conv, str(getattr(llm, "model", None) or model))
                 if amount > billed[0]:
                     billed[0] = amount
+                    last_activity[0] = time.time()
                     sys.stdout.write(json.dumps({"type": "cost", "costUsd": amount}) + "\n")
                     sys.stdout.flush()
                 halt.wait(0.2)
             _emit_new(conv, seen)
+
+        def _stop_conv() -> None:
+            stop = getattr(conv, "stop", None)
+            if callable(stop):
+                try:
+                    stop()
+                except Exception:
+                    pass
 
         thread = threading.Thread(target=_run, daemon=True)
         watcher = threading.Thread(target=_watch, daemon=True)
         thread.start()
         watcher.start()
         try:
-            if not done.wait(max(30.0, deadline - time.time())):
-                stop = getattr(conv, "stop", None)
-                if callable(stop):
-                    try:
-                        stop()
-                    except Exception:
-                        pass
-                raise TimeoutError("OpenHands exceeded the run time limit")
+            while True:
+                if done.wait(5.0):
+                    break
+                if time.time() >= deadline:
+                    _stop_conv()
+                    raise TimeoutError("OpenHands exceeded the run time limit")
+                if time.time() - last_activity[0] > stall_sec:
+                    # A stalled session should fail fast and retry, not burn the whole budget.
+                    _stop_conv()
+                    raise RuntimeError(f"OpenHands stalled: no activity for {int(stall_sec)}s (stall timeout)")
             if holder:
                 raise holder[0]
             return conv
@@ -297,10 +313,20 @@ def main() -> int:
             halt.set()
             watcher.join(timeout=2)
 
+    npm_cache = Path.home() / ".atelier" / "npm-cache"
+    try:
+        npm_cache.mkdir(parents=True, exist_ok=True)
+        npm_cache.chmod(0o777)
+    except OSError:
+        npm_cache = None
+    volumes = [f"{workspace.resolve()}:/workspace"]
+    if npm_cache is not None:
+        # Shared package cache across runs: cold npm installs dominate worker wall-clock.
+        volumes.append(f"{npm_cache}:/home/openhands/.npm")
     try:
         with DockerWorkspace(
             server_image=image,
-            volumes=[f"{workspace.resolve()}:/workspace"],
+            volumes=volumes,
             working_dir="/workspace",
         ) as ws:
             try:
