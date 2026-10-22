@@ -51,12 +51,14 @@ def git(folder: Path, args: list[str]) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
-def prepare(project: dict, task: dict) -> Worktree:
+def prepare(project: dict, task: dict, agent: dict | None = None) -> Worktree:
     source = Path(project["folderPath"])
     source.mkdir(parents=True, exist_ok=True)
+    scaffold_source(source, agent)
     root = Path(tempfile.mkdtemp(prefix="oh-"))
     folder = root / "repo"
     shutil.copytree(source, folder, ignore=IGNORE, dirs_exist_ok=True)
+    preinstall(folder)
     if not (folder / ".git").exists():
         git(folder, ["init"])
     git(folder, ["add", "-A"])
@@ -69,6 +71,52 @@ def prepare(project: dict, task: dict) -> Worktree:
     git(folder, ["checkout", "-B", f"task/{task['id']}"])
     _writable_for_container(folder)
     return Worktree(folder, source, baseline)
+
+
+def scaffold_source(source: Path, agent: dict | None) -> str | None:
+    """Write the stack starter into an empty project so the agent skips ~25 setup turns."""
+    if agent is None:
+        return None
+    try:
+        meaningful = [p for p in source.iterdir() if p.name not in {".git", ".atelier", ".artifacts"}]
+    except OSError:
+        return None
+    if meaningful:
+        return None
+    from runtime.scaffold import write_express_prisma, write_vite_react_ts
+    from store import db
+
+    stacks = {item["id"]: item for item in db.listing("stack")}
+    for stack_id in agent.get("stackIds") or []:
+        template = (stacks.get(stack_id) or {}).get("scaffoldTemplate") or ""
+        if template == "vite-react-ts":
+            write_vite_react_ts(source)
+            return template
+        if template == "express-prisma":
+            write_express_prisma(source)
+            return template
+    return None
+
+
+def preinstall(folder: Path) -> None:
+    """Install dependencies on the host before the session starts; model turns are the scarce resource."""
+    if os.environ.get("GATEWAY_MOCK") == "1":
+        return
+    if not (folder / "package.json").is_file() or (folder / "node_modules").is_dir():
+        return
+    cache = Path.home() / ".atelier" / "npm-cache"
+    env = {**os.environ, "CI": "1", "NPM_CONFIG_CACHE": str(cache)}
+    try:
+        subprocess.run(
+            "npm install --prefer-offline --no-audit --loglevel=error",
+            cwd=folder,
+            shell=True,
+            env=env,
+            timeout=300,
+            capture_output=True,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def _writable_for_container(folder: Path) -> None:

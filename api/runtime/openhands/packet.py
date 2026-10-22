@@ -103,11 +103,17 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
         )
     if _needs_preview(agent):
         lines.append(
-            "Start the app's development server in the background, open it in the browser to "
-            "verify your work, and stop that server before you finish."
+            "Verify your work by running the tests and the production build. Do not start a dev server "
+            "or open a browser; a preview is served automatically after the task completes."
         )
     else:
         lines.append("Run the tests for the code you changed. Do not start a dev server or open a browser.")
+    folder = Path(project["folderPath"]) if project and project.get("folderPath") else None
+    if folder and (folder / "package.json").is_file():
+        lines.append(
+            "A project scaffold with dependencies already exists in the workspace. Read package.json and "
+            "build on it; do not run a create command or reinstall from scratch."
+        )
     lines.append(
         "Commit your work on this branch. If you are blocked or need a decision, state the open question; do not ask "
         "the user. Do not edit the project notes file."

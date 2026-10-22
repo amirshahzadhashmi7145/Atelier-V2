@@ -113,9 +113,9 @@ def test_task_input_includes_task_criteria_handoff_and_feedback(client: TestClie
     assert "the heading is visible" in prompt
     assert "last pass" in prompt
     assert "Make the heading larger" in prompt
-    assert "development server in the background" in prompt
-    assert "open it in the browser" in prompt
-    assert "stop that server before you finish" in prompt
+    assert "running the tests and the production build" in prompt
+    assert "a preview is served automatically" in prompt
+    assert "development server in the background" not in prompt
     assert "Do not search the filesystem for skills" in prompt
 
 
