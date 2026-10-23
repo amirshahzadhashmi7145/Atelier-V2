@@ -6,8 +6,12 @@ import json
 from pathlib import Path
 
 
+_GITIGNORE = "node_modules\ndist\nbuild\n.next\n*.log\n.DS_Store\n"
+
+
 def write_vite_react_ts(folder: Path) -> None:
     folder.mkdir(parents=True, exist_ok=True)
+    (folder / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
     package = {
         "name": "app",
         "private": True,
@@ -73,6 +77,7 @@ def write_vite_react_ts(folder: Path) -> None:
 
 def write_express_prisma(folder: Path) -> None:
     folder.mkdir(parents=True, exist_ok=True)
+    (folder / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
     package = {
         "name": "api",
         "private": True,

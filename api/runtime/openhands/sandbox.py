@@ -166,9 +166,24 @@ def _readable(folder: Path) -> bool:
     return True
 
 
+# Generated/compiled artifacts a reviewer should never see: a 20KB minified bundle
+# would otherwise fill the diff budget and hide the actual source changes.
+DIFF_EXCLUDE = [
+    ":(exclude)dist/**",
+    ":(exclude)build/**",
+    ":(exclude).next/**",
+    ":(exclude)**/*.min.js",
+    ":(exclude)**/*.map",
+    ":(exclude)package-lock.json",
+    ":(exclude)pnpm-lock.yaml",
+    ":(exclude)yarn.lock",
+    ":(exclude)bun.lockb",
+]
+
+
 def diff_text(folder: Path, baseline: str | None = None) -> str:
-    body = git(folder, ["diff", baseline or "HEAD"])
-    extra = git(folder, ["ls-files", "--others", "--exclude-standard"])
+    body = git(folder, ["diff", baseline or "HEAD", "--", ".", *DIFF_EXCLUDE])
+    extra = git(folder, ["ls-files", "--others", "--exclude-standard", "--", ".", *DIFF_EXCLUDE])
     blob = (body + ("\n" + extra if extra.strip() else "")).strip()
     return blob[:20000]
 
