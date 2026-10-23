@@ -283,15 +283,12 @@ def test_lockfile_is_not_a_zone_violation(client: TestClient):
     assert result["status"] == "completed"
 
 
-def test_off_list_package_rejects(client: TestClient):
+def test_off_list_package_does_not_reject(client: TestClient):
     agent = _agent(client)
     project, task = _workspace(client, agent)
     fake = FakeOpenHands(packages={"left-pad": "1.0.0"}, files={"src/App.tsx": "export default function App() { return <h1>Hi</h1> }\n"})
     result = _run(project, task, fake)
-    assert result["handoffId"] is None
-    notes = (board.latest_feedback(db.get("task", task["id"])) or {}).get("notes") or ""
-    assert "allow-list" in notes
-    assert "left-pad" in notes
+    assert result["status"] == "completed"
 
 
 def test_failing_build_rejects(client: TestClient):
@@ -307,7 +304,7 @@ def test_failing_build_rejects(client: TestClient):
 def test_rejection_becomes_rework_with_automatic_feedback(client: TestClient):
     agent = _agent(client)
     project, task = _workspace(client, agent)
-    fake = FakeOpenHands(packages={"left-pad": "1.0.0"}, files={"src/App.tsx": "export default function App() { return null }\n"})
+    fake = FakeOpenHands(break_build=True, files={"src/App.tsx": "export default function App() { return null }\n"})
     _run(project, task, fake)
     row = db.get("task", task["id"])
     assert int(row.get("reworkCount") or 0) >= 1

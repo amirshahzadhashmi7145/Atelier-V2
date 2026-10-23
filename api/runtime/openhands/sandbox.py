@@ -122,7 +122,14 @@ def preinstall(folder: Path) -> None:
 def _writable_for_container(folder: Path) -> None:
     for item in [folder, *folder.rglob("*")]:
         try:
-            item.chmod(0o777 if item.is_dir() else 0o666)
+            if item.is_dir():
+                item.chmod(0o777)
+            else:
+                mode = item.stat().st_mode
+                # Keep executables executable: a flat 0o666 strips node_modules/.bin
+                # and the container can no longer run tsc, vite, or any binary.
+                flags = 0o666 | (0o111 if mode & 0o111 else 0)
+                item.chmod(flags)
         except OSError:
             pass
 

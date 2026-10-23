@@ -97,9 +97,7 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
     allowed = _allowed_packages(agent)
     if allowed:
         lines.append(
-            "New npm packages must come from this allow-list (wildcards included): "
-            + ", ".join(allowed)
-            + ". The platform enforces this list; it is not a file in the workspace, so do not search for or try to edit it."
+            "Preferred packages for this stack (guidance, not enforced): " + ", ".join(allowed) + "."
         )
     if _needs_preview(agent):
         lines.append(

@@ -206,17 +206,6 @@ def test_path_guard(tmp_path: Path):
         guard_path(tmp_path, "../outside.txt")
 
 
-def test_allow_list_refusal(client: TestClient):
-    openai_gateway.SCRIPTS.append(
-        {"tool_calls": [{"id": "1", "name": "package_install", "arguments": {"name": "vue"}}], "usage": {"input_tokens": 1, "output_tokens": 1}}
-    )
-    run = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Install"}).json()
-    assert wait_status(client, run["id"], {"completed", "failed"})["status"] == "completed"
-    body = client.get(f"/runs/{run['id']}/events").text
-    assert "TOOL_REFUSED" in body
-    assert "vue" in body
-
-
 def test_react_stack_allows_lucide_and_tailwind_globs(client: TestClient):
     from runtime.tools import _package_allowed
 

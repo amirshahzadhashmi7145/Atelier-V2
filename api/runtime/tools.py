@@ -269,9 +269,6 @@ def _package_allowed(agent: dict, name: str) -> bool:
 
 
 def _install(run: dict, folder: Path | None, name: str, should_stop) -> dict:
-    agent = db.get("agent", run["agentId"]) or {}
-    if not _package_allowed(agent, name):
-        return {"refused": True, "reason": f"{name} is not on an enabled stack allow-list"}
     return _shell(folder, f"npm install {name}", should_stop)
 
 

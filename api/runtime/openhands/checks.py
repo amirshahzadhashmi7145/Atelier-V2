@@ -82,13 +82,10 @@ def protected_violation(project: dict | None, files: list[str]) -> str | None:
 
 def reject_reason(agent: dict, run: dict, folder: Path, files: list[str], before: set[str]) -> str | None:
     project = db.get("project", run.get("projectId") or "") if run.get("projectId") else None
-    # Zones are guidance for routing and prompts, not a rejection rule: correct work
-    # often needs root-level structure (configs, dotfiles) no zone list anticipates.
-    return (
-        protected_violation(project, files)
-        or package_violation(agent, folder, before)
-        or build_violation(run, folder)
-    )
+    # Zones and package lists are guidance for prompts and routing, not rejection rules:
+    # correct work often needs structure or tooling no policy list anticipates.
+    # What still rejects: touching the protected notes file, and a failing build.
+    return protected_violation(project, files) or build_violation(run, folder)
 
 
 def auto_feedback(task: dict, reason: str) -> dict:
