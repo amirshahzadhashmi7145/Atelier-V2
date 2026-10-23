@@ -199,6 +199,23 @@ def _questions(events: list[dict], last_text: str) -> list[str]:
     return found[:5]
 
 
+def _thinking_kwargs(budget) -> dict:
+    """Map the agent's thinking-token budget onto the SDK's reasoning knobs."""
+    if budget is None:
+        return {}
+    try:
+        budget = int(budget)
+    except (TypeError, ValueError):
+        return {}
+    if budget <= 4096:
+        effort = "low"
+    elif budget <= 16384:
+        effort = "medium"
+    else:
+        effort = "high"
+    return {"extended_thinking_budget": max(1024, budget), "reasoning_effort": effort}
+
+
 def _provider_fail(exc: BaseException) -> bool:
     text = f"{type(exc).__name__}: {exc}".lower()
     return any(
@@ -226,7 +243,10 @@ def main() -> int:
     from openhands.workspace import DockerWorkspace
 
     base_url = os.environ.get("LLM_BASE_URL") or None
-    llm = LLM(model=model, api_key=_secret(key), base_url=base_url)
+    # The SDK defaults to reasoning_effort=high with a 200k thinking budget; honor
+    # the agent's configured budget instead so worker turns are not maximally slow.
+    llm_extra = _thinking_kwargs(spec.get("thinking_budget"))
+    llm = LLM(model=model, api_key=_secret(key), base_url=base_url, **llm_extra)
     kwargs = {
         "llm": llm,
         "tools": [
@@ -338,7 +358,7 @@ def main() -> int:
                     conversation = _talk(agent)
                 except BaseException as exc2:
                     if backup_model and _provider_fail(exc2):
-                        llm = LLM(model=backup_model, api_key=_secret(backup_key), base_url=base_url)
+                        llm = LLM(model=backup_model, api_key=_secret(backup_key), base_url=base_url, **llm_extra)
                         kwargs["llm"] = llm
                         agent = Agent(**kwargs)
                         used_backup = True

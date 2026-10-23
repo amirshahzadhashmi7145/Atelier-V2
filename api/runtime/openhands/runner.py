@@ -223,6 +223,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 repo_instructions=notes.read_text(project).strip(),
                 backup_model=_backup_id(agent),
                 backup_api_key=_backup_key(agent),
+                thinking_budget=((agent.get("model") or {}).get("config") or {}).get("thinkingBudget"),
             )
         )
         sandbox.restore_host_access(work.folder)

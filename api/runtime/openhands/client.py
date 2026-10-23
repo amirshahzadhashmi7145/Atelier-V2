@@ -46,6 +46,7 @@ class RunSpec:
     repo_instructions: str = ""
     backup_model: str = ""
     backup_api_key: str | None = None
+    thinking_budget: int | None = None
 
 
 @dataclass
@@ -180,6 +181,7 @@ class ProcessOpenHandsClient:
             "timeout_sec": spec.timeout_sec,
             "server_image": SERVER_IMAGE,
             "repo_instructions": spec.repo_instructions or "",
+            "thinking_budget": spec.thinking_budget,
         }
         env = {key: value for key, value in os.environ.items() if key != "LLM_API_KEY"}
         env["OPENHANDS_SUPPRESS_BANNER"] = "1"
