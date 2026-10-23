@@ -223,7 +223,7 @@ def seed() -> None:
         "settings",
         "runs",
         {
-            "maxSpendPerRunUsd": 0,
+            "maxSpendPerRunUsd": 5,
             "maxSpendPerDayUsd": 0,
             "maxIterations": 60,
             "maxMinutes": 45,
@@ -231,7 +231,7 @@ def seed() -> None:
             "recordModelRequests": False,
             "approvePlansBeforeRunning": False,
             "maxLessonsPerRole": 20,
-            "maxSpendPerReviewUsd": 0,
+            "maxSpendPerReviewUsd": 1,
         },
     )
     put("meta", "seeded", {"ok": True})

@@ -167,7 +167,7 @@ const emptyDb = (): Db => ({
   ],
   runs: [],
   runSettings: {
-    maxSpendPerRunUsd: 0,
+    maxSpendPerRunUsd: 5,
     maxSpendPerDayUsd: 0,
     maxIterations: 60,
     maxMinutes: 45,
@@ -175,7 +175,7 @@ const emptyDb = (): Db => ({
     recordModelRequests: false,
     approvePlansBeforeRunning: false,
     maxLessonsPerRole: 20,
-    maxSpendPerReviewUsd: 0,
+    maxSpendPerReviewUsd: 1,
   },
   events: [],
   diffs: {},
