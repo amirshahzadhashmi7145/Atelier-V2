@@ -93,7 +93,7 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
     taught = lessons.for_prompt(agent.get("roleKey") or "")
     if taught:
         lines.append(taught)
-    lines.append("Stay in your zones. Do not search the filesystem for skills or scan unrelated git history.")
+    lines.append("Do not search the filesystem for skills or scan unrelated git history.")
     allowed = _allowed_packages(agent)
     if allowed:
         lines.append(

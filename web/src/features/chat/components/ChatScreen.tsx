@@ -463,20 +463,6 @@ function MemberPanel({ projectId, project }: { projectId: string; project: Proje
                 "No tasks yet"
               )}
             </p>
-            <ul className="mt-1 flex flex-wrap gap-1">
-              {member.zones.map((zone) => {
-                const clash = (member.overlapZones ?? []).some((item) => item.includes(zone))
-                return (
-                  <li
-                    key={zone}
-                    data-zone-overlap={clash || undefined}
-                    className={clash ? "rounded bg-destructive/10 px-1 text-xs text-destructive" : "rounded bg-muted px-1 text-xs"}
-                  >
-                    {zone}
-                  </li>
-                )
-              })}
-            </ul>
           </li>
         ))}
       </ul>

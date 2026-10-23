@@ -262,14 +262,12 @@ def test_supervisor_steps_stop_saying_working_after_orphan_reap(client: TestClie
     assert rows and rows[0]["step"] != "working"
 
 
-def test_zone_violation_rejects(client: TestClient):
+def test_out_of_zone_files_do_not_reject(client: TestClient):
     agent = _agent(client)
     project, task = _workspace(client, agent)
-    fake = FakeOpenHands(files={"secret.txt": "nope"})
+    fake = FakeOpenHands(files={"notes-outside-zone.txt": "structure the stack needs"})
     result = _run(project, task, fake)
-    assert result["handoffId"] is None
-    feedback = board.latest_feedback(db.get("task", task["id"]))
-    assert feedback and "zones" in (feedback.get("notes") or "")
+    assert result["status"] == "completed"
 
 
 def test_lockfile_is_not_a_zone_violation(client: TestClient):
@@ -309,7 +307,7 @@ def test_failing_build_rejects(client: TestClient):
 def test_rejection_becomes_rework_with_automatic_feedback(client: TestClient):
     agent = _agent(client)
     project, task = _workspace(client, agent)
-    fake = FakeOpenHands(files={"outside.md": "x"})
+    fake = FakeOpenHands(packages={"left-pad": "1.0.0"}, files={"src/App.tsx": "export default function App() { return null }\n"})
     _run(project, task, fake)
     row = db.get("task", task["id"])
     assert int(row.get("reworkCount") or 0) >= 1

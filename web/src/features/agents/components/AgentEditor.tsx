@@ -454,7 +454,7 @@ export function AgentEditor({ id }: { id: string }) {
           {openhands ? (
             <div className="flex flex-col gap-2">
               <p className="text-sm text-muted-foreground">
-                OpenHands provides a file editor, terminal, and task tracker. Safety comes from the zone, package, and
+                OpenHands provides a file editor, terminal, and task tracker. Safety comes from the package and
                 build checks after each run.
               </p>
               <ul className="list-disc pl-5 text-sm" data-openhands-tools="true">
@@ -561,9 +561,6 @@ export function AgentEditor({ id }: { id: string }) {
               patch({ stackIds: on ? [...current.stackIds, stackId] : current.stackIds.filter((item) => item !== stackId) })
             }
           />
-          <ChipList id="does" label="Does" values={current.does} onChange={(does) => patch({ does })} />
-          <ChipList id="never-does" label="Never does" values={current.neverDoes} onChange={(neverDoes) => patch({ neverDoes })} />
-          <ChipList id="zones" label="Zones" values={current.zones} onChange={(zones) => patch({ zones })} />
         </CardContent>
       </Card>
       <Card>

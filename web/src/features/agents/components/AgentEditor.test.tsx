@@ -88,7 +88,7 @@ describe("AgentEditor", () => {
     expect(screen.getByText("Terminal")).toBeInTheDocument()
     expect(screen.getByText("Task tracker")).toBeInTheDocument()
     expect(screen.getByText("Browser")).toBeInTheDocument()
-    expect(screen.getByText(/zone, package, and build checks/)).toBeInTheDocument()
+    expect(screen.getByText(/package and build checks/)).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: /files/ })).not.toBeInTheDocument())
     expect(screen.getByRole("checkbox", { name: /search_data/ })).toBeInTheDocument()
     expect(screen.getByRole("checkbox", { name: /load_skill/ })).toBeInTheDocument()
