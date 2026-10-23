@@ -185,10 +185,12 @@ DIFF_EXCLUDE = [
 
 
 def diff_text(folder: Path, baseline: str | None = None) -> str:
-    body = git(folder, ["diff", baseline or "HEAD", "--", ".", *DIFF_EXCLUDE])
-    extra = git(folder, ["ls-files", "--others", "--exclude-standard", "--", ".", *DIFF_EXCLUDE])
-    blob = (body + ("\n" + extra if extra.strip() else "")).strip()
-    return blob[:20000]
+    # Stage everything first so NEW files show with their contents, not just their
+    # names — a reviewer must see the code the worker added, not a bare filename.
+    # commit_work re-stages afterwards, so this is harmless.
+    git(folder, ["add", "-A", "--", ".", *DIFF_EXCLUDE])
+    body = git(folder, ["diff", "--cached", baseline or "HEAD", "--", ".", *DIFF_EXCLUDE])
+    return body.strip()[:20000]
 
 
 def changed_files(folder: Path, project: dict | None = None, baseline: str | None = None) -> list[str]:
