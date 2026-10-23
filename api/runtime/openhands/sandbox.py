@@ -10,6 +10,12 @@ from pathlib import Path
 
 IGNORE = shutil.ignore_patterns("node_modules", ".venv", ".artifacts", "__pycache__", ".openhands")
 INTERNAL = {".git", "node_modules", ".venv", ".artifacts", "__pycache__", "conversations", ".agent_tmp", ".openhands"}
+# For the throwaway build-verification copy: also skip the OpenHands session dirs and
+# .git. These are written inside the worker container under a different uid with locked
+# perms, so a host-uid copytree cannot read them — and the build never needs them.
+VERIFY_IGNORE = shutil.ignore_patterns(
+    "node_modules", ".venv", ".artifacts", "__pycache__", ".openhands", "conversations", ".agent_tmp", ".git"
+)
 LOCKFILES = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"}
 
 

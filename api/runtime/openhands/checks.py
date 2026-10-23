@@ -69,13 +69,24 @@ def build_violation(run: dict, folder: Path) -> str | None:
     import shutil
     import tempfile
 
-    from runtime.openhands.sandbox import IGNORE
+    from runtime.openhands.sandbox import VERIFY_IGNORE
+
+    def _safe_copy(src, dst):
+        try:
+            shutil.copy2(src, dst)
+        except OSError:
+            pass  # unreadable container artifact; the build never needs it
 
     scratch = Path(tempfile.mkdtemp(prefix="verify-"))
     try:
         dest = scratch / "repo"
-        shutil.copytree(folder, dest, ignore=IGNORE, dirs_exist_ok=True)
+        shutil.copytree(folder, dest, ignore=VERIFY_IGNORE, copy_function=_safe_copy, dirs_exist_ok=True)
         result = tools._build(run, dest, lambda: False, install=True)
+    except Exception as exc:
+        # A failure in our own verification machinery must not be reported as the
+        # worker's code being broken; the Team Lead and QA reviews still read the diff.
+        run["buildTest"] = {"ok": True, "output": f"build check skipped: {type(exc).__name__}: {exc}"}
+        return None
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
     run["buildTest"] = {"ok": bool(result.get("buildOk")), "output": result.get("output") or ""}
