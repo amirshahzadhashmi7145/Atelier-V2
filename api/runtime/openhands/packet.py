@@ -109,8 +109,8 @@ def task_packet(task: dict, agent: dict, project: dict | None = None, notes_text
     folder = Path(project["folderPath"]) if project and project.get("folderPath") else None
     if folder and (folder / "package.json").is_file():
         lines.append(
-            "A project scaffold with dependencies already exists in the workspace. Read package.json and "
-            "build on it; do not run a create command or reinstall from scratch."
+            "A project scaffold already exists in the workspace. Read package.json and build on it; do not run a "
+            "create command. Run 'npm install' once to install dependencies before building."
         )
     lines.append(
         "Commit your work on this branch. If you are blocked or need a decision, state the open question; do not ask "

@@ -63,7 +63,21 @@ def build_violation(run: dict, folder: Path) -> str | None:
     if tools._package_root(folder) is None:
         run["buildTest"] = {"ok": True, "output": "no package.json"}
         return None
-    result = tools._build(run, folder, lambda: False)
+    # Verify in a clean copy with no inherited node_modules: the install and build then
+    # run as one consistent uid, so build tooling the worker created under a different
+    # container uid can never cause permission errors here.
+    import shutil
+    import tempfile
+
+    from runtime.openhands.sandbox import IGNORE
+
+    scratch = Path(tempfile.mkdtemp(prefix="verify-"))
+    try:
+        dest = scratch / "repo"
+        shutil.copytree(folder, dest, ignore=IGNORE, dirs_exist_ok=True)
+        result = tools._build(run, dest, lambda: False, install=True)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     run["buildTest"] = {"ok": bool(result.get("buildOk")), "output": result.get("output") or ""}
     if result.get("buildOk"):
         return None

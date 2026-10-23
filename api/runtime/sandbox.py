@@ -169,10 +169,19 @@ def _docker(folder: Path, command: str, should_stop, timeout: float) -> tuple[in
 
     client = docker.from_env()
     proxy_ip = _docker_proxy(client)
+    volumes = {str(folder.resolve()): {"bind": "/workspace", "mode": "rw"}}
+    # A cache dedicated to this host-uid build path. Never shared with the OpenHands
+    # container's cache, so it can never collect files owned by another uid.
+    cache = Path.home() / ".atelier" / "build-npm-cache"
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        volumes[str(cache)] = {"bind": "/npm-cache", "mode": "rw"}
+    except OSError:
+        pass
     container = client.containers.run(
         "node:22-bookworm",
         ["sh", "-c", command],
-        volumes={str(folder.resolve()): {"bind": "/workspace", "mode": "rw"}},
+        volumes=volumes,
         working_dir="/workspace",
         detach=True,
         user=f"{os.getuid()}:{os.getgid()}",
@@ -185,6 +194,8 @@ def _docker(folder: Path, command: str, should_stop, timeout: float) -> tuple[in
             "PROXY_HOST": proxy_ip,
             "CI": "1",
             "DEBIAN_FRONTEND": "noninteractive",
+            "NPM_CONFIG_CACHE": "/npm-cache",
+            "HOME": "/tmp",
         },
     )
     started = time.time()

@@ -297,7 +297,7 @@ def _package_root(folder: Path | None) -> Path | None:
     return found
 
 
-def _build(run: dict, folder: Path | None, should_stop) -> dict:
+def _build(run: dict, folder: Path | None, should_stop, install: bool = False) -> dict:
     log = ""
     ok = False
     root = _package_root(folder)
@@ -315,11 +315,22 @@ def _build(run: dict, folder: Path | None, should_stop) -> dict:
         if nested and "test" in scripts and "build" not in scripts:
             needed = ["test"]
         ok = all(name in scripts for name in needed) and not log
+        install_failed = False
+        if install and ok and not (root / "node_modules").is_dir():
+            lock = "test -f package-lock.json && npm ci --no-audit --loglevel=error"
+            cmd = f"({lock}) || npm install --no-audit --loglevel=error"
+            code, output = sandbox.run_command(root, cmd, should_stop, timeout=480)
+            if code:
+                ok = False
+                install_failed = True
+                log += "dependency install failed:\n" + output
         for script in needed:
             if script not in scripts:
                 ok = False
                 log += f'package.json has no "{script}" script; add one under "scripts"\n'
                 continue
+            if install_failed:
+                break
             code, output = sandbox.run_command(root, f"npm run {script}", should_stop)
             log += output
             if code:

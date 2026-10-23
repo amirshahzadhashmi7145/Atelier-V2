@@ -58,7 +58,6 @@ def prepare(project: dict, task: dict, agent: dict | None = None) -> Worktree:
     root = Path(tempfile.mkdtemp(prefix="oh-"))
     folder = root / "repo"
     shutil.copytree(source, folder, ignore=IGNORE, dirs_exist_ok=True)
-    preinstall(folder)
     if not (folder / ".git").exists():
         git(folder, ["init"])
     git(folder, ["add", "-A"])
@@ -96,27 +95,6 @@ def scaffold_source(source: Path, agent: dict | None) -> str | None:
             write_express_prisma(source)
             return template
     return None
-
-
-def preinstall(folder: Path) -> None:
-    """Install dependencies on the host before the session starts; model turns are the scarce resource."""
-    if os.environ.get("GATEWAY_MOCK") == "1":
-        return
-    if not (folder / "package.json").is_file() or (folder / "node_modules").is_dir():
-        return
-    cache = Path.home() / ".atelier" / "npm-cache"
-    env = {**os.environ, "CI": "1", "NPM_CONFIG_CACHE": str(cache)}
-    try:
-        subprocess.run(
-            "npm install --prefer-offline --no-audit --loglevel=error",
-            cwd=folder,
-            shell=True,
-            env=env,
-            timeout=300,
-            capture_output=True,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        pass
 
 
 def _writable_for_container(folder: Path) -> None:
