@@ -368,6 +368,12 @@ def _safe_browser_target(folder: Path, url: str) -> str | None:
         candidates.append(str(ipaddress.ip_address(host)))
     except ValueError:
         pass
+    # Also canonicalize integer/hex/octal IPv4 literals (e.g. http://2130706433 ==
+    # 127.0.0.1), which getaddrinfo/ip_address miss but the browser still connects to.
+    try:
+        candidates.append(socket.inet_ntoa(socket.inet_aton(host)))
+    except OSError:
+        pass
     for addr in candidates:
         try:
             ip = ipaddress.ip_address(addr)

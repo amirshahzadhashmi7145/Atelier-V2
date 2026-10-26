@@ -188,6 +188,9 @@ def _publish_oh_event(run: dict, item: dict, state: dict) -> None:
         text = str(raw or "").strip()
     if not text:
         return
+    # Match the previous behavior: only consecutive identical tool calls dedup, so a
+    # model-output between two identical calls must clear the remembered last call.
+    state["lastCall"] = None
     state["n"] = int(state.get("n") or 0) + 1
     call_id = f"oh_{state['n']}"
     db.append_event(run["id"], "MODEL_OUTPUT", {"modelCallId": call_id, "callId": call_id, "text": text[:6000]})
@@ -230,6 +233,10 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         client = get_client()
         with _RUN_CLIENTS_LOCK:
             _RUN_CLIENTS[run["id"]] = client
+        # Close the window where a /stop during sandbox prep (repo clone + install)
+        # is missed because no client was registered yet: if the run was cancelled
+        # before we got here, bail before starting the sandbox at all.
+        _ensure_not_cancelled(run["id"])
         result = client.run(
             RunSpec(
                 workspace=work.folder,
