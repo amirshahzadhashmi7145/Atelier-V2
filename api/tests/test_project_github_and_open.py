@@ -110,8 +110,13 @@ def test_push_to_default_branch(client: TestClient, monkeypatch):
     client.patch(f"/projects/{project['id']}", json={"githubToken": "tok-push-value"})
 
     git_calls: list[list[str]] = []
+
+    def fake_git(folder, args):
+        git_calls.append(args)
+        return (0, "")
+
     monkeypatch.setattr(github, "default_branch", lambda url, token: "main")
-    monkeypatch.setattr(github, "run_git", lambda folder, args: git_calls.append(args) or "")
+    monkeypatch.setattr(github, "_git", fake_git)
     monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: None)
 
     res = client.post(f"/projects/{project['id']}/push")
@@ -139,13 +144,38 @@ def test_push_falls_back_to_pr_on_rejected_push(client: TestClient, monkeypatch)
     def fake_git(folder, args):
         # The direct push to the default branch is rejected; the branch push is fine.
         if args[:1] == ["push"] and args[-1] == "HEAD:main":
-            return "! [rejected] main -> main (non-fast-forward)"
-        return ""
+            return (1, "! [rejected] main -> main (non-fast-forward)")
+        return (0, "")
 
-    monkeypatch.setattr(github, "run_git", fake_git)
+    monkeypatch.setattr(github, "_git", fake_git)
     monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: "https://github.com/o/r/pull/7")
 
     res = client.post(f"/projects/{project['id']}/push").json()
     assert res["ok"] is True
     assert res["branch"].startswith("agent-studio/")
     assert res["prUrl"] == "https://github.com/o/r/pull/7"
+
+
+def test_push_reports_repository_not_found(client: TestClient, monkeypatch):
+    from runtime import github
+
+    agent = _agent(client)
+    project = client.post(
+        "/projects", json={"name": "PushMissing", "agentId": agent["id"], "repoUrl": "https://github.com/o/nope"}
+    ).json()
+    client.patch(f"/projects/{project['id']}", json={"githubToken": "tok-missing-value"})
+
+    monkeypatch.setattr(github, "default_branch", lambda url, token: "main")
+    monkeypatch.setattr(
+        github,
+        "_git",
+        lambda folder, args: (128, "remote: Repository not found.\nfatal: repository not found")
+        if args[:1] == ["push"]
+        else (0, ""),
+    )
+
+    res = client.post(f"/projects/{project['id']}/push")
+    assert res.status_code == 422
+    assert "not found" in res.json()["message"].lower()
+    # The token must never leak into the error surfaced to the client.
+    assert "tok-missing-value" not in res.text

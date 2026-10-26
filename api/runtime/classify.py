@@ -29,6 +29,12 @@ STACK_QUESTION = re.compile(
     re.I,
 )
 RUN_CAPABILITIES = "In a run I can edit files, run build and tests, open a preview, and capture screenshots."
+# How many recent chat turns to give the model as context. A plain reply only needs
+# the last few, but a request to summarize the conversation needs the whole thing, so
+# a summary ask widens the window (capped to protect the token budget).
+CHAT_HISTORY_WINDOW = 40
+CHAT_HISTORY_MAX = 200
+SUMMARY_REQUEST = re.compile(r"\bsummar(?:y|ise|ize|ies)\b|\brecap\b", re.I)
 
 
 def is_control(text: str) -> bool:
@@ -161,7 +167,10 @@ def chat_reply(agent: dict, text: str, project_id: str | None = None) -> str:
         if project and project.get("summary"):
             history.append(f"Project summary: {project['summary']}")
         rows = sorted([item for item in db.listing("message") if item.get("projectId") == project_id], key=lambda item: item["createdAt"])
-        history.extend(f"{item['role']}: {item['text']}" for item in rows[-5:])
+        # A summary/recap request needs the whole conversation, not just the tail, so
+        # the model can actually see everything it is being asked to summarize.
+        window = CHAT_HISTORY_MAX if SUMMARY_REQUEST.search(text) else CHAT_HISTORY_WINDOW
+        history.extend(f"{item['role']}: {item['text']}" for item in rows[-window:])
     prompt = "\n".join(history + [text]) if history else text
     if os.environ.get("GATEWAY_MOCK") == "1":
         return _mock_chat(system, text, project_id)

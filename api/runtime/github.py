@@ -36,7 +36,7 @@ def scrub(text: str, token: str | None) -> str:
     return text.replace(token, "***") if token else text
 
 
-def run_git(folder: Path, args: list[str]) -> str:
+def _git(folder: Path, args: list[str]) -> tuple[int, str]:
     env = {
         **os.environ,
         "GIT_AUTHOR_NAME": "Agent Studio",
@@ -50,8 +50,12 @@ def run_git(folder: Path, args: list[str]) -> str:
             ["git", "-c", "safe.directory=*", *args], cwd=folder, capture_output=True, text=True, env=env, timeout=120
         )
     except subprocess.TimeoutExpired:
-        return f"git {args[0]} timed out"
-    return result.stdout + result.stderr
+        return 1, f"git {args[0]} timed out"
+    return result.returncode, result.stdout + result.stderr
+
+
+def run_git(folder: Path, args: list[str]) -> str:
+    return _git(folder, args)[1]
 
 
 def default_branch(url: str, token: str) -> str:
@@ -90,7 +94,18 @@ def open_pull_request(url: str, token: str, branch: str, title: str, base: str |
 
 def _rejected(output: str) -> bool:
     lowered = output.lower()
-    return "rejected" in lowered or "non-fast-forward" in lowered or "failed to push" in lowered
+    return "rejected" in lowered or "non-fast-forward" in lowered or "fetch first" in lowered
+
+
+def _friendly_push_error(output: str) -> str:
+    lowered = output.lower()
+    if "repository not found" in lowered or "not found" in lowered:
+        return "Repository not found. Check the repo URL and that the token can access it."
+    if "authentication failed" in lowered or "invalid username or password" in lowered or "bad credentials" in lowered:
+        return "Authentication failed. Check that the access token is valid and not expired."
+    if "permission" in lowered or "denied" in lowered or "403" in lowered:
+        return "Permission denied. The token needs write (repo/contents) access to this repository."
+    return "Could not push to GitHub. " + (output.strip().splitlines() or ["See server logs."])[-1][:200]
 
 
 def push_workspace(project: dict, folder: Path, message: str) -> dict:
@@ -99,7 +114,8 @@ def push_workspace(project: dict, folder: Path, message: str) -> dict:
     Tries the repo's default branch first (the common case for an empty or
     fast-forwardable repo). If the remote rejects that push because it has
     diverging history, falls back to a fresh branch and opens a pull request.
-    Returns a result dict with the token already scrubbed from any output.
+    Real failures (missing repo, bad token, no permission) are reported as
+    ok:False with a friendly reason. The token is scrubbed from all output.
     """
     token = token_for(project)
     repo_url = project.get("repoUrl")
@@ -112,13 +128,18 @@ def push_workspace(project: dict, folder: Path, message: str) -> dict:
     run_git(folder, ["add", "-A"])
     run_git(folder, ["commit", "-m", message, "--allow-empty"])
 
-    pushed = run_git(folder, ["push", remote, f"HEAD:{base}"])
-    if not _rejected(pushed):
+    code, pushed = _git(folder, ["push", remote, f"HEAD:{base}"])
+    if code == 0:
         return {"ok": True, "branch": base, "prUrl": None, "repoUrl": repo_url, "output": scrub(pushed, token)}
+    if not _rejected(pushed):
+        # Not a fast-forward problem — a real error (not found / auth / permission).
+        return {"ok": False, "reason": scrub(_friendly_push_error(pushed), token)}
 
     # Remote has history we can't fast-forward: open a PR from a side branch.
     branch = f"agent-studio/{db.now().replace(':', '').replace('.', '')}"
     run_git(folder, ["checkout", "-B", branch])
-    branch_push = run_git(folder, ["push", remote, f"HEAD:{branch}"])
+    branch_code, branch_push = _git(folder, ["push", remote, f"HEAD:{branch}"])
+    if branch_code != 0:
+        return {"ok": False, "reason": scrub(_friendly_push_error(branch_push), token)}
     pr = open_pull_request(repo_url, token, branch, message, base)
     return {"ok": True, "branch": branch, "prUrl": pr, "repoUrl": repo_url, "output": scrub(branch_push, token)}

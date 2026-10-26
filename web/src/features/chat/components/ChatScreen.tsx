@@ -59,6 +59,17 @@ export function ChatScreen({
     enabled: Boolean(projectId),
     refetchInterval: 1000,
   })
+  // Locally-held sent-but-not-yet-confirmed messages. They live outside the query
+  // cache so the 1s poll can never wipe them mid-flight (which caused the bubble to
+  // flash). Each is dropped only once the identical server message has arrived, so
+  // the hand-off is seamless with no empty frame.
+  const [pending, setPending] = useState<{ msg: ChatMessage; serverId?: string }[]>([])
+  const thread = useMemo(() => {
+    const server = messages.data ?? []
+    const serverIds = new Set(server.map((item) => item.id))
+    const live = pending.filter((item) => !(item.serverId && serverIds.has(item.serverId))).map((item) => item.msg)
+    return [...server, ...live]
+  }, [messages.data, pending])
   const threadRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const [away, setAway] = useState(false)
@@ -120,7 +131,7 @@ export function ChatScreen({
   useEffect(() => {
     const node = threadRef.current
     if (stickRef.current && node) node.scrollTop = node.scrollHeight
-  }, [messages.data])
+  }, [messages.data, pending])
   // Streamed tokens call scrollToBottom directly (coalesced into one rAF) instead
   // of bumping state, so a live run does not re-render the whole chat tree per token.
   const scrollRaf = useRef(0)
@@ -275,10 +286,10 @@ export function ChatScreen({
                   onRetry={() => void messages.refetch()}
                 />
               ) : null}
-              {projectId && messages.data && messages.data.length === 0 ? (
+              {projectId && messages.data && thread.length === 0 ? (
                 <EmptyState title="No messages yet" description="Describe what you want built and the agent gets to work." />
               ) : null}
-              {(messages.data ?? []).map((message) => {
+              {thread.map((message) => {
                 const mine = message.role === "user"
                 return (
                   <article
@@ -350,7 +361,28 @@ export function ChatScreen({
             </button>
           ) : null}
         </div>
-        {projectId ? <Composer projectId={projectId} project={project.data} /> : null}
+        {projectId ? (
+          <Composer
+            projectId={projectId}
+            project={project.data}
+            onPending={(entry) =>
+              setPending((prev) => {
+                // Drop any already-reconciled entries (their server message has
+                // landed) as we add the new one, so this list never grows unbounded.
+                const serverIds = new Set((messages.data ?? []).map((item) => item.id))
+                const kept = prev.filter((item) => !(item.serverId && serverIds.has(item.serverId)))
+                return [...kept, entry]
+              })
+            }
+            onSettled={(clientId, serverId) =>
+              setPending((prev) =>
+                serverId
+                  ? prev.map((item) => (item.msg.id === clientId ? { ...item, serverId } : item))
+                  : prev.filter((item) => item.msg.id !== clientId),
+              )
+            }
+          />
+        ) : null}
       </section>
       <div
         role="separator"
@@ -804,33 +836,32 @@ function NewProject() {
   )
 }
 
-function Composer({ projectId, project }: { projectId: string; project?: Project }) {
+function Composer({
+  projectId,
+  project,
+  onPending,
+  onSettled,
+}: {
+  projectId: string
+  project?: Project
+  onPending: (entry: { msg: ChatMessage; serverId?: string }) => void
+  onSettled: (clientId: string, serverId?: string) => void
+}) {
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [text, setText] = useState("")
   const send = useMutation({
-    mutationFn: (body: string) => postMessage(projectId, body),
-    // Show the user's message and clear the box the instant they hit Send, before
-    // the server round-trip, so the chat feels immediate. The optimistic bubble is
-    // reconciled with the real one on settle.
-    onMutate: async (body: string) => {
-      setText("")
-      const key = queryKeys.messages(projectId)
-      await queryClient.cancelQueries({ queryKey: key })
-      const previous = queryClient.getQueryData<ChatMessage[]>(key)
-      const optimistic: ChatMessage = {
-        id: `optimistic-${Date.now()}`,
-        projectId,
-        role: "user",
-        text: body,
-        createdAt: new Date().toISOString(),
-      }
-      queryClient.setQueryData<ChatMessage[]>(key, [...(previous ?? []), optimistic])
-      return { previous, body }
+    mutationFn: (vars: { clientId: string; body: string }) => postMessage(projectId, vars.body),
+    // The pending bubble is already on screen (added in submit, before the mutation
+    // runs) so the chat feels instant. On success we tag it with the real server id
+    // so the parent drops it only once the identical server message has arrived; on
+    // error we remove it and restore the text.
+    onSuccess: (created, vars) => {
+      onSettled(vars.clientId, created?.id)
     },
-    onError: (error, _body, context) => {
-      if (context?.previous) queryClient.setQueryData(queryKeys.messages(projectId), context.previous)
-      if (context?.body) setText(context.body)
+    onError: (error, vars) => {
+      onSettled(vars.clientId)
+      setText(vars.body)
       toast.error(error instanceof Error ? error.message : "Could not send")
     },
     onSettled: async () => {
@@ -858,7 +889,11 @@ function Composer({ projectId, project }: { projectId: string; project?: Project
   const workingLabel = live?.agentName ? `${live.agentName} is ${live.step}` : "agent is working"
   const submit = () => {
     const body = text.trim()
-    if (body) send.mutate(body)
+    if (!body) return
+    const clientId = `pending-${Date.now()}`
+    onPending({ msg: { id: clientId, projectId, role: "user", text: body, createdAt: new Date().toISOString() } })
+    setText("")
+    send.mutate({ clientId, body })
   }
   return (
     <form
