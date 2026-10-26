@@ -123,6 +123,24 @@ def _inside(folder: Path, target: str) -> bool:
         return False
 
 
+_SECRET_ENV_EXACT = {"GITHUB_TOKEN", "DATABASE_URL", "ATELIER_MCP_TOKEN"}
+_SECRET_ENV_SUFFIX = ("_API_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_CREDENTIALS")
+
+
+def safe_subprocess_env() -> dict:
+    """Host env for a model-issued command, with provider keys and other secrets
+    stripped. The command text and its output are persisted and streamed, so a
+    prompt-injected worker must not be able to echo a secret out of the process."""
+    env = {}
+    for key, value in os.environ.items():
+        if key in _SECRET_ENV_EXACT or key.endswith(_SECRET_ENV_SUFFIX):
+            continue
+        env[key] = value
+    env["CI"] = "1"
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    return env
+
+
 def run_command(folder: Path, command: str, should_stop, timeout: float = 120) -> tuple[int, str]:
     limit = min(600, max(0.1, float(timeout)))
     if not local_mode():
@@ -139,7 +157,7 @@ def run_command(folder: Path, command: str, should_stop, timeout: float = 120) -
             stdout=output,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-            env={**os.environ, "CI": "1", "DEBIAN_FRONTEND": "noninteractive"},
+            env=safe_subprocess_env(),
         )
         started = time.time()
         while process.poll() is None:
@@ -199,17 +217,23 @@ def _docker(folder: Path, command: str, should_stop, timeout: float) -> tuple[in
         },
     )
     started = time.time()
-    while container.status != "exited":
-        container.reload()
-        if should_stop() or time.time() - started > timeout:
-            container.kill()
-            container.remove()
-            return 1, "timed out" if time.time() - started > timeout else "stopped"
-        time.sleep(0.2)
-    logs = container.logs().decode()
-    code = container.wait().get("StatusCode", 1)
-    container.remove()
-    return code, logs
+    try:
+        while container.status != "exited":
+            container.reload()
+            if should_stop() or time.time() - started > timeout:
+                container.kill()
+                return 1, "timed out" if time.time() - started > timeout else "stopped"
+            time.sleep(0.2)
+        logs = container.logs().decode()
+        code = container.wait().get("StatusCode", 1)
+        return code, logs
+    finally:
+        # Always remove the container, even if reload/logs/wait raised, so a
+        # failure here never leaks a container.
+        try:
+            container.remove(force=True)
+        except Exception:
+            pass
 
 
 _NODE_PROXY = """

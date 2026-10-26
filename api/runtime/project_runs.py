@@ -80,8 +80,10 @@ def stop_all(project_id: str) -> None:
                 task["status"] = "cancelled"
                 db.put("task", task["id"], task)
         from runtime.loop import wake
+        from runtime.openhands.runner import cancel_run
 
         wake(run["id"])
+        cancel_run(run["id"])
 
 
 def spend_today(project_id: str) -> float:

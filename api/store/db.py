@@ -343,33 +343,6 @@ def append_event(run_id: str, event_type: str, payload: dict | None = None, cost
         return event
 
 
-def merge_deltas(run_id: str, call_id: str, text: str) -> dict:
-    """Fold one model call's deltas into a single MODEL_OUTPUT and keep seqs contiguous."""
-    with LOCK:
-        rows = sorted(_run_events(run_id), key=lambda item: item["seq"])
-        kept = []
-        for item in rows:
-            payload = item.get("payload") or {}
-            if item["type"] == "MODEL_DELTA" and payload.get("callId") == call_id:
-                delete("event", item["id"])
-                continue
-            kept.append(item)
-        event = {
-            "id": nid("evt"),
-            "runId": run_id,
-            "seq": 0,
-            "type": "MODEL_OUTPUT",
-            "actor": {"kind": "agent", "role": "agent"},
-            "payload": {"callId": call_id, "text": text},
-            "occurredAt": now(),
-        }
-        kept.append(event)
-        for index, item in enumerate(kept, start=1):
-            item["seq"] = index
-            put("event", item["id"], item)
-        return event
-
-
 def events_for(run_id: str, after: int = 0) -> list[dict]:
     rows = [item for item in _run_events(run_id) if item["seq"] > after]
     return sorted(rows, key=lambda item: item["seq"])

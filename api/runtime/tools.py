@@ -117,7 +117,8 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
         target = sandbox.guard_path(folder, path)
     except PermissionError:
         return {"refused": True, "reason": f"path outside the project: {path}"}
-    before = target.read_text() if target.exists() and target.is_file() else ""
+    # errors="replace": a non-UTF-8 (binary) file in the repo must not crash the run.
+    before = target.read_text(errors="replace") if target.exists() and target.is_file() else ""
     if op == "list":
         if not target.exists():
             return {"output": "(empty directory listing)"}
@@ -136,18 +137,6 @@ def _files(run: dict, folder: Path | None, arguments: dict, zones: list[str] | N
         if len(before) > READ_CAP:
             return {"output": before[:READ_CAP] + "\n(note: file truncated at 20 kB)"}
         return {"output": before}
-    if op == "list":
-        if not target.exists():
-            return {"output": ""}
-        if target.is_file():
-            return {"output": path}
-        lines = []
-        for child in sorted(target.rglob("*")):
-            if ".git" in child.parts or "node_modules" in child.parts:
-                continue
-            if child.is_file():
-                lines.append(str(child.relative_to(folder)))
-        return {"output": "\n".join(lines[:200])}
     if op == "write":
         target.parent.mkdir(parents=True, exist_ok=True)
         content = arguments.get("content") or ""
@@ -346,6 +335,53 @@ def _build(run: dict, folder: Path | None, should_stop, install: bool = False) -
     return {"output": tail or "no build or test script", "buildOk": ok, "buildLog": tail}
 
 
+def _safe_browser_target(folder: Path, url: str) -> str | None:
+    """Resolve a screenshot target, refusing anything that could read host files or
+    probe internal/metadata endpoints. Relative paths map to a file inside the
+    project folder; http(s) targets are allowed except link-local/metadata hosts;
+    explicit file:// and other schemes are refused."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    target = (url or "").strip()
+    if not target:
+        return None
+    if not target.startswith(("http://", "https://")):
+        # Treat as a path relative to the project; guard against traversal out of it.
+        if target.startswith("file://") or Path(target).is_absolute():
+            return None
+        try:
+            resolved = sandbox.guard_path(folder, target)
+        except PermissionError:
+            return None
+        return resolved.as_uri()
+    host = (urlparse(target).hostname or "").lower()
+    if not host:
+        return None
+    candidates: list[str] = []
+    try:
+        candidates = [info[4][0] for info in socket.getaddrinfo(host, None)]
+    except OSError:
+        candidates = []
+    try:
+        candidates.append(str(ipaddress.ip_address(host)))
+    except ValueError:
+        pass
+    for addr in candidates:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        # Loopback is allowed (the agent's own preview server); internal/private,
+        # link-local and the cloud metadata endpoint are not.
+        if ip.is_loopback:
+            continue
+        if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            return None
+    return target
+
+
 def _browser(run: dict, url: str) -> dict:
     folder = Path(run["folder"]) if run.get("folder") else Path(".")
     shots = folder / ".artifacts"
@@ -354,9 +390,7 @@ def _browser(run: dict, url: str) -> dict:
     script = _playwright_package()
     errors = ""
     launched = False
-    target = url or ""
-    if target and not target.startswith(("http://", "https://", "file://")):
-        target = (folder / target).resolve().as_uri()
+    target = _safe_browser_target(folder, url or "")
     if target and script is not None and script.exists():
         node = f"""
         const {{ chromium }} = require({json.dumps(str(script))});
@@ -466,7 +500,17 @@ def _preview(run: dict, folder: Path | None) -> dict:
     url = f"http://127.0.0.1:{port}"
     pid = 0
     try:
-        process = subprocess.Popen(command, cwd=folder, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # New session so stop_preview can kill the whole process group — otherwise
+        # SIGTERM to the shell orphans the real vite/node child and the port stays bound.
+        process = subprocess.Popen(
+            command,
+            cwd=folder,
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            env=sandbox.safe_subprocess_env(),
+        )
         pid = process.pid
     except OSError:
         pass
@@ -601,7 +645,11 @@ def stop_preview(project_id: str) -> None:
 
 
 def os_kill(pid: int) -> None:
-    import os
     import signal
 
-    os.kill(pid, signal.SIGTERM)
+    # The preview runs in its own session (start_new_session); kill the whole group
+    # so the real dev server child dies with the shell and frees the port.
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        os.kill(pid, signal.SIGTERM)

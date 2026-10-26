@@ -429,13 +429,17 @@ def patch_skill(id: str, body: dict):
 
 @router.post("/skills/import", status_code=201)
 def import_skill(body: dict):
-    url = body.get("url") or ""
-    if "github.com" not in url:
-        return error(422, "invalid", "A GitHub URL is required")
     import httpx
+    from urllib.parse import urlparse
 
+    url = body.get("url") or ""
+    host = (urlparse(url).hostname or "").lower()
+    if host not in ("github.com", "www.github.com", "raw.githubusercontent.com"):
+        return error(422, "invalid", "A github.com URL is required")
     raw = url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/")
-    response = httpx.get(raw, timeout=15, follow_redirects=True)
+    # No redirect following: the raw host serves the file directly, and a redirect
+    # could otherwise send the fetch to an attacker-controlled host (SSRF).
+    response = httpx.get(raw, timeout=15, follow_redirects=False)
     if response.status_code >= 300:
         return error(422, "invalid", "The skill URL did not respond")
     created = _skill({"name": body.get("name") or url.rstrip("/").split("/")[-1], "description": body.get("description") or url, "body": response.text, "origin": url})
@@ -788,6 +792,9 @@ def stop_run(id: str):
     run["endedAt"] = db.now()
     db.put("run", id, run)
     bridge.wake(id)
+    from runtime.openhands.runner import cancel_run
+
+    cancel_run(id)
     if run.get("projectId"):
         from runtime import project_runs
 
@@ -1360,14 +1367,6 @@ def _import_stack(library: dict, stack_id: str) -> None:
         source = next((item for item in library.get("dataSources") or [] if item["id"] == source_id), None)
         if source:
             db.put("datasource", source_id, source)
-
-
-def _latest_prompt_version_id(agent_id: str) -> str | None:
-    rows = [item for item in db.listing("version") if item["agentId"] == agent_id]
-    if not rows:
-        return None
-    rows.sort(key=lambda item: item["version"])
-    return rows[-1]["id"]
 
 
 def _new_run(agent: dict, body: dict) -> dict:

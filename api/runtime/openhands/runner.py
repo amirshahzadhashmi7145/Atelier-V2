@@ -18,6 +18,22 @@ from store import db
 LOG_NAME = "openhands.jsonl"
 _INFLIGHT: dict[str, str] = {}
 _INFLIGHT_LOCK = threading.Lock()
+# run_id -> live client, so a /stop can tear down the running sandbox immediately
+# instead of waiting for the stall or deadline while cost keeps accruing.
+_RUN_CLIENTS: dict[str, object] = {}
+_RUN_CLIENTS_LOCK = threading.Lock()
+
+
+def cancel_run(run_id: str) -> None:
+    """Kill the live OpenHands sandbox for a run, if any. Safe to call from the
+    request thread; the client's cleanup is idempotent and kills the process group."""
+    with _RUN_CLIENTS_LOCK:
+        client = _RUN_CLIENTS.pop(run_id, None)
+    if client is not None:
+        try:
+            client.cleanup()  # type: ignore[attr-defined]
+        except Exception:
+            pass
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 _TOOL_ALIAS = {
@@ -210,6 +226,8 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 raise BudgetExceeded("The run exceeded the spend cap.")
 
         client = get_client()
+        with _RUN_CLIENTS_LOCK:
+            _RUN_CLIENTS[run["id"]] = client
         result = client.run(
             RunSpec(
                 workspace=work.folder,
@@ -280,6 +298,8 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         _finish(run, "failed", keys.redact(str(exc)), touch_task=True)
         return {"taskId": task["id"], "runId": run["id"], "handoffId": None, "status": "failed"}
     finally:
+        with _RUN_CLIENTS_LOCK:
+            _RUN_CLIENTS.pop(run["id"], None)
         with _INFLIGHT_LOCK:
             if _INFLIGHT.get(task["id"]) == run["id"]:
                 _INFLIGHT.pop(task["id"], None)
