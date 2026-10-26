@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 from langgraph.graph import END, START, StateGraph
 
@@ -27,6 +28,19 @@ from store import db
 _compiled = None
 _lock = threading.Lock()
 _threads: dict[str, threading.Thread] = {}
+_tls = threading.local()
+
+
+def mark_generation() -> None:
+    """Record the DB generation this supervisor thread started under."""
+    _tls.gen = db.generation()
+
+
+def generation_changed() -> bool:
+    """True once the engine has been reset under this thread (e.g. a new test),
+    so the thread should unwind instead of writing into a different database."""
+    start = getattr(_tls, "gen", None)
+    return start is not None and start != db.generation()
 
 
 def build():
@@ -57,6 +71,21 @@ def compiled():
         if _compiled is None:
             _compiled = build().compile(checkpointer=get_checkpointer())
         return _compiled
+
+
+def drain_threads(timeout: float = 10.0) -> None:
+    """Wait for all supervisor threads to finish. Callers that are about to swap
+    the database (e.g. test isolation) use this so a leftover thread can't write
+    into the next database through the shared global engine."""
+    with _lock:
+        live = list(_threads.values())
+    deadline = time.time() + timeout
+    for thread in live:
+        thread.join(timeout=max(0.0, deadline - time.time()))
+    with _lock:
+        for parent_id, thread in list(_threads.items()):
+            if not thread.is_alive():
+                _threads.pop(parent_id, None)
 
 
 def reset_compiled() -> None:
@@ -111,6 +140,7 @@ def resume_supervisor(parent_task_id: str, value=True) -> None:
 def _invoke_new(run: dict) -> None:
     from langgraph.errors import GraphInterrupt
 
+    mark_generation()
     agent = db.get("agent", run.get("agentId") or "") or {}
     role = rolelib.of(agent)
     state = empty_state(
@@ -134,6 +164,8 @@ def _invoke_new(run: dict) -> None:
 def _invoke_resume(parent_task_id: str, value) -> None:
     from langgraph.errors import GraphInterrupt
     from langgraph.types import Command
+
+    mark_generation()
 
     graph = compiled()
     config = thread_config(parent_task_id)

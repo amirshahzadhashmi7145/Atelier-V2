@@ -226,7 +226,11 @@ def _wait_run(run_id: str | None) -> dict | None:
     minutes = int(settings.get("maxMinutes") or 45)
     # Worst legitimate case: the worker retries up to MAX_REWORKS times, each bounded by maxMinutes.
     deadline = time.time() + minutes * 60 * (board.MAX_REWORKS + 1) + 600
+    from runtime.supervisor import graph as _graph
+
     while True:
+        if _graph.generation_changed():
+            return None
         run = db.get("run", run_id)
         if run is None:
             return None

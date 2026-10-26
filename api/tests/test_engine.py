@@ -64,6 +64,16 @@ def keep_github_origin():
 @pytest.fixture(autouse=True)
 def fresh(tmp_path):
     _cancel_live_runs()
+    # Stop any supervisor threads before switching to the next test's database so
+    # a leftover thread cannot write into it. reset_engine() bumps the DB
+    # generation, which makes those threads bail out; then join them.
+    try:
+        from runtime.supervisor.graph import drain_threads
+
+        db.reset_engine()
+        drain_threads(timeout=10.0)
+    except Exception:
+        pass
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp_path}/test.db"
     os.environ["PROJECTS_DIR"] = str(tmp_path / "projects")
     os.environ["GATEWAY_MOCK"] = "1"

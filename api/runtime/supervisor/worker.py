@@ -102,7 +102,11 @@ def _wait_run(run_id: str | None) -> str:
     settings = db.get("settings", "runs") or {}
     minutes = int(settings.get("maxMinutes") or 45)
     deadline = time.time() + minutes * 60 * (board.MAX_REWORKS + 1) + 600
+    from runtime.supervisor import graph as _graph
+
     while True:
+        if _graph.generation_changed():
+            return "failed"
         run = db.get("run", run_id)
         if run is None:
             return "failed"
