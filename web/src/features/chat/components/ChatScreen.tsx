@@ -944,6 +944,17 @@ function Composer({
 }
 
 function PreviewPane({ url }: { url?: string | null }) {
+  // Remounting the iframe (by changing its key) forces a fresh load.
+  const [nonce, setNonce] = useState(0)
+  useEffect(() => {
+    if (!url) return
+    // The dev server often isn't serving the built app yet the instant its URL
+    // appears, so the very first iframe load can come up blank. Reload it a couple
+    // of times over the next few seconds to pick up the now-ready server, which
+    // removes the need to refresh by hand the first time.
+    const timers = [setTimeout(() => setNonce((n) => n + 1), 1500), setTimeout(() => setNonce((n) => n + 1), 4000)]
+    return () => timers.forEach(clearTimeout)
+  }, [url])
   if (!url) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -959,20 +970,25 @@ function PreviewPane({ url }: { url?: string | null }) {
         <a href={url} target="_blank" rel="noreferrer" className="break-all text-sm underline">
           {url}
         </a>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="mt-1 w-fit"
-          onClick={() => {
-            void navigator.clipboard.writeText(url)
-            toast.success("Preview URL copied")
-          }}
-        >
-          Copy URL
-        </Button>
+        <div className="mt-1 flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit"
+            onClick={() => {
+              void navigator.clipboard.writeText(url)
+              toast.success("Preview URL copied")
+            }}
+          >
+            Copy URL
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => setNonce((n) => n + 1)}>
+            Reload
+          </Button>
+        </div>
       </div>
-      <iframe key={url} title="Project preview" src={url} className="min-h-48 w-full flex-1 rounded border" />
+      <iframe key={`${url}#${nonce}`} title="Project preview" src={url} className="min-h-48 w-full flex-1 rounded border" />
     </div>
   )
 }
