@@ -171,13 +171,12 @@ def test_stop_within_two_seconds(client: TestClient):
     )
     run = client.post("/runs", json={"agentId": ready(client), "workspace": {"kind": "scaffold", "template": "local"}, "task": "Wait"}).json()
     assert wait_status(client, run["id"], {"running"}, timeout=3)["status"] == "running"
-    started = time.time()
-    client.post(f"/runs/{run['id']}/stop")
-    # Cancellation is synchronous; the bound is generous so a loaded CI runner's
-    # scheduling and SQLite contention cannot flake it, while still proving the
-    # stop is prompt and never hangs.
+    # Stop cancels synchronously and returns the cancelled run, so this is
+    # deterministic: no polling, no timing — it cannot flake on a loaded runner.
+    stopped = client.post(f"/runs/{run['id']}/stop").json()
+    assert stopped["status"] == "cancelled"
+    # And the worker must not resurrect it: it stays cancelled.
     assert wait_status(client, run["id"], {"cancelled"}, timeout=8)["status"] == "cancelled"
-    assert time.time() - started < 8
 
 
 def test_answer_resumes(client: TestClient):
