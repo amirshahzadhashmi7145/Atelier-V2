@@ -89,6 +89,15 @@ export function RunFollow({
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not try again"),
   })
   const runModel = run.data?.model
+  // A stopped run otherwise renders nothing (no branch below matches "cancelled"),
+  // so the user gets no confirmation that Stop worked. Show it explicitly.
+  if (run.data?.status === "cancelled") {
+    return (
+      <p className="text-xs text-muted-foreground" data-run-stopped>
+        Run stopped.
+      </p>
+    )
+  }
   if (streaming) {
     if (!run.data || isTerminal(run.data.status)) return null
     return (

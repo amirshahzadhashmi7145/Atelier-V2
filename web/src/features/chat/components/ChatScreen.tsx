@@ -878,10 +878,14 @@ function Composer({
   })
   const stop = useMutation({
     mutationFn: () => stopChatRun(project?.activeRunId ?? ""),
-    onSuccess: async () => {
+    onSuccess: async (_data, _vars, context) => {
+      // Refresh the run detail too so the "Run stopped." state shows at once
+      // instead of waiting for the next 1s poll.
+      if (typeof context === "string") await queryClient.invalidateQueries({ queryKey: queryKeys.runs.detail(context) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
     },
+    onMutate: () => project?.activeRunId,
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not stop"),
   })
   useEffect(() => {
