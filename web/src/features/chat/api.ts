@@ -17,8 +17,15 @@ export async function getProject(id: string) {
   return unwrap(await api.GET("/projects/{id}", { params: { path: { id } } }))
 }
 
-export async function patchProject(id: string, body: { notesPath?: string; notesMaxBytes?: number }) {
+export async function patchProject(
+  id: string,
+  body: { notesPath?: string; notesMaxBytes?: number; repoUrl?: string | null; githubToken?: string },
+) {
   return unwrap(await api.PATCH("/projects/{id}", { params: { path: { id } }, body }))
+}
+
+export async function openProjectFolder(id: string) {
+  return unwrap(await api.POST("/projects/{id}/open-folder", { params: { path: { id } } }))
 }
 
 export async function addProjectMember(id: string, agentId: string) {

@@ -23,6 +23,7 @@ import {
   listProjectNeeds,
   listProjects,
   answerNeed,
+  openProjectFolder,
   postMessage,
   stopChatRun,
   type ChatMessage,
@@ -173,8 +174,16 @@ export function ChatScreen({
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    void navigator.clipboard.writeText(project.data?.folderPath ?? "")
-                    toast.success("Folder path copied")
+                    if (!projectId) return
+                    void openProjectFolder(projectId)
+                      .then((result) => toast.success(`Opened ${result.folderPath}`))
+                      .catch((error) => {
+                        // No local file manager (or not local mode): fall back to copying the path.
+                        void navigator.clipboard.writeText(project.data?.folderPath ?? "")
+                        toast.message("Could not open the folder here — path copied instead", {
+                          description: error instanceof Error ? error.message : undefined,
+                        })
+                      })
                   }}
                 >
                   Open folder
@@ -226,6 +235,7 @@ export function ChatScreen({
             {showSettings ? (
               <div className="flex flex-col gap-2">
                 <MemberPanel projectId={projectId} project={project.data} />
+                <GithubSettings key={`gh-${projectId}`} projectId={projectId} project={project.data} />
                 <NotesSettings key={projectId} projectId={projectId} project={project.data} />
               </div>
             ) : null}
@@ -454,6 +464,64 @@ function LiveWork({ steps, threadRunIds }: { steps?: Project["supervisorSteps"];
         </div>
       ))}
     </div>
+  )
+}
+
+function GithubSettings({ projectId, project }: { projectId: string; project: Project }) {
+  const queryClient = useQueryClient()
+  const [repoUrl, setRepoUrl] = useState(project.repoUrl ?? "")
+  const [token, setToken] = useState("")
+  const hasToken = Boolean(project.tokenRef)
+  const save = useMutation({
+    mutationFn: () =>
+      patchProject(projectId, {
+        repoUrl: repoUrl.trim() || null,
+        ...(token.trim() ? { githubToken: token.trim() } : {}),
+      }),
+    onSuccess: async () => {
+      setToken("")
+      toast.success("GitHub settings saved")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save GitHub settings"),
+  })
+  return (
+    <form
+      className="flex flex-col gap-2 rounded border p-2 text-sm"
+      onSubmit={(event) => {
+        event.preventDefault()
+        save.mutate()
+      }}
+    >
+      <p className="font-medium">GitHub</p>
+      <label className="flex flex-col gap-1">
+        Repo URL
+        <input
+          className="rounded border px-2 py-1"
+          placeholder="https://github.com/owner/repo"
+          value={repoUrl}
+          onChange={(event) => setRepoUrl(event.target.value)}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        Access token
+        <input
+          className="rounded border px-2 py-1"
+          type="password"
+          autoComplete="off"
+          placeholder={hasToken ? "Token set — enter a new one to replace" : "ghp_…"}
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        {hasToken ? "A token is stored for this project." : "No token stored yet."} The token is write-only — it is kept by
+        reference and never shown again.
+      </p>
+      <Button type="submit" variant="outline" className="self-start" disabled={save.isPending}>
+        {save.isPending ? "Saving…" : "Save GitHub settings"}
+      </Button>
+    </form>
   )
 }
 

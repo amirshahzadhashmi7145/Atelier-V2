@@ -1245,6 +1245,33 @@ paths:
           description: Project removed from the studio (project folder on disk is kept)
         "404":
           $ref: "#/components/responses/Error"
+  /projects/{id}/open-folder:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: openProjectFolder
+      tags: [projects]
+      description: Open the project folder in the local file manager. Local mode only.
+      responses:
+        "200":
+          description: Folder opened
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok, folderPath]
+                properties:
+                  ok:
+                    type: boolean
+                  folderPath:
+                    type: string
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
   /projects/{id}/members:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -2991,6 +3018,11 @@ components:
           type: string
         notesMaxBytes:
           type: integer
+        repoUrl:
+          type: [string, "null"]
+        githubToken:
+          type: string
+          description: Write-only. Stored by reference, never returned.
     TaskStatus:
       type: string
       enum: [queued, running, waiting, completed, failed, cancelled]

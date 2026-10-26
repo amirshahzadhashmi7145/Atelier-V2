@@ -3,6 +3,7 @@ import os
 import queue
 import re
 import subprocess
+import sys
 import time
 import zipfile
 from pathlib import Path
@@ -923,8 +924,37 @@ def patch_project(id: str, body: dict):
             project["notesMaxBytes"] = int(body["notesMaxBytes"])
         except (TypeError, ValueError):
             return error(422, "invalid", "notesMaxBytes must be an integer")
+    if "repoUrl" in body:
+        project["repoUrl"] = str(body["repoUrl"]).strip() or None
+    # The token is write-only: it is stored by reference and never returned. A
+    # non-empty value replaces the stored secret; the field is otherwise left
+    # untouched so a settings save without a token keeps the existing one.
+    if body.get("githubToken"):
+        project["tokenRef"] = _store_token(id, body["githubToken"], project.get("repoUrl"))
+    elif "repoUrl" in body and project.get("tokenRef") in (None, "env:GITHUB_TOKEN"):
+        project["tokenRef"] = _store_token(id, None, project.get("repoUrl"))
     db.put("project", id, project)
     return _project_view(project)
+
+
+@router.post("/projects/{id}/open-folder")
+def open_project_folder(id: str):
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    if not bridge.local_mode():
+        return error(409, "not_local", "Opening the folder is only available in local mode")
+    folder = Path(project["folderPath"])
+    if not folder.is_dir():
+        return error(404, "missing", "Project folder does not exist on disk")
+    opener = {"darwin": "open", "win32": "explorer"}.get(sys.platform, "xdg-open")
+    try:
+        # folder is the stored project path (not user input) and is passed as an
+        # argv list, so there is no shell interpolation.
+        subprocess.Popen([opener, str(folder)], start_new_session=True)
+    except OSError as exc:
+        return error(500, "open_failed", f"Could not open the folder: {exc}")
+    return {"ok": True, "folderPath": str(folder)}
 
 
 @router.post("/projects/{id}/members")

@@ -935,6 +935,25 @@ export interface paths {
         patch: operations["updateProject"];
         trace?: never;
     };
+    "/projects/{id}/open-folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Open the project folder in the local file manager. Local mode only. */
+        post: operations["openProjectFolder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/members": {
         parameters: {
             query?: never;
@@ -1762,6 +1781,9 @@ export interface components {
         ProjectPatch: {
             notesPath?: string;
             notesMaxBytes?: number;
+            repoUrl?: string | null;
+            /** @description Write-only. Stored by reference, never returned. */
+            githubToken?: string;
         };
         /** @enum {string} */
         TaskStatus: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
@@ -3646,6 +3668,34 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             422: components["responses"]["Error"];
+        };
+    };
+    openProjectFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Folder opened */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        folderPath: string;
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
+            500: components["responses"]["Error"];
         };
     };
     addProjectMember: {
