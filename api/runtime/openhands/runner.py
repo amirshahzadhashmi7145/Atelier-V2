@@ -161,7 +161,7 @@ def _short_tool(item: dict) -> str:
     return _TOOL_ALIAS.get(text.replace("_", ""), text or "tool")
 
 
-def _publish_oh_event(run: dict, item: dict, n: list[int]) -> None:
+def _publish_oh_event(run: dict, item: dict, state: dict) -> None:
     _ensure_not_cancelled(run["id"])
     blob = " ".join(str(item.get(key) or "") for key in ("type", "action", "kind")).lower()
     name = _short_tool(item)
@@ -170,11 +170,13 @@ def _publish_oh_event(run: dict, item: dict, n: list[int]) -> None:
         if any(token in blob for token in ("observation", "result", "output")):
             output = str(item.get("content") or item.get("observation") or "").strip()
             db.append_event(run["id"], "TOOL_RESULT", {"name": name, "output": output[:2000]})
+            state["lastCall"] = None
         else:
-            last = (db.events_for(run["id"]) or [None])[-1]
-            payload = (last or {}).get("payload") or {}
-            if last and last.get("type") == "TOOL_CALLED" and payload.get("name") == name and payload.get("arguments") == args:
+            # Dedup against the last TOOL_CALLED kept in memory instead of
+            # reloading every event in the run on each incoming event.
+            if state.get("lastCall") == (name, args):
                 return
+            state["lastCall"] = (name, args)
             db.append_event(run["id"], "TOOL_CALLED", {"name": name, "arguments": args})
         return
     if "observation" in blob:
@@ -186,8 +188,8 @@ def _publish_oh_event(run: dict, item: dict, n: list[int]) -> None:
         text = str(raw or "").strip()
     if not text:
         return
-    n[0] += 1
-    call_id = f"oh_{n[0]}"
+    state["n"] = int(state.get("n") or 0) + 1
+    call_id = f"oh_{state['n']}"
     db.append_event(run["id"], "MODEL_OUTPUT", {"modelCallId": call_id, "callId": call_id, "text": text[:6000]})
 
 
@@ -209,7 +211,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         before = checks.snapshot_packages(work.folder)
         cap = leadlib.spend_cap(settings.get("maxSpendPerRunUsd"), 0)
         recorded = [0.0]
-        n = [0]
+        event_state: dict = {"n": 0, "lastCall": None}
 
         def on_cost(usd: float) -> None:
             _ensure_not_cancelled(run["id"])
@@ -237,7 +239,7 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
                 mcp=packet.mcp_config(agent, token=token),
                 timeout_sec=max(30, minutes * 60),
                 on_cost=on_cost,
-                on_event=lambda item: _publish_oh_event(run, item, n),
+                on_event=lambda item: _publish_oh_event(run, item, event_state),
                 repo_instructions=notes.read_text(project).strip(),
                 backup_model=_backup_id(agent),
                 backup_api_key=_backup_key(agent),

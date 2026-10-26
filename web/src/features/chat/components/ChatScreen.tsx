@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -60,7 +60,6 @@ export function ChatScreen({
   const threadRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
   const [away, setAway] = useState(false)
-  const [activity, setActivity] = useState(0)
   const [showPreview, setShowPreview] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   // Client-only persisted width: the server renders the default and the client
@@ -119,7 +118,19 @@ export function ChatScreen({
   useEffect(() => {
     const node = threadRef.current
     if (stickRef.current && node) node.scrollTop = node.scrollHeight
-  }, [activity, messages.data])
+  }, [messages.data])
+  // Streamed tokens call scrollToBottom directly (coalesced into one rAF) instead
+  // of bumping state, so a live run does not re-render the whole chat tree per token.
+  const scrollRaf = useRef(0)
+  const scrollToBottom = useCallback(() => {
+    if (scrollRaf.current) return
+    scrollRaf.current = requestAnimationFrame(() => {
+      scrollRaf.current = 0
+      const node = threadRef.current
+      if (stickRef.current && node) node.scrollTop = node.scrollHeight
+    })
+  }, [])
+  useEffect(() => () => cancelAnimationFrame(scrollRaf.current), [])
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
@@ -299,7 +310,7 @@ export function ChatScreen({
                         renderRun={renderRun}
                         streaming={message.role === "user"}
                         prior={priorByRun.get(message.runId) ?? ""}
-                        onActivity={() => setActivity((value) => value + 1)}
+                        onActivity={scrollToBottom}
                       />
                     ) : null}
                   </article>

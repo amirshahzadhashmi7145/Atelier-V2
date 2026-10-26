@@ -161,11 +161,11 @@ def test_openhands_terminal_events_are_named_and_deduped(client: TestClient):
     from runtime.openhands.runner import _publish_oh_event
 
     db.put("run", "run_ev", {"id": "run_ev", "status": "running"})
-    n = [0]
+    state = {"n": 0, "lastCall": None}
     run = db.get("run", "run_ev")
-    _publish_oh_event(run, {"type": "TerminalAction", "command": "ls -la"}, n)
-    _publish_oh_event(run, {"type": "TerminalAction", "command": "ls -la"}, n)
-    _publish_oh_event(run, {"type": "CmdOutputObservation", "command": "ls -la", "content": "ok"}, n)
+    _publish_oh_event(run, {"type": "TerminalAction", "command": "ls -la"}, state)
+    _publish_oh_event(run, {"type": "TerminalAction", "command": "ls -la"}, state)
+    _publish_oh_event(run, {"type": "CmdOutputObservation", "command": "ls -la", "content": "ok"}, state)
     events = db.events_for("run_ev")
     called = [item for item in events if item["type"] == "TOOL_CALLED"]
     assert len(called) == 1

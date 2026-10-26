@@ -326,8 +326,16 @@ def _run_events(run_id: str) -> list[dict]:
 
 def append_event(run_id: str, event_type: str, payload: dict | None = None, cost: dict | None = None, actor: str = "agent") -> dict:
     with LOCK:
-        existing = _run_events(run_id)
-        seq = max((item["seq"] for item in existing), default=0) + 1
+        # Per-run sequence counter so appends are O(1) instead of rescanning the
+        # run's events on every event (which was O(n^2) across a run). Initialized
+        # lazily from existing events so a run already in flight keeps counting up.
+        meta = get("event-seq", run_id)
+        if meta is None:
+            last = max((item["seq"] for item in _run_events(run_id)), default=0)
+            meta = {"n": last}
+        seq = int(meta["n"]) + 1
+        meta["n"] = seq
+        put("event-seq", run_id, meta)
         event = {
             "id": nid("evt"),
             "runId": run_id,

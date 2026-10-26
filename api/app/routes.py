@@ -960,12 +960,13 @@ def delete_project(id: str):
     bridge.stop_preview(id)
     for kind in ("preview", "project-spend"):
         db.delete(kind, id)
-    run_ids = [item["id"] for item in db.listing("run") if item.get("projectId") == id]
+    run_ids = {item["id"] for item in db.listing("run") if item.get("projectId") == id}
+    # One pass over events instead of re-listing the whole event table per run.
+    for event in db.listing("event"):
+        if event.get("runId") in run_ids:
+            db.delete("event", event["id"])
     for run_id in run_ids:
-        for event in db.listing("event"):
-            if event.get("runId") == run_id:
-                db.delete("event", event["id"])
-        for kind in ("workspace", "run-track", "clarify", "answer", "diff"):
+        for kind in ("workspace", "run-track", "clarify", "answer", "diff", "event-seq"):
             db.delete(kind, run_id)
         db.delete("run", run_id)
     for task in db.listing("task"):
