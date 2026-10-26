@@ -76,7 +76,10 @@ export function RunFollow({
   })
   const retry = useMutation({
     mutationFn: () => {
-      const base = (prior ?? message.text).split("\n\nPrevious attempt failed:")[0]?.trim() ?? message.text
+      // `||` not `??`: prior is "" (not nullish) for runs with no owning user
+      // message, and an empty base must fall back to the message text so the
+      // retry never sends only "Previous attempt failed: …" with no task.
+      const base = (prior || message.text).split("\n\nPrevious attempt failed:")[0]?.trim() || message.text
       const note = (run.data?.terminalCause ?? "error").slice(0, 80)
       return postMessage(message.projectId, `${base}\n\nPrevious attempt failed: ${note}`)
     },

@@ -63,6 +63,8 @@ export function ChatScreen({
   const [activity, setActivity] = useState(0)
   const [showPreview, setShowPreview] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // Client-only persisted width: the server renders the default and the client
+  // reads the saved value, so the aside below carries suppressHydrationWarning.
   const [previewWidth, setPreviewWidth] = useState(() => {
     try {
       const saved = Number(localStorage.getItem("atelier.previewWidth"))
@@ -73,9 +75,14 @@ export function ChatScreen({
     return 480
   })
   const previewWidthRef = useRef(previewWidth)
+  const dragCleanup = useRef<() => void>(() => {})
   useEffect(() => {
     previewWidthRef.current = previewWidth
   }, [previewWidth])
+  useEffect(() => {
+    // Remove any in-flight drag listeners if the component unmounts mid-drag.
+    return () => dragCleanup.current()
+  }, [])
   const startPreviewResize = (event: ReactPointerEvent) => {
     event.preventDefault()
     const startX = event.clientX
@@ -83,15 +90,20 @@ export function ChatScreen({
     const onMove = (e: PointerEvent) => {
       setPreviewWidth(Math.min(1100, Math.max(320, startW + (startX - e.clientX))))
     }
-    const onUp = () => {
+    const detach = () => {
       window.removeEventListener("pointermove", onMove)
       window.removeEventListener("pointerup", onUp)
+      dragCleanup.current = () => {}
+    }
+    const onUp = () => {
+      detach()
       try {
         localStorage.setItem("atelier.previewWidth", String(previewWidthRef.current))
       } catch {
         // ignore unavailable storage
       }
     }
+    dragCleanup.current = detach
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)
   }
@@ -327,6 +339,7 @@ export function ChatScreen({
       <aside
         className="hidden h-full min-h-0 shrink-0 flex-col border-l p-3 xl:flex"
         style={{ width: previewWidth }}
+        suppressHydrationWarning
       >
         <h2 className="mb-2 text-sm font-medium">Preview</h2>
         <PreviewPane url={project.data?.previewUrl} />
