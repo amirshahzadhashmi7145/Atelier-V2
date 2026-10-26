@@ -1,6 +1,4 @@
 import json
-import os
-import subprocess
 import re
 import threading
 import time
@@ -9,7 +7,7 @@ from pathlib import Path
 from gateway import openai_gateway
 from gateway.tool_pairing import ToolPairingError
 from runtime import messages as msglib
-from runtime import board, contract_file, lead as leadlib, members as memberlib, roles as rolelib
+from runtime import board, contract_file, github, lead as leadlib, members as memberlib, roles as rolelib
 from runtime.scaffold import write_express_prisma, write_vite_react_ts
 from runtime.tool_results import format_tool_result
 from runtime import compile as compile_prompt
@@ -556,71 +554,17 @@ def _publish(project: dict, run: dict) -> dict:
     folder = Path(run["folder"]) if run.get("folder") else None
     if folder is None or not project.get("repoUrl") or not project.get("tokenRef"):
         return {}
-    token = _token(project)
+    token = github.token_for(project)
     if not token:
         return {}
     branch = f"task/{run.get('taskId') or run['id']}"
-    _git(folder, ["checkout", "-B", branch])
-    _git(folder, ["add", "-A"])
-    _git(folder, ["commit", "-m", "Agent Studio task", "--allow-empty"])
-    remote = _authed(project["repoUrl"], token)
-    pushed = _git(folder, ["push", remote, f"HEAD:{branch}"])
-    if token in pushed:
-        pushed = pushed.replace(token, "***")
-    pr = _pull_request(project["repoUrl"], token, branch, run["task"])
+    github.run_git(folder, ["checkout", "-B", branch])
+    github.run_git(folder, ["add", "-A"])
+    github.run_git(folder, ["commit", "-m", "Agent Studio task", "--allow-empty"])
+    remote = github.authed_remote(project["repoUrl"], token)
+    github.run_git(folder, ["push", remote, f"HEAD:{branch}"])
+    pr = github.open_pull_request(project["repoUrl"], token, branch, run["task"])
     return {"branch": branch, "prUrl": pr}
-
-
-def _token(project: dict) -> str | None:
-    ref = project.get("tokenRef") or ""
-    if ref == "env:GITHUB_TOKEN":
-        return os.environ.get("GITHUB_TOKEN")
-    if ref.startswith("file:"):
-        path = db.projects_dir() / ".secrets" / ref.removeprefix("file:")
-        return path.read_text().strip() if path.exists() else None
-    return None
-
-
-def _authed(url: str, token: str) -> str:
-    if url.startswith("https://github.com/"):
-        return "https://x-access-token:" + token + "@" + url.removeprefix("https://")
-    return url
-
-
-def _pull_request(url: str, token: str, branch: str, title: str) -> str | None:
-    slug = url.removeprefix("https://github.com/").removesuffix(".git")
-    import httpx
-
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
-    repo = httpx.get(f"https://api.github.com/repos/{slug}", headers=headers, timeout=20)
-    base = (repo.json().get("default_branch") if repo.status_code < 300 else None) or "main"
-    response = httpx.post(
-        f"https://api.github.com/repos/{slug}/pulls",
-        headers=headers,
-        json={"title": title[:80], "head": branch, "base": base},
-        timeout=20,
-    )
-    if response.status_code >= 300:
-        return None
-    return response.json().get("html_url")
-
-
-def _git(folder: Path, args: list[str]) -> str:
-    env = {
-        **os.environ,
-        "GIT_AUTHOR_NAME": "Agent Studio",
-        "GIT_AUTHOR_EMAIL": "agent@localhost",
-        "GIT_COMMITTER_NAME": "Agent Studio",
-        "GIT_COMMITTER_EMAIL": "agent@localhost",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
-    try:
-        result = subprocess.run(
-            ["git", "-c", "safe.directory=*", *args], cwd=folder, capture_output=True, text=True, env=env, timeout=120
-        )
-    except subprocess.TimeoutExpired:
-        return f"git {args[0]} timed out"
-    return result.stdout + result.stderr
 
 
 def _prepare_scaffold(run: dict, agent: dict) -> str | None:

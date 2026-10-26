@@ -25,6 +25,7 @@ import {
   answerNeed,
   openProjectFolder,
   postMessage,
+  pushProjectToGithub,
   stopChatRun,
   type ChatMessage,
   type Project,
@@ -188,6 +189,7 @@ export function ChatScreen({
                 >
                   Open folder
                 </Button>
+                <PushButton projectId={projectId} project={project.data} />
                 <Button
                   type="button"
                   variant="outline"
@@ -464,6 +466,29 @@ function LiveWork({ steps, threadRunIds }: { steps?: Project["supervisorSteps"];
         </div>
       ))}
     </div>
+  )
+}
+
+function PushButton({ projectId, project }: { projectId: string; project?: Project }) {
+  const push = useMutation({
+    mutationFn: () => pushProjectToGithub(projectId),
+    onSuccess: (result) => {
+      if (result.prUrl) toast.success("Pushed — pull request opened", { description: result.prUrl })
+      else toast.success(`Pushed to ${result.repoUrl ?? "GitHub"}${result.branch ? ` (${result.branch})` : ""}`)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not push to GitHub"),
+  })
+  const configured = Boolean(project?.repoUrl && project?.tokenRef)
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={push.isPending}
+      title={configured ? undefined : "Set a GitHub repo and token in project settings first"}
+      onClick={() => push.mutate()}
+    >
+      {push.isPending ? "Pushing…" : "Push to GitHub"}
+    </Button>
   )
 }
 
@@ -784,14 +809,35 @@ function Composer({ projectId, project }: { projectId: string; project?: Project
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const [text, setText] = useState("")
   const send = useMutation({
-    mutationFn: () => postMessage(projectId, text),
-    onSuccess: async () => {
+    mutationFn: (body: string) => postMessage(projectId, body),
+    // Show the user's message and clear the box the instant they hit Send, before
+    // the server round-trip, so the chat feels immediate. The optimistic bubble is
+    // reconciled with the real one on settle.
+    onMutate: async (body: string) => {
       setText("")
+      const key = queryKeys.messages(projectId)
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<ChatMessage[]>(key)
+      const optimistic: ChatMessage = {
+        id: `optimistic-${Date.now()}`,
+        projectId,
+        role: "user",
+        text: body,
+        createdAt: new Date().toISOString(),
+      }
+      queryClient.setQueryData<ChatMessage[]>(key, [...(previous ?? []), optimistic])
+      return { previous, body }
+    },
+    onError: (error, _body, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKeys.messages(projectId), context.previous)
+      if (context?.body) setText(context.body)
+      toast.error(error instanceof Error ? error.message : "Could not send")
+    },
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.messages(projectId) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.needs(projectId) })
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not send"),
   })
   const stop = useMutation({
     mutationFn: () => stopChatRun(project?.activeRunId ?? ""),
@@ -811,7 +857,8 @@ function Composer({ projectId, project }: { projectId: string; project?: Project
   const live = (project?.supervisorSteps ?? []).find((item) => item.step === "working" || item.step === "reviewing")
   const workingLabel = live?.agentName ? `${live.agentName} is ${live.step}` : "agent is working"
   const submit = () => {
-    if (text.trim() && !send.isPending) send.mutate()
+    const body = text.trim()
+    if (body) send.mutate(body)
   }
   return (
     <form
@@ -839,7 +886,6 @@ function Composer({ projectId, project }: { projectId: string; project?: Project
           rows={1}
           className="max-h-40 flex-1 resize-none rounded border bg-background px-2 py-1.5 text-sm"
           value={text}
-          disabled={send.isPending}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
@@ -848,8 +894,8 @@ function Composer({ projectId, project }: { projectId: string; project?: Project
             }
           }}
         />
-        <Button type="submit" disabled={send.isPending || !text.trim()}>
-          {send.isPending ? "Sending…" : "Send"}
+        <Button type="submit" disabled={!text.trim()}>
+          Send
         </Button>
       </div>
     </form>

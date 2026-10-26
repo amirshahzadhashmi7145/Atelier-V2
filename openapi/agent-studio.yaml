@@ -1272,6 +1272,45 @@ paths:
           $ref: "#/components/responses/Error"
         "500":
           $ref: "#/components/responses/Error"
+  /projects/{id}/push:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: pushProject
+      tags: [projects]
+      description: Commit the current workspace and push it to the project's configured GitHub repo.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                message:
+                  type: string
+      responses:
+        "200":
+          description: Pushed
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                  branch:
+                    type: [string, "null"]
+                  prUrl:
+                    type: [string, "null"]
+                  repoUrl:
+                    type: [string, "null"]
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
   /projects/{id}/members:
     parameters:
       - $ref: "#/components/parameters/Id"

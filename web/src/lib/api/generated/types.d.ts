@@ -954,6 +954,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Commit the current workspace and push it to the project's configured GitHub repo. */
+        post: operations["pushProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{id}/members": {
         parameters: {
             query?: never;
@@ -3696,6 +3715,41 @@ export interface operations {
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
             500: components["responses"]["Error"];
+        };
+    };
+    pushProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    message?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Pushed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        branch?: string | null;
+                        prUrl?: string | null;
+                        repoUrl?: string | null;
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
         };
     };
     addProjectMember: {

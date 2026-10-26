@@ -90,3 +90,62 @@ def test_open_folder_rejected_when_not_local(client: TestClient, monkeypatch):
 
 def test_open_folder_missing_project_is_404(client: TestClient):
     assert client.post("/projects/prj_does_not_exist/open-folder").status_code == 404
+
+
+def test_push_requires_repo_and_token(client: TestClient):
+    agent = _agent(client)
+    project = client.post("/projects", json={"name": "NoRepo", "agentId": agent["id"]}).json()
+    res = client.post(f"/projects/{project['id']}/push")
+    assert res.status_code == 422
+    assert "settings" in res.json()["message"].lower()
+
+
+def test_push_to_default_branch(client: TestClient, monkeypatch):
+    from runtime import github
+
+    agent = _agent(client)
+    project = client.post(
+        "/projects", json={"name": "Push", "agentId": agent["id"], "repoUrl": "https://github.com/o/r"}
+    ).json()
+    client.patch(f"/projects/{project['id']}", json={"githubToken": "tok-push-value"})
+
+    git_calls: list[list[str]] = []
+    monkeypatch.setattr(github, "default_branch", lambda url, token: "main")
+    monkeypatch.setattr(github, "run_git", lambda folder, args: git_calls.append(args) or "")
+    monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: None)
+
+    res = client.post(f"/projects/{project['id']}/push")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["branch"] == "main"
+    assert data["prUrl"] is None
+    # It pushed HEAD to the default branch and the token is never echoed back.
+    assert any(args[:1] == ["push"] and args[-1] == "HEAD:main" for args in git_calls)
+    assert "tok-push-value" not in res.text
+
+
+def test_push_falls_back_to_pr_on_rejected_push(client: TestClient, monkeypatch):
+    from runtime import github
+
+    agent = _agent(client)
+    project = client.post(
+        "/projects", json={"name": "PushPR", "agentId": agent["id"], "repoUrl": "https://github.com/o/r"}
+    ).json()
+    client.patch(f"/projects/{project['id']}", json={"githubToken": "tok-pr-value"})
+
+    monkeypatch.setattr(github, "default_branch", lambda url, token: "main")
+
+    def fake_git(folder, args):
+        # The direct push to the default branch is rejected; the branch push is fine.
+        if args[:1] == ["push"] and args[-1] == "HEAD:main":
+            return "! [rejected] main -> main (non-fast-forward)"
+        return ""
+
+    monkeypatch.setattr(github, "run_git", fake_git)
+    monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: "https://github.com/o/r/pull/7")
+
+    res = client.post(f"/projects/{project['id']}/push").json()
+    assert res["ok"] is True
+    assert res["branch"].startswith("agent-studio/")
+    assert res["prUrl"] == "https://github.com/o/r/pull/7"

@@ -28,6 +28,10 @@ export async function openProjectFolder(id: string) {
   return unwrap(await api.POST("/projects/{id}/open-folder", { params: { path: { id } } }))
 }
 
+export async function pushProjectToGithub(id: string, message?: string) {
+  return unwrap(await api.POST("/projects/{id}/push", { params: { path: { id } }, body: message ? { message } : {} }))
+}
+
 export async function addProjectMember(id: string, agentId: string) {
   return unwrap(await api.POST("/projects/{id}/members", { params: { path: { id } }, body: { agentId } }))
 }

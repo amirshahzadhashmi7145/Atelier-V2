@@ -957,6 +957,30 @@ def open_project_folder(id: str):
     return {"ok": True, "folderPath": str(folder)}
 
 
+@router.post("/projects/{id}/push")
+def push_project(id: str, body: dict | None = None):
+    from runtime import github
+
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    if not project.get("repoUrl") or not project.get("tokenRef"):
+        return error(422, "no_repo", "Set a GitHub repo URL and access token in project settings first.")
+    folder = Path(project["folderPath"])
+    if not folder.is_dir():
+        return error(404, "missing", "Project folder does not exist on disk")
+    message = (body or {}).get("message") or f"{project['name']} — pushed from Agent Studio"
+    result = github.push_workspace(project, folder, str(message))
+    if not result.get("ok"):
+        return error(422, "push_failed", result.get("reason") or "Could not push to GitHub.")
+    return {
+        "ok": True,
+        "branch": result.get("branch"),
+        "prUrl": result.get("prUrl"),
+        "repoUrl": result.get("repoUrl"),
+    }
+
+
 @router.post("/projects/{id}/members")
 def add_project_member(id: str, body: dict):
     from runtime import members as memberlib
