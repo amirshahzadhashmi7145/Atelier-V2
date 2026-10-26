@@ -748,16 +748,26 @@ def _alive(run: dict | None) -> bool:
     return gen is None or gen == db.generation()
 
 
+_TERMINAL = {"cancelled", "failed", "completed"}
+
+
 def _persist_run(run: dict) -> bool:
-    """Keep a user stop from being overwritten by the worker's in-memory copy."""
+    """Keep a user stop from being overwritten by the worker's in-memory copy.
+
+    The read-check-write is done under the store lock so a concurrent /stop
+    cannot slip a cancel in between the check and the write (TOCTOU) — otherwise
+    a slow worker could resurrect a cancelled run back to 'running'.
+    """
     if not _alive(run):
         return False
-    fresh = db.get("run", run["id"]) or {}
-    if fresh.get("status") == "cancelled" and run.get("status") != "cancelled":
-        run["status"] = "cancelled"
-        run["endedAt"] = fresh.get("endedAt") or run.get("endedAt")
-        return False
-    db.put("run", run["id"], _public(run))
+    with db.LOCK:
+        fresh = db.get("run", run["id"]) or {}
+        stored = fresh.get("status")
+        if stored in _TERMINAL and run.get("status") not in _TERMINAL:
+            run["status"] = stored
+            run["endedAt"] = fresh.get("endedAt") or run.get("endedAt")
+            return False
+        db.put("run", run["id"], _public(run))
     return True
 
 
