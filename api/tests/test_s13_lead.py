@@ -121,8 +121,8 @@ def test_run_settings_default_approve_plans_and_review_cap(client: TestClient):
 
     settings = client.get("/settings/runs").json()
     assert settings["approvePlansBeforeRunning"] is False
-    assert settings["maxSpendPerReviewUsd"] == 0
-    assert settings["maxSpendPerRunUsd"] == 0
+    assert settings["maxSpendPerReviewUsd"] == 1
+    assert settings["maxSpendPerRunUsd"] == 5
     assert settings["maxSpendPerDayUsd"] == 0
     assert spend_cap(0, 0) is None
     assert spend_cap(None, 0) is None

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -60,6 +60,38 @@ export function ChatScreen({
   const [activity, setActivity] = useState(0)
   const [showPreview, setShowPreview] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [previewWidth, setPreviewWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem("atelier.previewWidth"))
+      if (saved >= 320 && saved <= 1100) return saved
+    } catch {
+      // ignore unavailable storage
+    }
+    return 480
+  })
+  const previewWidthRef = useRef(previewWidth)
+  useEffect(() => {
+    previewWidthRef.current = previewWidth
+  }, [previewWidth])
+  const startPreviewResize = (event: ReactPointerEvent) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startW = previewWidth
+    const onMove = (e: PointerEvent) => {
+      setPreviewWidth(Math.min(1100, Math.max(320, startW + (startX - e.clientX))))
+    }
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      try {
+        localStorage.setItem("atelier.previewWidth", String(previewWidthRef.current))
+      } catch {
+        // ignore unavailable storage
+      }
+    }
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+  }
 
   const priorByRun = useMemo(() => {
     const map = new Map<string, string>()
@@ -282,7 +314,17 @@ export function ChatScreen({
         </div>
         {projectId ? <Composer projectId={projectId} project={project.data} /> : null}
       </section>
-      <aside className="hidden h-full min-h-0 w-72 shrink-0 flex-col border-l p-3 xl:flex">
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize preview"
+        onPointerDown={startPreviewResize}
+        className="hidden w-1.5 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 xl:block"
+      />
+      <aside
+        className="hidden h-full min-h-0 shrink-0 flex-col border-l p-3 xl:flex"
+        style={{ width: previewWidth }}
+      >
         <h2 className="mb-2 text-sm font-medium">Preview</h2>
         <PreviewPane url={project.data?.previewUrl} />
       </aside>

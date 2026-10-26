@@ -165,10 +165,12 @@ test("teach creates a skill and the preview updates", async ({ page, request }) 
   await expect(preview).toBeVisible({ timeout: 15_000 })
 })
 
-test("agent without build tools shows a warning", async ({ page, request }) => {
+test("a worker agent runs on the OpenHands tools", async ({ page, request }) => {
   const id = await activateAgent(request, "Bare Agent", ["files"])
   await page.goto(`/agents/${id}`)
-  await expect(page.getByText("this agent cannot build or run anything")).toBeVisible()
+  // Workers run on OpenHands, which provides its own editor, terminal, and browser,
+  // so a worker can always build and run regardless of its own tool selection.
+  await expect(page.getByText("File editor", { exact: true })).toBeVisible({ timeout: 15_000 })
 })
 
 test("a queued message is shown while another run is active", async ({ page, request }) => {
@@ -359,7 +361,7 @@ test("a team lead plan can be edited and approved and the review verdict shows",
   await plan.getByRole("button", { name: "Approve" }).evaluate((node: HTMLElement) => node.click())
   expect((await approved).ok(), await (await approved).text()).toBeTruthy()
   await expect(page.locator("[data-verdict='approve']").first()).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator("[data-label='review']").first()).toBeVisible()
+  await expect(page.locator("[data-label='review']").first()).toBeVisible({ timeout: 60_000 })
 })
 
 test("the chat page is exactly the viewport", async ({ page, request }) => {

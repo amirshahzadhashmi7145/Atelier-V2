@@ -85,6 +85,11 @@ def startup() -> None:
 
     project_runs.reap_orphans()
     _bootstrap_gemini()
+    if os.environ.get("GATEWAY_MOCK") == "1":
+        # Mock mode (e2e) has no real LLM or Docker; run workers in-process.
+        from runtime.supervisor.worker import LoopWorkerRunner, set_runner
+
+        set_runner(LoopWorkerRunner())
 
 
 @app.on_event("shutdown")
