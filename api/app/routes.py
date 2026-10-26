@@ -1263,6 +1263,25 @@ def close_project(id: str):
     return _project_view(project)
 
 
+@router.post("/projects/{id}/preview")
+def start_preview(id: str):
+    from runtime import tools
+
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    folder = Path(project["folderPath"])
+    if not folder.is_dir():
+        return error(404, "missing", "Project folder does not exist on disk")
+    # _preview stops any existing server for this project first, so this doubles as a
+    # restart. It serves the project folder (vite dev when there is a package.json,
+    # otherwise a static server) and records the preview URL on the project.
+    result = tools._preview({"id": id, "projectId": id, "folder": str(folder)}, folder)
+    if not result.get("previewUrl"):
+        return error(500, "preview_failed", "Could not start the preview server")
+    return _project_view(db.get("project", id))
+
+
 def _frame(event: dict) -> str:
     return f"id: {event['seq']}\nevent: {event['type']}\ndata: {json.dumps(event)}\n\n"
 

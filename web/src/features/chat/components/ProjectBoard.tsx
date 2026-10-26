@@ -26,7 +26,7 @@ export default function ProjectBoard({ projectId }: { projectId: string }) {
   }, [items])
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6 overflow-auto p-6">
+    <div className="no-scrollbar flex h-full min-h-0 flex-col gap-6 overflow-auto p-6">
       <PageHeader title="Task board" description="Every agent on this project. One board, not one per task." />
       <p className="text-sm">
         <Link href={`/chat/${projectId}`} className="underline">

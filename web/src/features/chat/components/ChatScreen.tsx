@@ -26,6 +26,7 @@ import {
   openProjectFolder,
   postMessage,
   pushProjectToGithub,
+  startPreview,
   stopChatRun,
   type ChatMessage,
   type Project,
@@ -147,7 +148,7 @@ export function ChatScreen({
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
-      <aside className="flex w-56 shrink-0 flex-col gap-3 overflow-auto border-r p-3">
+      <aside className="no-scrollbar flex w-56 shrink-0 flex-col gap-3 overflow-auto border-r p-3">
         <NewProject />
         {projects.isLoading ? <p className="text-sm text-muted-foreground">Loading projects</p> : null}
         {projects.isError ? <p className="text-sm text-destructive">Could not load projects</p> : null}
@@ -171,7 +172,7 @@ export function ChatScreen({
           </p>
         ) : null}
         {projectId && project.data ? (
-          <div className="flex max-h-[45%] shrink-0 flex-col gap-2 overflow-auto">
+          <div className="no-scrollbar flex max-h-[45%] shrink-0 flex-col gap-2 overflow-auto">
             <NeedsYou projectId={projectId} />
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h1 className="text-lg font-semibold">{project.data.name}</h1>
@@ -201,21 +202,7 @@ export function ChatScreen({
                   Open folder
                 </Button>
                 <PushButton projectId={projectId} project={project.data} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    if (!projectId) return
-                    void closeProject(projectId)
-                      .then(() => {
-                        toast.success("Preview stopped")
-                        return queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
-                      })
-                      .catch((error) => toast.error(error instanceof Error ? error.message : "Could not stop preview"))
-                  }}
-                >
-                  Stop preview
-                </Button>
+                <PreviewButton projectId={projectId} project={project.data} />
                 <Button
                   type="button"
                   variant="outline"
@@ -272,7 +259,7 @@ export function ChatScreen({
                 stickRef.current = near
                 setAway(!near)
               }}
-              className="flex h-full flex-col gap-3 overflow-y-auto [scrollbar-width:thin]"
+              className="no-scrollbar flex h-full flex-col gap-3 overflow-y-auto"
             >
               {projectId && messages.isPending ? (
                 <div className="flex flex-col gap-3" aria-busy="true">
@@ -498,6 +485,25 @@ function LiveWork({ steps, threadRunIds }: { steps?: Project["supervisorSteps"];
         </div>
       ))}
     </div>
+  )
+}
+
+function PreviewButton({ projectId, project }: { projectId: string; project?: Project }) {
+  const queryClient = useQueryClient()
+  const running = Boolean(project?.previewUrl)
+  const toggle = useMutation({
+    mutationFn: () => (running ? closeProject(projectId) : startPreview(projectId)),
+    onSuccess: async () => {
+      toast.success(running ? "Preview stopped" : "Preview started")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : running ? "Could not stop preview" : "Could not start preview"),
+  })
+  return (
+    <Button type="button" variant="outline" disabled={toggle.isPending} onClick={() => toggle.mutate()}>
+      {toggle.isPending ? (running ? "Stopping…" : "Starting…") : running ? "Stop preview" : "Start preview"}
+    </Button>
   )
 }
 

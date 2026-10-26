@@ -557,10 +557,15 @@ def _publish(project: dict, run: dict) -> dict:
     token = github.token_for(project)
     if not token:
         return {}
+    github.run_git(folder, ["add", "-A"])
+    # Nothing changed on disk -> no commit, no push, no PR. Without this a task that
+    # produced no file changes (e.g. "start the preview") would still open an empty
+    # pull request on every run.
+    if github._git(folder, ["diff", "--cached", "--quiet"])[0] == 0:
+        return {}
     branch = f"task/{run.get('taskId') or run['id']}"
     github.run_git(folder, ["checkout", "-B", branch])
-    github.run_git(folder, ["add", "-A"])
-    github.run_git(folder, ["commit", "-m", "Agent Studio task", "--allow-empty"])
+    github.run_git(folder, ["commit", "-m", "Agent Studio task"])
     remote = github.authed_remote(project["repoUrl"], token)
     github.run_git(folder, ["push", remote, f"HEAD:{branch}"])
     pr = github.open_pull_request(project["repoUrl"], token, branch, run["task"])

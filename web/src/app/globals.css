@@ -132,3 +132,17 @@
     color: #111;
   }
 }
+
+/* Hide the scrollbar chrome on in-app scroll panes while keeping them scrollable
+   (wheel, trackpad, keyboard, drag all still work). */
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none; /* WebKit/Blink */
+  }
+}

@@ -1470,6 +1470,24 @@ paths:
                 $ref: "#/components/schemas/Project"
         "404":
           $ref: "#/components/responses/Error"
+  /projects/{id}/preview:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: startPreview
+      tags: [projects]
+      description: Start (or restart) the project's preview server and return the project with its preview URL.
+      responses:
+        "200":
+          description: Preview started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
   /model-tags:
     get:
       operationId: listModelTags

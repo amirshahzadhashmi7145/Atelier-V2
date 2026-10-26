@@ -179,3 +179,66 @@ def test_push_reports_repository_not_found(client: TestClient, monkeypatch):
     assert "not found" in res.json()["message"].lower()
     # The token must never leak into the error surfaced to the client.
     assert "tok-missing-value" not in res.text
+
+
+def test_publish_skips_pr_when_nothing_changed(client: TestClient, monkeypatch):
+    from runtime import github, loop
+
+    agent = _agent(client)
+    project = client.post(
+        "/projects", json={"name": "NoChange", "agentId": agent["id"], "repoUrl": "https://github.com/o/r"}
+    ).json()
+    client.patch(f"/projects/{project['id']}", json={"githubToken": "tok-nc-value"})
+    project = db.get("project", project["id"])
+
+    prs: list[str] = []
+    # `git diff --cached --quiet` returns 0 == no staged changes.
+    monkeypatch.setattr(github, "_git", lambda folder, args: (0, ""))
+    monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: prs.append("pr") or "url")
+
+    result = loop._publish(project, {"id": "run_nc", "projectId": project["id"], "folder": project["folderPath"], "task": "t"})
+    assert result == {}
+    assert prs == []  # a no-op task must not open a pull request
+
+
+def test_publish_opens_pr_when_files_changed(client: TestClient, monkeypatch):
+    from runtime import github, loop
+
+    agent = _agent(client)
+    project = client.post(
+        "/projects", json={"name": "Changed", "agentId": agent["id"], "repoUrl": "https://github.com/o/r"}
+    ).json()
+    client.patch(f"/projects/{project['id']}", json={"githubToken": "tok-ch-value"})
+    project = db.get("project", project["id"])
+
+    # diff --cached --quiet returns 1 == there are staged changes; everything else ok.
+    monkeypatch.setattr(
+        github, "_git", lambda folder, args: (1, "") if args[:2] == ["diff", "--cached"] else (0, "")
+    )
+    monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: "https://github.com/o/r/pull/9")
+
+    result = loop._publish(project, {"id": "run_ch", "projectId": project["id"], "folder": project["folderPath"], "task": "t"})
+    assert result["prUrl"] == "https://github.com/o/r/pull/9"
+    assert result["branch"] == "task/run_ch"
+
+
+def test_start_preview_runs_server_and_returns_project(client: TestClient, monkeypatch):
+    from runtime import tools
+
+    agent = _agent(client)
+    project = client.post("/projects", json={"name": "Prev", "agentId": agent["id"]}).json()
+
+    called: list[str] = []
+
+    def fake_preview(run, folder):
+        called.append(run["projectId"])
+        return {"output": "http://127.0.0.1:9191", "previewUrl": "http://127.0.0.1:9191"}
+
+    monkeypatch.setattr(tools, "_preview", fake_preview)
+    res = client.post(f"/projects/{project['id']}/preview")
+    assert res.status_code == 200
+    assert called == [project["id"]]
+
+
+def test_start_preview_missing_project_is_404(client: TestClient):
+    assert client.post("/projects/prj_missing/preview").status_code == 404

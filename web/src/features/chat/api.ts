@@ -68,6 +68,10 @@ export async function closeProject(id: string) {
   return unwrap(await api.POST("/projects/{id}/close", { params: { path: { id } } }))
 }
 
+export async function startPreview(id: string) {
+  return unwrap(await api.POST("/projects/{id}/preview", { params: { path: { id } } }))
+}
+
 export async function deleteProject(id: string) {
   const result = await api.DELETE("/projects/{id}", { params: { path: { id } } })
   if (result.response.status === 204) return

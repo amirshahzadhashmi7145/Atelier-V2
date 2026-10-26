@@ -1102,6 +1102,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start (or restart) the project's preview server and return the project with its preview URL. */
+        post: operations["startPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/model-tags": {
         parameters: {
             query?: never;
@@ -3954,6 +3973,30 @@ export interface operations {
                 };
             };
             404: components["responses"]["Error"];
+        };
+    };
+    startPreview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preview started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            404: components["responses"]["Error"];
+            500: components["responses"]["Error"];
         };
     };
     listModelTags: {
