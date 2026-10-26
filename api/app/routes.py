@@ -1467,17 +1467,19 @@ def _zip(run_id: str):
 
 
 def _preview_alive(preview: dict) -> bool:
-    """A dead preview must not be offered: a stale url is worse than none."""
-    import socket
-    from urllib.parse import urlparse
+    """A preview must actually serve HTTP before it is offered. A bare TCP connect
+    succeeds the moment the dev server binds the port, while it is still compiling
+    the first request — the iframe would then load too early and show blank until a
+    refresh. Require a real HTTP response so the URL appears only when it works."""
+    import httpx
 
+    url = preview.get("url") or ""
+    if not url:
+        return False
     try:
-        parsed = urlparse(preview.get("url") or "")
-        if not parsed.hostname or not parsed.port:
-            return False
-        with socket.create_connection((parsed.hostname, parsed.port), timeout=0.25):
-            return True
-    except OSError:
+        response = httpx.get(url, timeout=1.0, follow_redirects=True)
+        return response.status_code < 500
+    except httpx.HTTPError:
         return False
 
 

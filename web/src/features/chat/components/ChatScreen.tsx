@@ -47,6 +47,9 @@ export function ChatScreen({
     queryFn: () => getProject(projectId ?? ""),
     enabled: Boolean(projectId),
     refetchInterval: 2000,
+    // Keep polling while the tab is backgrounded so the preview (which can take a
+    // while to build) appears without a manual refresh when the user returns.
+    refetchIntervalInBackground: true,
   })
   const messages = useQuery({
     queryKey: queryKeys.messages(projectId ?? ""),
