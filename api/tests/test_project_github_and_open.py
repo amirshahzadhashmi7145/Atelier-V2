@@ -152,7 +152,7 @@ def test_push_falls_back_to_pr_on_rejected_push(client: TestClient, monkeypatch)
 
     res = client.post(f"/projects/{project['id']}/push").json()
     assert res["ok"] is True
-    assert res["branch"].startswith("agent-studio/")
+    assert res["branch"].startswith("studio/")
     assert res["prUrl"] == "https://github.com/o/r/pull/7"
 
 
@@ -217,9 +217,12 @@ def test_publish_opens_pr_when_files_changed(client: TestClient, monkeypatch):
     )
     monkeypatch.setattr(github, "open_pull_request", lambda *a, **k: "https://github.com/o/r/pull/9")
 
-    result = loop._publish(project, {"id": "run_ch", "projectId": project["id"], "folder": project["folderPath"], "task": "t"})
+    result = loop._publish(
+        project, {"id": "run_ch", "projectId": project["id"], "folder": project["folderPath"], "task": "Add dark mode"}
+    )
     assert result["prUrl"] == "https://github.com/o/r/pull/9"
-    assert result["branch"] == "task/run_ch"
+    # Readable branch derived from the task text + the run's short id.
+    assert result["branch"] == "task/add-dark-mode-ch"
 
 
 def test_start_preview_runs_server_and_returns_project(client: TestClient, monkeypatch):

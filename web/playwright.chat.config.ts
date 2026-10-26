@@ -7,6 +7,10 @@ export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "**/chat.spec.ts",
   workers: 1,
+  // These drive a live run with streamed output on a timer, so a single transient
+  // miss (slow CI, a poll landing a beat late) should retry rather than fail the
+  // suite. Mirrors the backend's pytest-rerunfailures.
+  retries: process.env.CI ? 2 : 0,
   use: { ...devices["Desktop Chrome"], baseURL: `http://127.0.0.1:${webPort}` },
   webServer: [
     {

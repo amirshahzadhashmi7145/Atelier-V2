@@ -1,7 +1,6 @@
 import json
 import os
 import queue
-import re
 import subprocess
 import sys
 import time
@@ -881,7 +880,7 @@ def create_project(body: dict):
     if agent is None or not body.get("name"):
         return error(422, "invalid", "name and agentId are required")
     project_id = db.nid("prj")
-    folder = db.projects_dir() / _slug(body["name"], project_id)
+    folder = _project_folder(body["name"])
     folder.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init"], cwd=folder, capture_output=True)
     token_ref = _store_token(project_id, body.get("githubToken"), body.get("repoUrl"))
@@ -1574,9 +1573,19 @@ def _project_view(project: dict) -> dict:
     return project
 
 
-def _slug(name: str, project_id: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "project"
-    return f"{slug}-{project_id}"
+def _project_folder(name: str) -> Path:
+    """A clean, readable folder for a new project (e.g. 'connect-four'), with a
+    numeric suffix only when needed to avoid colliding with an existing folder."""
+    from runtime import naming
+
+    root = db.projects_dir()
+    base = naming.slug(name)
+    candidate = root / base
+    n = 2
+    while candidate.exists():
+        candidate = root / f"{base}-{n}"
+        n += 1
+    return candidate
 
 
 def _store_token(project_id: str, token: str | None, repo_url: str | None) -> str | None:

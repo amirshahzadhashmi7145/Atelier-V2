@@ -7,7 +7,7 @@ from pathlib import Path
 from gateway import openai_gateway
 from gateway.tool_pairing import ToolPairingError
 from runtime import messages as msglib
-from runtime import board, contract_file, github, lead as leadlib, members as memberlib, roles as rolelib
+from runtime import board, contract_file, github, lead as leadlib, members as memberlib, naming, roles as rolelib
 from runtime.scaffold import write_express_prisma, write_vite_react_ts
 from runtime.tool_results import format_tool_result
 from runtime import compile as compile_prompt
@@ -563,12 +563,13 @@ def _publish(project: dict, run: dict) -> dict:
     # pull request on every run.
     if github._git(folder, ["diff", "--cached", "--quiet"])[0] == 0:
         return {}
-    branch = f"task/{run.get('taskId') or run['id']}"
+    task_text = run.get("task") or ""
+    branch = naming.task_branch(task_text, run.get("taskId") or run["id"])
     github.run_git(folder, ["checkout", "-B", branch])
-    github.run_git(folder, ["commit", "-m", "Agent Studio task"])
+    github.run_git(folder, ["commit", "-m", naming.commit_message(task_text)])
     remote = github.authed_remote(project["repoUrl"], token)
     github.run_git(folder, ["push", remote, f"HEAD:{branch}"])
-    pr = github.open_pull_request(project["repoUrl"], token, branch, run["task"])
+    pr = github.open_pull_request(project["repoUrl"], token, branch, naming.pr_title(task_text))
     return {"branch": branch, "prUrl": pr}
 
 

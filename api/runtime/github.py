@@ -136,7 +136,9 @@ def push_workspace(project: dict, folder: Path, message: str) -> dict:
         return {"ok": False, "reason": scrub(_friendly_push_error(pushed), token)}
 
     # Remote has history we can't fast-forward: open a PR from a side branch.
-    branch = f"agent-studio/{db.now().replace(':', '').replace('.', '')}"
+    from runtime import naming
+
+    branch = naming.push_branch(message)
     run_git(folder, ["checkout", "-B", branch])
     branch_code, branch_push = _git(folder, ["push", remote, f"HEAD:{branch}"])
     if branch_code != 0:
