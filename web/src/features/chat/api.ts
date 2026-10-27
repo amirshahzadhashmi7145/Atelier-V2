@@ -9,7 +9,13 @@ export async function listProjects() {
   return unwrap(await api.GET("/projects"))
 }
 
-export async function createProject(body: { name: string; agentId: string; repoUrl?: string; githubToken?: string }) {
+export async function createProject(body: {
+  name: string
+  agentId: string
+  repoUrl?: string
+  githubToken?: string
+  importFromRepo?: boolean
+}) {
   return unwrap(await api.POST("/projects", { body }))
 }
 

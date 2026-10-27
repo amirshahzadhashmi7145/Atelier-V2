@@ -3063,6 +3063,9 @@ components:
         githubToken:
           type: string
           description: Write-only. Stored by reference, never returned.
+        importFromRepo:
+          type: boolean
+          description: Clone repoUrl into the project folder to start from an existing codebase.
         notesPath:
           type: string
         notesMaxBytes:

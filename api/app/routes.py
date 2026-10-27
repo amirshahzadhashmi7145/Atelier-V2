@@ -881,9 +881,18 @@ def create_project(body: dict):
         return error(422, "invalid", "name and agentId are required")
     project_id = db.nid("prj")
     folder = _project_folder(body["name"])
-    folder.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init"], cwd=folder, capture_output=True)
-    token_ref = _store_token(project_id, body.get("githubToken"), body.get("repoUrl"))
+    repo_url = body.get("repoUrl") or None
+    if body.get("importFromRepo") and repo_url:
+        # Start from an existing codebase: clone it into the (not-yet-created) folder.
+        from runtime import github
+
+        result = github.clone_repo(repo_url, folder, body.get("githubToken"))
+        if not result.get("ok"):
+            return error(422, "clone_failed", result.get("reason") or "Could not clone the repository.")
+    else:
+        folder.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=folder, capture_output=True)
+    token_ref = _store_token(project_id, body.get("githubToken"), repo_url)
     from runtime import notes
 
     project = notes.defaults(

@@ -36,6 +36,28 @@ def scrub(text: str, token: str | None) -> str:
     return text.replace(token, "***") if token else text
 
 
+def is_github_url(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url or "")
+    return parsed.scheme in ("http", "https") and (parsed.hostname or "").lower() in ("github.com", "www.github.com")
+
+
+def clone_repo(repo_url: str, folder: Path, token: str | None = None) -> dict:
+    """Clone a GitHub repo into `folder` (which must not already exist) so a project
+    can start from an existing codebase. Public repos need no token; a token (for a
+    private repo) is used for auth and scrubbed from any returned text."""
+    if not is_github_url(repo_url):
+        return {"ok": False, "reason": "Enter a public github.com repository URL to import."}
+    remote = authed_remote(repo_url, token) if token else repo_url
+    # Shallow clone into the target folder name, from its parent directory.
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    code, out = _git(folder.parent, ["clone", "--depth", "1", remote, folder.name])
+    if code != 0:
+        return {"ok": False, "reason": scrub(_friendly_push_error(out), token)}
+    return {"ok": True}
+
+
 def _git(folder: Path, args: list[str]) -> tuple[int, str]:
     env = {
         **os.environ,

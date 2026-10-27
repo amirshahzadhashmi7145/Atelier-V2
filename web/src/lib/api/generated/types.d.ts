@@ -1813,6 +1813,8 @@ export interface components {
             repoUrl?: string | null;
             /** @description Write-only. Stored by reference, never returned. */
             githubToken?: string;
+            /** @description Clone repoUrl into the project folder to start from an existing codebase. */
+            importFromRepo?: boolean;
             notesPath?: string;
             notesMaxBytes?: number;
         };

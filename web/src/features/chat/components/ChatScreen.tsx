@@ -783,8 +783,16 @@ function NewProject() {
   const [agentId, setAgentId] = useState("")
   const [repoUrl, setRepoUrl] = useState("")
   const [githubToken, setGithubToken] = useState("")
+  const [importFromRepo, setImportFromRepo] = useState(false)
   const create = useMutation({
-    mutationFn: () => createProject({ name, agentId, repoUrl: repoUrl || undefined, githubToken: githubToken || undefined }),
+    mutationFn: () =>
+      createProject({
+        name,
+        agentId,
+        repoUrl: repoUrl || undefined,
+        githubToken: githubToken || undefined,
+        importFromRepo: importFromRepo && Boolean(repoUrl) ? true : undefined,
+      }),
     onSuccess: async (project) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
       setGithubToken("")
@@ -829,7 +837,22 @@ function NewProject() {
       ) : null}
       <label className="text-sm" htmlFor="project-repo">
         Repo URL
-        <input id="project-repo" className="mt-1 w-full rounded border px-2 py-1" value={repoUrl} onChange={(event) => setRepoUrl(event.target.value)} />
+        <input
+          id="project-repo"
+          className="mt-1 w-full rounded border px-2 py-1"
+          placeholder="https://github.com/owner/repo"
+          value={repoUrl}
+          onChange={(event) => setRepoUrl(event.target.value)}
+        />
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={importFromRepo}
+          disabled={!repoUrl}
+          onChange={(event) => setImportFromRepo(event.target.checked)}
+        />
+        Clone this repo to start from it (import an existing project)
       </label>
       <label className="text-sm" htmlFor="project-token">
         GitHub token

@@ -245,3 +245,69 @@ def test_start_preview_runs_server_and_returns_project(client: TestClient, monke
 
 def test_start_preview_missing_project_is_404(client: TestClient):
     assert client.post("/projects/prj_missing/preview").status_code == 404
+
+
+def test_create_project_imports_repo_by_cloning(client: TestClient, monkeypatch):
+    from runtime import github
+
+    calls: list[list[str]] = []
+
+    def fake_git(folder, args):
+        calls.append(args)
+        if args[:1] == ["clone"]:
+            (folder / args[-1]).mkdir(parents=True, exist_ok=True)  # pretend the clone created the folder
+        return (0, "")
+
+    monkeypatch.setattr(github, "_git", fake_git)
+    agent = _agent(client)
+    res = client.post(
+        "/projects",
+        json={"name": "Imported", "agentId": agent["id"], "repoUrl": "https://github.com/owner/repo", "importFromRepo": True},
+    )
+    assert res.status_code == 201
+    assert any(a[:1] == ["clone"] for a in calls)  # it cloned instead of git init
+    assert res.json()["repoUrl"] == "https://github.com/owner/repo"
+
+
+def test_create_project_import_rejects_non_github_url(client: TestClient):
+    agent = _agent(client)
+    res = client.post(
+        "/projects",
+        json={"name": "Bad", "agentId": agent["id"], "repoUrl": "https://evil.example/x", "importFromRepo": True},
+    )
+    assert res.status_code == 422
+    assert "github.com" in res.json()["message"].lower()
+
+
+def test_create_project_import_reports_clone_failure_without_leaking_token(client: TestClient, monkeypatch):
+    from runtime import github
+
+    monkeypatch.setattr(
+        github, "_git", lambda folder, args: (128, "remote: Repository not found.\nfatal: repository not found")
+    )
+    agent = _agent(client)
+    res = client.post(
+        "/projects",
+        json={
+            "name": "Missing",
+            "agentId": agent["id"],
+            "repoUrl": "https://github.com/owner/nope",
+            "importFromRepo": True,
+            "githubToken": "tok-clone-secret",
+        },
+    )
+    assert res.status_code == 422
+    assert "not found" in res.json()["message"].lower()
+    assert "tok-clone-secret" not in res.text
+
+
+def test_create_project_without_repo_does_not_clone(client: TestClient, monkeypatch):
+    from runtime import github
+
+    cloned: list[str] = []
+    monkeypatch.setattr(github, "_git", lambda folder, args: cloned.append(args[0]) or (0, ""))
+    agent = _agent(client)
+    # importFromRepo set but no repoUrl -> a normal empty project, no clone.
+    res = client.post("/projects", json={"name": "Empty", "agentId": agent["id"], "importFromRepo": True})
+    assert res.status_code == 201
+    assert "clone" not in cloned
