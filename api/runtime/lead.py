@@ -352,11 +352,17 @@ def review_packet(child: dict, author_run: dict | None) -> str:
     lines.append(
         "Judge from the git diff and the build_test output only. Screenshots and running the app are NOT "
         "available and must NOT be required — verify UI and gameplay criteria by reading the source code and "
-        "the passing tests in the diff. If the code and tests implement a criterion, it is met. Approve when "
-        "the build and tests pass and the diff implements the criteria. Only request changes for a real defect "
-        "you can point to in the diff (a missing feature, a bug, or a failing build). Do not start servers, use "
-        "a browser, ask for screenshots, or raise clarifications. Call record_review(approve or "
-        "changes_requested, notes). Do not write files. Do not ask anyone to proceed."
+        "the passing tests in the diff. If the code and tests implement a criterion, it is met. "
+        "The build_test block above is the ONLY evidence of whether the build and tests ran: do not claim "
+        "tests passed, describe a test suite, or name files that cover a criterion unless they actually appear "
+        "in the diff or the build_test output. If build_test says it was not run, or shows a failure, or the "
+        "diff is empty, you have no evidence the work is complete — request changes and say what is missing. "
+        "Approve only when build_test shows the build and tests passed AND the diff implements the criteria. "
+        "Keep your notes to what you can see in the diff and build_test; quote the build_test result rather "
+        "than inventing one. Only request changes for a real defect you can point to in the diff (a missing "
+        "feature, a bug, or a failing build). Do not start servers, use a browser, ask for screenshots, or "
+        "raise clarifications. Call record_review(approve or changes_requested, notes). Do not write files. "
+        "Do not ask anyone to proceed."
     )
     return "\n".join(lines)
 

@@ -47,7 +47,11 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
             return {"refused": True, "reason": "a supervisor cannot install packages"}
         return _install(run, folder, arguments.get("name", ""), should_stop)
     if name == "build_test":
-        return _build(run, folder, should_stop)
+        # Reconcile node_modules with package.json first so a supervisor (which cannot
+        # install packages) can still verify a build after a worker declared a dependency
+        # but left node_modules stale — otherwise the build fails on a missing import and
+        # the supervisor can only ask the user to run npm install.
+        return _build(run, folder, should_stop, install=True)
     if name == "headless_browser":
         return _browser(run, arguments.get("url") or "")
     if name == "preview_deploy":
@@ -305,7 +309,10 @@ def _build(run: dict, folder: Path | None, should_stop, install: bool = False) -
             needed = ["test"]
         ok = all(name in scripts for name in needed) and not log
         install_failed = False
-        if install and ok and not (root / "node_modules").is_dir():
+        if install and ok and not _deps_satisfied(root):
+            # node_modules is absent, or a dependency declared in package.json was never
+            # installed (the @stripe/* case). Materialise what package.json already declares
+            # before building; this is reconciling committed state, not adding a new package.
             lock = "test -f package-lock.json && npm ci --no-audit --loglevel=error"
             cmd = f"({lock}) || npm install --no-audit --loglevel=error"
             code, output = sandbox.run_command(root, cmd, should_stop, timeout=480)
@@ -484,6 +491,31 @@ def _png_matches(path: Path, width: int, height: int) -> bool:
     return (got_w, got_h) in {(width, height), (width * 2, height * 2)}
 
 
+def _deps_satisfied(folder: Path) -> bool:
+    """True when every dependency declared in package.json is present under
+    node_modules. A task that adds a dependency to package.json but never runs
+    install leaves node_modules stale, so the dev server fails to resolve the new
+    import (the @stripe/* overlay was exactly this). Returns False in that case so
+    the caller reinstalls before serving. Scoped names (@scope/pkg) live at
+    node_modules/@scope/pkg, which exists() handles."""
+    pkg = folder / "package.json"
+    modules = folder / "node_modules"
+    if not pkg.is_file():
+        return True  # nothing to install
+    if not modules.is_dir():
+        return False
+    try:
+        data = json.loads(pkg.read_text())
+    except (OSError, json.JSONDecodeError):
+        return True  # can't parse; don't force a reinstall loop
+    declared: set[str] = set()
+    for key in ("dependencies", "devDependencies"):
+        block = data.get(key) or {}
+        if isinstance(block, dict):
+            declared.update(str(name) for name in block)
+    return all((modules / name).exists() for name in declared)
+
+
 def _preview(run: dict, folder: Path | None) -> dict:
     if folder is None:
         return {"output": "no workspace"}
@@ -498,8 +530,10 @@ def _preview(run: dict, folder: Path | None) -> dict:
     sock.close()
     if (folder / "package.json").exists():
         command = f"npm run dev -- --port {port} --host 127.0.0.1"
-        if not (folder / "node_modules").is_dir():
-            # A freshly synced project folder has no dependencies yet; install before serving.
+        if not _deps_satisfied(folder):
+            # A freshly synced folder has no dependencies, or a task added a package
+            # to package.json without installing it; reconcile node_modules before serving
+            # so the dev server can resolve every import.
             command = f"npm install --prefer-offline --no-audit && {command}"
     else:
         command = f"python3 -m http.server {port}"
