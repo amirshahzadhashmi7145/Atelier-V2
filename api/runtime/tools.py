@@ -484,6 +484,31 @@ def _png_matches(path: Path, width: int, height: int) -> bool:
     return (got_w, got_h) in {(width, height), (width * 2, height * 2)}
 
 
+def _deps_satisfied(folder: Path) -> bool:
+    """True when every dependency declared in package.json is present under
+    node_modules. A task that adds a dependency to package.json but never runs
+    install leaves node_modules stale, so the dev server fails to resolve the new
+    import (the @stripe/* overlay was exactly this). Returns False in that case so
+    the caller reinstalls before serving. Scoped names (@scope/pkg) live at
+    node_modules/@scope/pkg, which exists() handles."""
+    pkg = folder / "package.json"
+    modules = folder / "node_modules"
+    if not pkg.is_file():
+        return True  # nothing to install
+    if not modules.is_dir():
+        return False
+    try:
+        data = json.loads(pkg.read_text())
+    except (OSError, json.JSONDecodeError):
+        return True  # can't parse; don't force a reinstall loop
+    declared: set[str] = set()
+    for key in ("dependencies", "devDependencies"):
+        block = data.get(key) or {}
+        if isinstance(block, dict):
+            declared.update(str(name) for name in block)
+    return all((modules / name).exists() for name in declared)
+
+
 def _preview(run: dict, folder: Path | None) -> dict:
     if folder is None:
         return {"output": "no workspace"}
@@ -498,8 +523,10 @@ def _preview(run: dict, folder: Path | None) -> dict:
     sock.close()
     if (folder / "package.json").exists():
         command = f"npm run dev -- --port {port} --host 127.0.0.1"
-        if not (folder / "node_modules").is_dir():
-            # A freshly synced project folder has no dependencies yet; install before serving.
+        if not _deps_satisfied(folder):
+            # A freshly synced folder has no dependencies, or a task added a package
+            # to package.json without installing it; reconcile node_modules before serving
+            # so the dev server can resolve every import.
             command = f"npm install --prefer-offline --no-audit && {command}"
     else:
         command = f"python3 -m http.server {port}"
