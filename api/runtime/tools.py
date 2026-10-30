@@ -47,7 +47,11 @@ def dispatch(run: dict, name: str, arguments: dict, should_stop) -> dict:
             return {"refused": True, "reason": "a supervisor cannot install packages"}
         return _install(run, folder, arguments.get("name", ""), should_stop)
     if name == "build_test":
-        return _build(run, folder, should_stop)
+        # Reconcile node_modules with package.json first so a supervisor (which cannot
+        # install packages) can still verify a build after a worker declared a dependency
+        # but left node_modules stale — otherwise the build fails on a missing import and
+        # the supervisor can only ask the user to run npm install.
+        return _build(run, folder, should_stop, install=True)
     if name == "headless_browser":
         return _browser(run, arguments.get("url") or "")
     if name == "preview_deploy":
@@ -305,7 +309,10 @@ def _build(run: dict, folder: Path | None, should_stop, install: bool = False) -
             needed = ["test"]
         ok = all(name in scripts for name in needed) and not log
         install_failed = False
-        if install and ok and not (root / "node_modules").is_dir():
+        if install and ok and not _deps_satisfied(root):
+            # node_modules is absent, or a dependency declared in package.json was never
+            # installed (the @stripe/* case). Materialise what package.json already declares
+            # before building; this is reconciling committed state, not adding a new package.
             lock = "test -f package-lock.json && npm ci --no-audit --loglevel=error"
             cmd = f"({lock}) || npm install --no-audit --loglevel=error"
             code, output = sandbox.run_command(root, cmd, should_stop, timeout=480)

@@ -57,6 +57,52 @@ def test_preview_reinstalls_when_dependency_missing(tmp_path: Path, monkeypatch)
     assert "npm run dev" in captured["command"]
 
 
+def _write_buildable_pkg(folder: Path, deps: dict) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "package.json").write_text(
+        json.dumps({"name": "demo", "dependencies": deps, "scripts": {"build": "vite build", "test": "vitest run"}})
+    )
+
+
+def test_build_test_reconciles_declared_but_uninstalled_dep(tmp_path: Path, monkeypatch):
+    # A worker declared @stripe/* in package.json but node_modules is stale. build_test
+    # (install=True) must install the declared deps itself so a supervisor that cannot run
+    # package_install can still produce a passing build instead of asking the user.
+    _write_buildable_pkg(tmp_path, {"react": "^18", "@stripe/react-stripe-js": "^2"})
+    (tmp_path / "node_modules" / "react").mkdir(parents=True)  # stripe missing
+
+    commands: list[str] = []
+
+    def fake_run_command(folder, command, should_stop, timeout=120):
+        commands.append(command)
+        if "npm run" in command:
+            return (0, "ok")
+        # pretend the install materialised the missing package
+        (Path(folder) / "node_modules" / "@stripe" / "react-stripe-js").mkdir(parents=True, exist_ok=True)
+        return (0, "added 1 package")
+
+    monkeypatch.setattr(tools.sandbox, "run_command", fake_run_command)
+    result = tools._build({"id": "run_b"}, tmp_path, lambda: False, install=True)
+
+    assert result["buildOk"] is True
+    assert any("npm ci" in c or "npm install" in c for c in commands)  # it reconciled deps
+    assert any("npm run build" in c for c in commands)
+
+
+def test_build_test_skips_install_when_all_deps_present(tmp_path: Path, monkeypatch):
+    _write_buildable_pkg(tmp_path, {"react": "^18"})
+    (tmp_path / "node_modules" / "react").mkdir(parents=True)
+
+    commands: list[str] = []
+    monkeypatch.setattr(
+        tools.sandbox, "run_command", lambda folder, command, should_stop, timeout=120: commands.append(command) or (0, "ok")
+    )
+    result = tools._build({"id": "run_c"}, tmp_path, lambda: False, install=True)
+
+    assert result["buildOk"] is True
+    assert not any("npm ci" in c or "npm install" in c for c in commands)  # nothing to reconcile
+
+
 def test_preview_skips_install_when_deps_satisfied(tmp_path: Path, monkeypatch):
     _write_pkg(tmp_path, {"react": "^18"})
     (tmp_path / "node_modules" / "react").mkdir(parents=True)
