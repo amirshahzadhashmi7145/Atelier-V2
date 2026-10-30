@@ -113,5 +113,7 @@ export function MergeDiff({ before, after }: { before: string; after: string }) 
       view?.destroy()
     }
   }, [before, after])
-  return <div ref={host} aria-label="Version diff" />
+  // role="group" so the aria-label is permitted even before CodeMirror mounts
+  // content into this host (ARIA prohibits aria-label on a bare div).
+  return <div ref={host} role="group" aria-label="Version diff" />
 }
