@@ -364,3 +364,46 @@ def test_real_todo_app_with_team_lead(client: TestClient):
     project = client.get(f"/projects/{project['id']}").json()
     assert project.get("previewUrl")
     assert lead["id"]
+
+
+def test_last_assistant_text_returns_last_nonempty_output():
+    from runtime import loop
+
+    db.put("run", "run_txt", {"id": "run_txt", "status": "running"})
+    db.append_event("run_txt", "MODEL_OUTPUT", {"text": "first"})
+    db.append_event("run_txt", "MODEL_OUTPUT", {"text": ""})
+    db.append_event("run_txt", "TOOL_CALLED", {"name": "files"})
+    db.append_event("run_txt", "MODEL_OUTPUT", {"text": "final answer"})
+    assert loop._last_assistant_text("run_txt") == "final answer"
+
+
+def test_lead_direct_answer_is_surfaced_as_reply(client: TestClient):
+    """A lead that answers the user directly (no child tasks dispatched) must post
+    its answer, falling back to its last model output when the summary is 'Done.'."""
+    from runtime import loop
+
+    project, _front, _back, lead = led_project(client)
+    folder = Path(project["folderPath"])
+    folder.mkdir(parents=True, exist_ok=True)
+    run = {
+        "id": "run_answer",
+        "agentId": lead["id"],
+        "kind": "lead",
+        "projectId": project["id"],
+        "taskId": "task_answer",
+        "folder": str(folder),
+        "model": {"name": "gpt-4o"},
+        "startedAt": db.now(),
+    }
+    db.put("run", run["id"], run)
+    db.put(
+        "task",
+        "task_answer",
+        {"id": "task_answer", "projectId": project["id"], "parentTaskId": None, "text": "optimize", "status": "running"},
+    )
+    db.append_event(run["id"], "MODEL_OUTPUT", {"text": "Here are the optimizations: cache X and batch Y."})
+
+    loop._complete(run, {"description": "Done."})
+
+    msgs = client.get(f"/projects/{project['id']}/messages").json()
+    assert any(m["role"] == "agent" and "optimizations" in (m.get("text") or "") for m in msgs)

@@ -536,8 +536,16 @@ def _complete(run: dict, summary: dict) -> None:
     if run.get("kind") == "review":
         _finish_run(run)
         return
-    if project and run.get("kind") != "lead" and not leadlib.is_lead(agent):
-        reply = summary["description"]
+    # A lead that dispatched child tasks lets those task replies speak for it.
+    # Otherwise — a worker run, or a lead that answered the user directly — post a
+    # reply so a completed run is never left showing nothing. When the summary has
+    # no real description (a bare "Done."), fall back to the agent's own last answer.
+    is_lead_run = run.get("kind") == "lead" or leadlib.is_lead(agent)
+    dispatched = bool(is_lead_run and run.get("taskId") and leadlib.children_of(run["taskId"]))
+    if project and not dispatched:
+        reply = (summary.get("description") or "").strip()
+        if reply.lower() in ("", "done.", "done"):
+            reply = _last_assistant_text(run["id"]) or reply or "Done."
         if git.get("prUrl"):
             reply = reply + "\n" + git["prUrl"]
         _say(run, reply)
@@ -671,6 +679,18 @@ def refresh_summary(project_id: str | None, model: str) -> None:
         return
     project["summary"] = openai_gateway.summarize(model, project.get("summary") or "", older)
     db.put("project", project_id, project)
+
+
+def _last_assistant_text(run_id: str) -> str:
+    """The last non-empty text the model produced in this run. Used as the reply
+    when the completion summary has no real description — e.g. an analysis run that
+    answered in its output but then called complete with a bare 'Done.'."""
+    for event in reversed(db.events_for(run_id)):
+        if event.get("type") == "MODEL_OUTPUT":
+            text = ((event.get("payload") or {}).get("text") or "").strip()
+            if text:
+                return text
+    return ""
 
 
 def _say(run: dict, text: str) -> None:
