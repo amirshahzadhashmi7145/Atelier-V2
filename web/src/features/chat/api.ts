@@ -36,6 +36,23 @@ export async function instantiateTemplate(
   return unwrap(await api.POST("/templates/{id}/instantiate", { params: { path: { id } }, body }))
 }
 
+export type ProjectTemplate = components["schemas"]["ProjectTemplate"]
+
+export async function listProjectTemplates() {
+  return unwrap(await api.GET("/project-templates"))
+}
+
+export async function createProjectFromTemplate(
+  id: string,
+  body: { name?: string; provider?: string; model?: string },
+) {
+  return unwrap(await api.POST("/project-templates/{id}/use", { params: { path: { id } }, body }))
+}
+
+export async function listProjectVersions(id: string) {
+  return unwrap(await api.GET("/projects/{id}/versions", { params: { path: { id } } }))
+}
+
 export async function patchProject(
   id: string,
   body: { notesPath?: string; notesMaxBytes?: number; repoUrl?: string | null; githubToken?: string },

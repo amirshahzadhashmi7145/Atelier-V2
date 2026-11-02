@@ -202,6 +202,121 @@ def instantiate_template(id: str, body: dict):
     return view
 
 
+@router.get("/project-templates")
+def list_project_templates():
+    from runtime import project_templates
+
+    return project_templates.public_list()
+
+
+@router.post("/project-templates/{id}/use", status_code=201)
+def use_project_template(id: str, body: dict):
+    """Start a NEW project from a pre-built app template. The template's files are
+    written fresh into the new project's own folder (the template is never touched),
+    git-committed as the project's first version, and a recommended team is created.
+    The user picks the provider/model here and adds the key in Settings."""
+    from runtime import project_templates, roles as rolelib, templates as teamlib
+
+    rolelib.sync_roles()
+    tmpl = project_templates._BY_ID.get(id)
+    if tmpl is None:
+        return missing()
+    name = (body.get("name") or tmpl["name"]).strip()
+    if not name:
+        return error(422, "invalid", "name is required")
+
+    provider = body.get("provider") or None
+    model_name = body.get("model") or None
+    model_spec = None
+    if provider and model_name:
+        model_spec = models_catalog.normalize_spec({"provider": provider, "name": model_name, "config": {}})
+
+    team = teamlib._BY_ID.get(tmpl["teamTemplateId"]) or teamlib._BY_ID["fullstack-web"]
+    member_ids: list[str] = []
+    for role_id in team["roles"]:
+        role = rolelib.SEED_BY_ID[role_id]
+        agent = _agent(
+            {
+                "name": role["name"],
+                "roleKey": role["id"],
+                "model": model_spec,
+                "zones": role.get("zones") or [],
+                "reportsTo": role.get("reportsTo"),
+                "capabilities": {"tags": role.get("tags") or []},
+            }
+        )
+        db.put("agent", agent["id"], agent)
+        member_ids.append(agent["id"])
+
+    project_id = db.nid("prj")
+    folder = _project_folder(name)
+    try:
+        project_templates.build(id, folder)
+    except Exception as exc:  # pragma: no cover - defensive
+        return error(500, "build_failed", f"Could not create the project from the template: {exc}")
+
+    # git init + an initial commit: the new project's first version. The template is a
+    # generator, so nothing on the template side can be affected by later edits here.
+    from runtime import github
+
+    github._git(folder, ["init"])
+    github._git(folder, ["add", "-A"])
+    github._git(folder, ["commit", "-m", f"Start from the {tmpl['name']} template"])
+
+    from runtime import notes
+
+    project = notes.defaults(
+        {
+            "id": project_id,
+            "name": name,
+            "folderPath": str(folder),
+            "repoUrl": None,
+            "tokenRef": None,
+            "members": member_ids,
+            "sourceTemplateId": id,
+            "localMode": bridge.local_mode(),
+            "previewUrl": None,
+            "createdAt": db.now(),
+        }
+    )
+    db.put("project", project_id, project)
+
+    needs_key = bool(provider) and os.environ.get("GATEWAY_MOCK") != "1" and not has_api_key(provider)
+    view = _project_view(project)
+    view["sourceTemplateId"] = id
+    view["provider"] = provider
+    view["needsProviderKey"] = needs_key
+    return view
+
+
+@router.get("/projects/{id}/versions")
+def list_project_versions(id: str):
+    """The project's version history: its git commits. A project started from a
+    template begins at version 1 (the template import) and gains a version per commit."""
+    project = db.get("project", id)
+    if project is None:
+        return missing()
+    folder = Path(project.get("folderPath") or "")
+    if not folder.is_dir():
+        return {"versions": []}
+    from runtime import github
+
+    code, out = github._git(folder, ["log", "--pretty=format:%h\x1f%s\x1f%cI", "--max-count=100"])
+    if code != 0 or not out.strip():
+        return {"versions": []}
+    rows = out.strip().split("\n")
+    total = len(rows)
+    versions = []
+    for index, line in enumerate(rows):
+        parts = line.split("\x1f")
+        if len(parts) != 3:
+            continue
+        sha, subject, when = parts
+        # Oldest commit is version 1; newest is the highest number.
+        versions.append({"version": total - index, "sha": sha, "message": subject, "committedAt": when})
+    return {"versions": versions}
+
+
 @router.post("/roles", status_code=201)
 def create_role(body: dict):
     from runtime import roles as rolelib

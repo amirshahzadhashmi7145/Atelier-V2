@@ -184,6 +184,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/project-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Pre-built full-stack app templates (HR system, CRM, …) to start a project from. */
+        get: operations["listProjectTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project-templates/{id}/use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start a new project from a pre-built app template (copy-on-select; the template is immutable). */
+        post: operations["useProjectTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** @description The project's version history (its git commits), oldest = version 1. */
+        get: operations["listProjectVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/roles/{id}": {
         parameters: {
             query?: never;
@@ -1917,6 +1972,31 @@ export interface components {
             provider?: string | null;
             needsProviderKey?: boolean;
         };
+        ProjectTemplateField: {
+            name: string;
+            label: string;
+            kind: string;
+        };
+        ProjectTemplate: {
+            id: string;
+            name: string;
+            category: string;
+            description: string;
+            teamTemplateId: string;
+            entity: string;
+            fields: components["schemas"]["ProjectTemplateField"][];
+        };
+        ProjectFromTemplate: components["schemas"]["Project"] & {
+            sourceTemplateId?: string;
+            provider?: string | null;
+            needsProviderKey?: boolean;
+        };
+        ProjectVersion: {
+            version: number;
+            sha: string;
+            message: string;
+            committedAt: string;
+        };
         RoleWrite: {
             id?: string;
             name?: string;
@@ -2438,6 +2518,84 @@ export interface operations {
             };
             404: components["responses"]["Error"];
             422: components["responses"]["Error"];
+        };
+    };
+    listProjectTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project template presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTemplate"][];
+                };
+            };
+        };
+    };
+    useProjectTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    provider?: string;
+                    model?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description New project created from the template */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFromTemplate"];
+                };
+            };
+            404: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    listProjectVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project versions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        versions: components["schemas"]["ProjectVersion"][];
+                    };
+                };
+            };
+            404: components["responses"]["Error"];
         };
     };
     getRole: {

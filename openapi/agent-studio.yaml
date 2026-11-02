@@ -297,6 +297,77 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+  /project-templates:
+    get:
+      operationId: listProjectTemplates
+      tags: [templates]
+      description: Pre-built full-stack app templates (HR system, CRM, …) to start a project from.
+      responses:
+        "200":
+          description: Project template presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectTemplate"
+  /project-templates/{id}/use:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: useProjectTemplate
+      tags: [templates]
+      description: Start a new project from a pre-built app template (copy-on-select; the template is immutable).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                provider:
+                  type: string
+                model:
+                  type: string
+      responses:
+        "201":
+          description: New project created from the template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectFromTemplate"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /projects/{id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: listProjectVersions
+      tags: [projects]
+      description: The project's version history (its git commits), oldest = version 1.
+      responses:
+        "200":
+          description: Project versions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [versions]
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProjectVersion"
+        "404":
+          $ref: "#/components/responses/Error"
   /roles/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -3250,6 +3321,62 @@ components:
               type: [string, "null"]
             needsProviderKey:
               type: boolean
+    ProjectTemplateField:
+      type: object
+      additionalProperties: false
+      required: [name, label, kind]
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        kind:
+          type: string
+    ProjectTemplate:
+      type: object
+      additionalProperties: false
+      required: [id, name, category, description, teamTemplateId, entity, fields]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        teamTemplateId:
+          type: string
+        entity:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectTemplateField"
+    ProjectFromTemplate:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          properties:
+            sourceTemplateId:
+              type: string
+            provider:
+              type: [string, "null"]
+            needsProviderKey:
+              type: boolean
+    ProjectVersion:
+      type: object
+      additionalProperties: false
+      required: [version, sha, message, committedAt]
+      properties:
+        version:
+          type: integer
+        sha:
+          type: string
+        message:
+          type: string
+        committedAt:
+          type: string
     RoleWrite:
       type: object
       additionalProperties: false

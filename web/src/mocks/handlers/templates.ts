@@ -43,4 +43,38 @@ const TEMPLATES: Template[] = [
   },
 ]
 
-export const templateHandlers = [http.get("/templates", () => HttpResponse.json(TEMPLATES))]
+type ProjectTemplate = components["schemas"]["ProjectTemplate"]
+
+const projectTemplate = (
+  id: string,
+  name: string,
+  category: string,
+  entity: string,
+  teamTemplateId: string,
+): ProjectTemplate => ({
+  id,
+  name,
+  category,
+  description: `A starter ${name} built with Agent Studio.`,
+  teamTemplateId,
+  entity,
+  fields: [{ name: "name", label: "Name", kind: "text" }],
+})
+
+const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  projectTemplate("hr-system", "HR System", "Business", "Employee", "fullstack-web"),
+  projectTemplate("crm", "CRM", "Business", "Contact", "fullstack-web"),
+  projectTemplate("task-tracker", "Project / Task Tracker", "Productivity", "Task", "frontend-only"),
+  projectTemplate("ecommerce-catalog", "E-commerce Catalog", "Commerce", "Product", "fullstack-web"),
+  projectTemplate("inventory", "Inventory Management", "Commerce", "Item", "fullstack-web"),
+  projectTemplate("booking", "Booking & Appointments", "Business", "Booking", "fullstack-web"),
+  projectTemplate("helpdesk", "Help Desk / Ticketing", "Business", "Ticket", "fullstack-web"),
+  projectTemplate("blog-cms", "Blog / CMS", "Content", "Post", "frontend-only"),
+  projectTemplate("expense-tracker", "Expense Tracker", "Finance", "Expense", "fullstack-web"),
+  projectTemplate("lms", "Learning Management (LMS)", "Education", "Course", "fullstack-web"),
+]
+
+export const templateHandlers = [
+  http.get("/templates", () => HttpResponse.json(TEMPLATES)),
+  http.get("/project-templates", () => HttpResponse.json(PROJECT_TEMPLATES)),
+]
