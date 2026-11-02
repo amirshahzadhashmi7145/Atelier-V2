@@ -148,6 +148,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Starter team templates a user can instantiate in one click. */
+        get: operations["listTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/templates/{id}/instantiate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Create a team of agents from a template and a project that holds them. */
+        post: operations["instantiateTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/roles/{id}": {
         parameters: {
             query?: never;
@@ -1863,6 +1899,24 @@ export interface components {
             colour?: string | null;
             contractFile?: string | null;
         };
+        TemplateMember: {
+            roleKey: string;
+            name: string;
+            /** @enum {string} */
+            kind: "worker" | "supervisor";
+            tags: string[];
+        };
+        Template: {
+            id: string;
+            name: string;
+            description: string;
+            members: components["schemas"]["TemplateMember"][];
+        };
+        TemplateProject: components["schemas"]["Project"] & {
+            templateId?: string;
+            provider?: string | null;
+            needsProviderKey?: boolean;
+        };
         RoleWrite: {
             id?: string;
             name?: string;
@@ -2331,6 +2385,58 @@ export interface operations {
                 };
             };
             409: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    listTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Template presets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Template"][];
+                };
+            };
+        };
+    };
+    instantiateTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    provider?: string;
+                    model?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Project created with the template's team */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateProject"];
+                };
+            };
+            404: components["responses"]["Error"];
             422: components["responses"]["Error"];
         };
     };

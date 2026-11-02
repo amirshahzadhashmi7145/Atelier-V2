@@ -18,6 +18,8 @@ import {
   deleteProject,
   getProject,
   patchProject,
+  listTemplates,
+  instantiateTemplate,
   listChatAgents,
   listMessages,
   listProjectNeeds,
@@ -775,10 +777,128 @@ function NeedsYou({ projectId }: { projectId: string }) {
 }
 
 function NewProject() {
+  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState<"template" | "manual">("template")
+  if (!open) {
+    return (
+      <Button type="button" onClick={() => setOpen(true)}>
+        New project
+      </Button>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-1">
+        <button
+          type="button"
+          aria-pressed={mode === "template"}
+          className={`rounded border px-2 py-1 text-sm ${mode === "template" ? "bg-muted font-medium" : ""}`}
+          onClick={() => setMode("template")}
+        >
+          Start from a template
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "manual"}
+          className={`rounded border px-2 py-1 text-sm ${mode === "manual" ? "bg-muted font-medium" : ""}`}
+          onClick={() => setMode("manual")}
+        >
+          Build manually
+        </button>
+      </div>
+      {mode === "template" ? <NewProjectFromTemplate /> : <NewProjectManual />}
+    </div>
+  )
+}
+
+const PROVIDERS = [
+  { id: "gemini", name: "Google Gemini" },
+  { id: "openai", name: "OpenAI" },
+]
+
+function NewProjectFromTemplate() {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const templates = useQuery({ queryKey: ["templates"], queryFn: listTemplates })
+  const [templateId, setTemplateId] = useState("")
+  const [name, setName] = useState("")
+  const [provider, setProvider] = useState("gemini")
+  const [model, setModel] = useState("")
+  const rows = templates.data ?? []
+  const selected = rows.find((row) => row.id === templateId)
+  const create = useMutation({
+    mutationFn: () => instantiateTemplate(templateId, { name, provider, model: model || undefined }),
+    onSuccess: async (project) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+      if ("needsProviderKey" in project && project.needsProviderKey) {
+        toast.message(`Add your ${provider === "openai" ? "OpenAI" : "Gemini"} API key in Settings → Providers to start running.`)
+      }
+      router.push(`/chat/${project.id}`)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
+  })
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        create.mutate()
+      }}
+    >
+      <label className="text-sm" htmlFor="template-select">
+        Template
+        <select id="template-select" className="mt-1 w-full rounded border px-2 py-1" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+          <option value="">Choose a team</option>
+          {rows.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selected ? (
+        <p className="text-xs text-muted-foreground">
+          {selected.description} Team: {selected.members.map((m) => m.name).join(", ")}.
+        </p>
+      ) : null}
+      <label className="text-sm" htmlFor="template-name">
+        Project name
+        <input id="template-name" className="mt-1 w-full rounded border px-2 py-1" value={name} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <label className="text-sm" htmlFor="template-provider">
+        Model provider
+        <select id="template-provider" className="mt-1 w-full rounded border px-2 py-1" value={provider} onChange={(event) => setProvider(event.target.value)}>
+          {PROVIDERS.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-sm" htmlFor="template-model">
+        Model <span className="text-muted-foreground">(optional)</span>
+        <input
+          id="template-model"
+          className="mt-1 w-full rounded border px-2 py-1"
+          placeholder={provider === "openai" ? "e.g. gpt-4o" : "e.g. gemini-3.1-pro-preview"}
+          value={model}
+          onChange={(event) => setModel(event.target.value)}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        You add your API key in <Link className="underline" href="/settings/providers">Settings → Providers</Link>; it stays on your machine.
+      </p>
+      <Button type="submit" disabled={create.isPending || !name || !templateId}>
+        {create.isPending ? "Creating…" : "Create team & project"}
+      </Button>
+    </form>
+  )
+}
+
+function NewProjectManual() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const agents = useQuery({ queryKey: queryKeys.agents, queryFn: listChatAgents })
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
   const [agentId, setAgentId] = useState("")
   const [repoUrl, setRepoUrl] = useState("")
@@ -800,13 +920,6 @@ function NewProject() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
   })
-  if (!open) {
-    return (
-      <Button type="button" onClick={() => setOpen(true)}>
-        New project
-      </Button>
-    )
-  }
   return (
     <form
       className="flex flex-col gap-2"

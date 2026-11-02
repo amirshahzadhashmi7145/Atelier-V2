@@ -129,6 +129,79 @@ def list_roles():
     return rows
 
 
+@router.get("/templates")
+def list_templates():
+    from runtime import templates
+
+    return templates.public_list()
+
+
+@router.post("/templates/{id}/instantiate", status_code=201)
+def instantiate_template(id: str, body: dict):
+    """Create a team from a starter template and a project for it. The user picks the
+    provider/model at this point; each agent is wired to it (or the role default when
+    omitted). The response flags whether the chosen provider still needs an API key."""
+    from runtime import roles as rolelib, templates
+
+    rolelib.sync_roles()
+    template = templates._BY_ID.get(id)
+    if template is None:
+        return missing()
+    name = (body.get("name") or "").strip()
+    if not name:
+        return error(422, "invalid", "name is required")
+
+    provider = body.get("provider") or None
+    model_name = body.get("model") or None
+    model_spec = None
+    if provider and model_name:
+        model_spec = models_catalog.normalize_spec({"provider": provider, "name": model_name, "config": {}})
+
+    member_ids: list[str] = []
+    for role_id in template["roles"]:
+        role = rolelib.SEED_BY_ID[role_id]
+        agent = _agent(
+            {
+                "name": role["name"],
+                "roleKey": role["id"],
+                "model": model_spec,  # None -> _agent falls back to the role/default model
+                "zones": role.get("zones") or [],
+                "reportsTo": role.get("reportsTo"),
+                "capabilities": {"tags": role.get("tags") or []},
+            }
+        )
+        db.put("agent", agent["id"], agent)
+        member_ids.append(agent["id"])
+
+    project_id = db.nid("prj")
+    folder = _project_folder(name)
+    folder.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init"], cwd=folder, capture_output=True)
+    from runtime import notes
+
+    project = notes.defaults(
+        {
+            "id": project_id,
+            "name": name,
+            "folderPath": str(folder),
+            "repoUrl": None,
+            "tokenRef": None,
+            "members": member_ids,  # lead-first, so lead_of() picks the Team Lead
+            "localMode": bridge.local_mode(),
+            "previewUrl": None,
+            "createdAt": db.now(),
+        }
+    )
+    db.put("project", project_id, project)
+
+    needs_key = bool(provider) and os.environ.get("GATEWAY_MOCK") != "1" and not has_api_key(provider)
+    view = _project_view(project)
+    view["templateId"] = id
+    view["provider"] = provider
+    view["needsProviderKey"] = needs_key
+    return view
+
+
 @router.post("/roles", status_code=201)
 def create_role(body: dict):
     from runtime import roles as rolelib

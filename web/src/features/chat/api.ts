@@ -23,6 +23,19 @@ export async function getProject(id: string) {
   return unwrap(await api.GET("/projects/{id}", { params: { path: { id } } }))
 }
 
+export type Template = components["schemas"]["Template"]
+
+export async function listTemplates() {
+  return unwrap(await api.GET("/templates"))
+}
+
+export async function instantiateTemplate(
+  id: string,
+  body: { name: string; provider?: string; model?: string },
+) {
+  return unwrap(await api.POST("/templates/{id}/instantiate", { params: { path: { id } }, body }))
+}
+
 export async function patchProject(
   id: string,
   body: { notesPath?: string; notesMaxBytes?: number; repoUrl?: string | null; githubToken?: string },

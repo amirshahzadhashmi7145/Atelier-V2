@@ -250,6 +250,53 @@ paths:
           $ref: "#/components/responses/Error"
         "422":
           $ref: "#/components/responses/Error"
+  /templates:
+    get:
+      operationId: listTemplates
+      tags: [templates]
+      description: Starter team templates a user can instantiate in one click.
+      responses:
+        "200":
+          description: Template presets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Template"
+  /templates/{id}/instantiate:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      operationId: instantiateTemplate
+      tags: [templates]
+      description: Create a team of agents from a template and a project that holds them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                provider:
+                  type: string
+                model:
+                  type: string
+      responses:
+        "201":
+          description: Project created with the template's team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateProject"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
   /roles/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -3161,6 +3208,48 @@ components:
           type: [string, "null"]
         contractFile:
           type: [string, "null"]
+    TemplateMember:
+      type: object
+      additionalProperties: false
+      required: [roleKey, name, kind, tags]
+      properties:
+        roleKey:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [worker, supervisor]
+        tags:
+          type: array
+          items:
+            type: string
+    Template:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, members]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/TemplateMember"
+    TemplateProject:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          properties:
+            templateId:
+              type: string
+            provider:
+              type: [string, "null"]
+            needsProviderKey:
+              type: boolean
     RoleWrite:
       type: object
       additionalProperties: false

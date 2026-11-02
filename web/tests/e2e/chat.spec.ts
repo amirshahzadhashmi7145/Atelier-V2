@@ -24,6 +24,7 @@ test("a message creates a project run and shows the summary", async ({ page, req
 
   await page.goto("/chat")
   await page.getByRole("button", { name: "New project" }).click()
+  await page.getByRole("button", { name: "Build manually" }).click()
   await page.getByLabel("Name").fill("Site")
   await page.getByLabel("Agent").selectOption({ label: "Frontend" })
   await page.getByRole("button", { name: "Create" }).click()
@@ -71,6 +72,7 @@ test("a failed run shows the error and try again", async ({ page, request }) => 
   expect((await request.post(`${API}/agents/${created.id}/versions/${saved.version}/activate`)).ok()).toBeTruthy()
   await page.goto("/chat")
   await page.getByRole("button", { name: "New project" }).click()
+  await page.getByRole("button", { name: "Build manually" }).click()
   await page.getByLabel("Name").fill("Retry")
   await page.getByLabel("Agent").selectOption({ label: "Retry Agent" })
   await page.getByRole("button", { name: "Create" }).click()
@@ -100,6 +102,7 @@ async function activateAgent(request: import("@playwright/test").APIRequestConte
 async function openChat(page: import("@playwright/test").Page, project: string, agent: string) {
   await page.goto("/chat")
   await page.getByRole("button", { name: "New project" }).click()
+  await page.getByRole("button", { name: "Build manually" }).click()
   await page.getByLabel("Name").fill(project)
   const picker = page.getByLabel("Agent")
   await expect(picker.locator("option", { hasText: agent })).toHaveCount(1, { timeout: 15_000 })
