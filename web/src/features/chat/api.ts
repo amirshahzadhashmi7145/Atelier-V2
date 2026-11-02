@@ -23,6 +23,36 @@ export async function getProject(id: string) {
   return unwrap(await api.GET("/projects/{id}", { params: { path: { id } } }))
 }
 
+export type Template = components["schemas"]["Template"]
+
+export async function listTemplates() {
+  return unwrap(await api.GET("/templates"))
+}
+
+export async function instantiateTemplate(
+  id: string,
+  body: { name: string; provider?: string; model?: string },
+) {
+  return unwrap(await api.POST("/templates/{id}/instantiate", { params: { path: { id } }, body }))
+}
+
+export type ProjectTemplate = components["schemas"]["ProjectTemplate"]
+
+export async function listProjectTemplates() {
+  return unwrap(await api.GET("/project-templates"))
+}
+
+export async function createProjectFromTemplate(
+  id: string,
+  body: { name?: string; provider?: string; model?: string },
+) {
+  return unwrap(await api.POST("/project-templates/{id}/use", { params: { path: { id } }, body }))
+}
+
+export async function listProjectVersions(id: string) {
+  return unwrap(await api.GET("/projects/{id}/versions", { params: { path: { id } } }))
+}
+
 export async function patchProject(
   id: string,
   body: { notesPath?: string; notesMaxBytes?: number; repoUrl?: string | null; githubToken?: string },

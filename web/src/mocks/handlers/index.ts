@@ -2,6 +2,7 @@ import { agentHandlers } from "@/mocks/handlers/agents"
 import { libraryHandlers } from "@/mocks/handlers/library"
 import { providerHandlers } from "@/mocks/handlers/providers"
 import { roleHandlers } from "@/mocks/handlers/roles"
+import { templateHandlers } from "@/mocks/handlers/templates"
 import { skillHandlers } from "@/mocks/handlers/skills"
 import { toolHandlers } from "@/mocks/handlers/tools"
 import { runHandlers } from "@/mocks/handlers/runs"
@@ -14,4 +15,5 @@ export const handlers = [
   ...libraryHandlers,
   ...providerHandlers,
   ...roleHandlers,
+  ...templateHandlers,
 ]
