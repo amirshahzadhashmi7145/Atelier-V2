@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { ErrorState } from "@/components/shared/ErrorState"
 import { Button } from "@/components/ui/button"
+import { Select, type SelectOption } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   addProjectMember,
@@ -778,6 +779,27 @@ function NeedsYou({ projectId }: { projectId: string }) {
   )
 }
 
+const PROVIDERS = [
+  { id: "gemini", name: "Google Gemini" },
+  { id: "openai", name: "OpenAI" },
+]
+const PROVIDER_OPTIONS: SelectOption[] = PROVIDERS.map((row) => ({ value: row.id, label: row.name }))
+
+function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-sm font-medium" htmlFor={htmlFor}>
+        {label}
+        {hint ? <span className="ml-1 font-normal text-muted-foreground">{hint}</span> : null}
+      </label>
+      {children}
+    </div>
+  )
+}
+
+const inputClass =
+  "h-9 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none transition-colors hover:border-ring/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-input/30"
+
 function NewProject() {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<"app" | "team" | "manual">("app")
@@ -792,18 +814,26 @@ function NewProject() {
     <button
       type="button"
       aria-pressed={mode === value}
-      className={`rounded border px-2 py-1 text-sm ${mode === value ? "bg-muted font-medium" : ""}`}
+      className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+        mode === value ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground"
+      }`}
       onClick={() => setMode(value)}
     >
       {label}
     </button>
   )
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1">
-        {tab("app", "Start from an app")}
-        {tab("team", "Start from a team")}
-        {tab("manual", "Build manually")}
+    <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">New project</h3>
+        <button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1 rounded-lg bg-muted p-1">
+        {tab("app", "From an app")}
+        {tab("team", "From a team")}
+        {tab("manual", "Manual")}
       </div>
       {mode === "app" ? <NewProjectFromAppTemplate /> : mode === "team" ? <NewProjectFromTemplate /> : <NewProjectManual />}
     </div>
@@ -831,10 +861,10 @@ function NewProjectFromAppTemplate() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
   })
-  const categories = [...new Set(rows.map((row) => row.category))]
+  const options: SelectOption[] = rows.map((row) => ({ value: row.id, label: row.name, group: row.category }))
   return (
     <form
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault()
         create.mutate()
@@ -843,52 +873,38 @@ function NewProjectFromAppTemplate() {
       <p className="text-xs text-muted-foreground">
         Start from a ready-made app. It becomes your own project — edits never change the template.
       </p>
-      <label className="text-sm" htmlFor="app-template">
-        App template
-        <select id="app-template" className="mt-1 w-full rounded border px-2 py-1" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-          <option value="">Choose an app</option>
-          {categories.map((category) => (
-            <optgroup key={category} label={category}>
-              {rows
-                .filter((row) => row.category === category)
-                .map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.name}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
+      <Field label="App template" htmlFor="app-template">
+        <Select
+          id="app-template"
+          ariaLabel="App template"
+          value={templateId}
+          onValueChange={setTemplateId}
+          options={options}
+          placeholder={templates.isLoading ? "Loading…" : "Choose an app"}
+        />
+      </Field>
       {selected ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="rounded-lg bg-muted/60 p-2 text-xs text-muted-foreground">
           {selected.description} Full-stack starter (React + Tailwind frontend, Express + Prisma backend).
         </p>
       ) : null}
-      <label className="text-sm" htmlFor="app-name">
-        Project name <span className="text-muted-foreground">(optional)</span>
-        <input id="app-name" className="mt-1 w-full rounded border px-2 py-1" placeholder={selected?.name ?? "My app"} value={name} onChange={(event) => setName(event.target.value)} />
-      </label>
-      <label className="text-sm" htmlFor="app-provider">
-        Model provider
-        <select id="app-provider" className="mt-1 w-full rounded border px-2 py-1" value={provider} onChange={(event) => setProvider(event.target.value)}>
-          {PROVIDERS.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="text-sm" htmlFor="app-model">
-        Model <span className="text-muted-foreground">(optional)</span>
-        <input
-          id="app-model"
-          className="mt-1 w-full rounded border px-2 py-1"
-          placeholder={provider === "openai" ? "e.g. gpt-4o" : "e.g. gemini-3.1-pro-preview"}
-          value={model}
-          onChange={(event) => setModel(event.target.value)}
-        />
-      </label>
+      <Field label="Project name" htmlFor="app-name" hint="(optional)">
+        <input id="app-name" className={inputClass} placeholder={selected?.name ?? "My app"} value={name} onChange={(event) => setName(event.target.value)} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Provider" htmlFor="app-provider">
+          <Select id="app-provider" ariaLabel="Model provider" value={provider} onValueChange={setProvider} options={PROVIDER_OPTIONS} />
+        </Field>
+        <Field label="Model" htmlFor="app-model" hint="(optional)">
+          <input
+            id="app-model"
+            className={inputClass}
+            placeholder={provider === "openai" ? "gpt-4o" : "gemini-3.1-pro-preview"}
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+          />
+        </Field>
+      </div>
       <p className="text-xs text-muted-foreground">
         Add your API key in <Link className="underline" href="/settings/providers">Settings → Providers</Link>; it stays on your machine.
       </p>
@@ -898,11 +914,6 @@ function NewProjectFromAppTemplate() {
     </form>
   )
 }
-
-const PROVIDERS = [
-  { id: "gemini", name: "Google Gemini" },
-  { id: "openai", name: "OpenAI" },
-]
 
 function NewProjectFromTemplate() {
   const router = useRouter()
@@ -925,54 +936,47 @@ function NewProjectFromTemplate() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
   })
+  const options: SelectOption[] = rows.map((row) => ({ value: row.id, label: row.name }))
   return (
     <form
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault()
         create.mutate()
       }}
     >
-      <label className="text-sm" htmlFor="template-select">
-        Template
-        <select id="template-select" className="mt-1 w-full rounded border px-2 py-1" value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-          <option value="">Choose a team</option>
-          {rows.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Field label="Team template" htmlFor="template-select">
+        <Select
+          id="template-select"
+          ariaLabel="Team template"
+          value={templateId}
+          onValueChange={setTemplateId}
+          options={options}
+          placeholder={templates.isLoading ? "Loading…" : "Choose a team"}
+        />
+      </Field>
       {selected ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="rounded-lg bg-muted/60 p-2 text-xs text-muted-foreground">
           {selected.description} Team: {selected.members.map((m) => m.name).join(", ")}.
         </p>
       ) : null}
-      <label className="text-sm" htmlFor="template-name">
-        Project name
-        <input id="template-name" className="mt-1 w-full rounded border px-2 py-1" value={name} onChange={(event) => setName(event.target.value)} />
-      </label>
-      <label className="text-sm" htmlFor="template-provider">
-        Model provider
-        <select id="template-provider" className="mt-1 w-full rounded border px-2 py-1" value={provider} onChange={(event) => setProvider(event.target.value)}>
-          {PROVIDERS.map((row) => (
-            <option key={row.id} value={row.id}>
-              {row.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="text-sm" htmlFor="template-model">
-        Model <span className="text-muted-foreground">(optional)</span>
-        <input
-          id="template-model"
-          className="mt-1 w-full rounded border px-2 py-1"
-          placeholder={provider === "openai" ? "e.g. gpt-4o" : "e.g. gemini-3.1-pro-preview"}
-          value={model}
-          onChange={(event) => setModel(event.target.value)}
-        />
-      </label>
+      <Field label="Project name" htmlFor="template-name">
+        <input id="template-name" className={inputClass} value={name} onChange={(event) => setName(event.target.value)} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Provider" htmlFor="template-provider">
+          <Select id="template-provider" ariaLabel="Model provider" value={provider} onValueChange={setProvider} options={PROVIDER_OPTIONS} />
+        </Field>
+        <Field label="Model" htmlFor="template-model" hint="(optional)">
+          <input
+            id="template-model"
+            className={inputClass}
+            placeholder={provider === "openai" ? "gpt-4o" : "gemini-3.1-pro-preview"}
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+          />
+        </Field>
+      </div>
       <p className="text-xs text-muted-foreground">
         You add your API key in <Link className="underline" href="/settings/providers">Settings → Providers</Link>; it stays on your machine.
       </p>
