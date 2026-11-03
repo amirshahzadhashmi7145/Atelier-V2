@@ -1,0 +1,22 @@
+# Reverse proxy + TLS + a single gate of HTTP Basic Auth in front of the whole app.
+# Agent Studio ships no authentication of its own, so this gate is what keeps the
+# deployment private. Replace it with real SSO/an identity-aware proxy before opening
+# it to more than a trusted operator.
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# One credential guards both the web app and the API.
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	# API: /api/* -> api:8000 (prefix stripped).
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Everything else -> the Next.js web app.
+	handle {
+		reverse_proxy web:3000
+	}
+}

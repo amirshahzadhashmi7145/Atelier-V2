@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+atelier.db
+atelier.db-*
+*.db
+*.db-journal
+.env
+.env.*

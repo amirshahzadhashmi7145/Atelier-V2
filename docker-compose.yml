@@ -1,0 +1,61 @@
+name: atelier
+
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        # NEXT_PUBLIC_* is baked at build time. The browser reaches the API on the
+        # same origin under /api (Caddy strips the prefix).
+        NEXT_PUBLIC_API_URL: ${PUBLIC_URL}/api
+        NEXT_PUBLIC_USE_MOCKS: "false"
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8000"
+    environment:
+      ATELIER_DATA_DIR: ${ATELIER_DATA_DIR}
+      DATABASE_URL: ${DATABASE_URL}
+      PROJECTS_DIR: ${ATELIER_DATA_DIR}/projects
+      HOME: ${ATELIER_DATA_DIR}/home
+      CORS_ORIGINS: ${PUBLIC_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    volumes:
+      # Identical host<->container path so the per-task sandbox's Docker mounts
+      # (which the HOST daemon resolves) point at real host directories.
+      - ${ATELIER_DATA_DIR}:${ATELIER_DATA_DIR}
+      # The sandbox launches sibling node containers via the host Docker daemon.
+      # This grants root-equivalent host access — keep this deployment to trusted operators.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  caddy_data:
+  caddy_config:

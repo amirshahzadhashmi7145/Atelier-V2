@@ -1,1 +1,6 @@
 .pnpm-store/
+
+# Deployment env (never commit real secrets)
+.env
+.env.local
+.env.*.local
