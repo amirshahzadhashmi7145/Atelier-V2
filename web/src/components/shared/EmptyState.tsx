@@ -17,7 +17,7 @@ export function EmptyState({
   icon?: ReactNode
 }) {
   return (
-    <Empty>
+    <Empty className="flex-none border py-14">
       <EmptyHeader>
         {icon ? <EmptyMedia variant="icon">{icon}</EmptyMedia> : null}
         <EmptyTitle>{title}</EmptyTitle>

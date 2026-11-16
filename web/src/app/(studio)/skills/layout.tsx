@@ -7,9 +7,9 @@ export default function SkillsLayout({ children }: { children: React.ReactNode }
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title="Skills" description="Instructions an agent loads by name." />
-      <div className="grid items-start gap-6 md:grid-cols-[16rem_1fr]">
+      <div className="grid items-start gap-6 md:grid-cols-[16rem_minmax(0,1fr)]">
         <SkillRail />
-        {children}
+        <div className="min-w-0">{children}</div>
       </div>
     </div>
   )

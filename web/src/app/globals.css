@@ -39,6 +39,13 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-surface: var(--success-surface);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-warning-border: var(--warning-border);
+  --color-info: var(--info);
+  --color-info-surface: var(--info-surface);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -76,6 +83,15 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
+  /* Status colours. Each pairs a readable text tone with a quiet surface so run
+     states and warnings stay legible on the neutral palette in both themes. */
+  --success: oklch(0.45 0.11 155);
+  --success-surface: oklch(0.96 0.035 155);
+  --warning: oklch(0.42 0.09 70);
+  --warning-surface: oklch(0.97 0.04 85);
+  --warning-border: oklch(0.85 0.1 85);
+  --info: oklch(0.45 0.13 255);
+  --info-surface: oklch(0.96 0.025 255);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -111,10 +127,17 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
+  --success: oklch(0.82 0.13 155);
+  --success-surface: oklch(0.3 0.05 155);
+  --warning: oklch(0.87 0.11 85);
+  --warning-surface: oklch(0.3 0.05 80);
+  --warning-border: oklch(0.45 0.08 80);
+  --info: oklch(0.82 0.1 255);
+  --info-surface: oklch(0.3 0.06 255);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.922 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
@@ -130,6 +153,76 @@
   }
   html {
     @apply font-sans;
+    font-optical-sizing: auto;
+    text-rendering: optimizeLegibility;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  /* Numbers that sit in columns (costs, durations, counts) line up digit for digit. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Native controls share one look, so a plain <select>, <textarea>, checkbox or
+     file picker sits beside the styled inputs without each screen restyling it.
+     These are base-layer defaults: any utility class on the element still wins. */
+  select,
+  textarea {
+    border: 1px solid var(--input);
+    border-radius: var(--radius-lg);
+    background-color: transparent;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    outline: none;
+  }
+  select {
+    height: 2rem;
+    padding-inline: 0.5rem;
+  }
+  textarea {
+    padding: 0.5rem 0.625rem;
+  }
+  select:focus-visible,
+  textarea:focus-visible {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    accent-color: var(--primary);
+  }
+  input[type="file"] {
+    font-size: 0.875rem;
+    color: var(--muted-foreground);
+  }
+  input[type="file"]::file-selector-button {
+    height: 2rem;
+    margin-inline-end: 0.75rem;
+    padding-inline: 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background-color: var(--background);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  input[type="file"]::file-selector-button:hover {
+    background-color: var(--muted);
+  }
+  summary {
+    cursor: pointer;
+  }
+  ::selection {
+    background-color: color-mix(in oklch, var(--foreground) 14%, transparent);
   }
   select option {
     background-color: #fff;

@@ -357,6 +357,11 @@ export function AgentEditor({ id }: { id: string }) {
             roleKey={current.roleKey}
             tags={tagsQuery.data}
             onChange={(name) => {
+              if (name === "auto") {
+                // Auto: the concrete model is chosen per task when a run starts.
+                patch({ model: { provider: "", name: "auto", config: {} } })
+                return
+              }
               const model = modelsQuery.data?.find((item) => item.name === name)
               if (!model) return
               const schemaForModel = asSchema(model.configSchema)
@@ -380,7 +385,7 @@ export function AgentEditor({ id }: { id: string }) {
           )}
           {configError ? <p className="text-sm text-destructive">{configError}</p> : null}
           {missingKey ? (
-            <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
+            <p className="rounded-lg border border-warning-border bg-warning-surface px-3 py-2 text-sm text-warning" role="alert">
               {missingKey}{" "}
               <Link className="underline" href="/settings/providers">
                 Open Providers
@@ -467,7 +472,7 @@ export function AgentEditor({ id }: { id: string }) {
           ) : !current.toolIds.includes("build_test") ||
             !current.toolIds.includes("shell") ||
             !current.toolIds.includes("preview_deploy") ? (
-            <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
+            <p className="rounded-lg border border-warning-border bg-warning-surface px-3 py-2 text-sm text-warning" role="alert">
               this agent cannot build or run anything
             </p>
           ) : null}

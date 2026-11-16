@@ -70,6 +70,7 @@ export function ModelPicker({
         onChange={(event) => onChange(event.target.value)}
       >
         <option value="">{emptyLabel}</option>
+        <option value="auto">Auto — best available model per task</option>
         {Object.entries(groups).map(([provider, items]) => (
           <optgroup key={provider} label={providerLabel[provider] ?? provider.replace(/\b\w/g, (char) => char.toUpperCase())}>
             {items.map((model) => {
@@ -84,9 +85,16 @@ export function ModelPicker({
             })}
           </optgroup>
         ))}
-        {current && !shown.some((model) => modelId(model.name) === current) ? <option value={current}>{current}</option> : null}
+        {current && current !== "auto" && !shown.some((model) => modelId(model.name) === current) ? (
+          <option value={current}>{current}</option>
+        ) : null}
       </select>
-      {value ? (
+      {current === "auto" ? (
+        <p className="text-sm text-muted-foreground">
+          Auto picks a suitable, currently-available model for each task — a stronger model for planning and
+          reviews, a fast one for simple work.
+        </p>
+      ) : value ? (
         <div className="flex flex-wrap gap-1" title={selected.note}>
           {selected.tags.map((tag) => (
             <Badge key={tag} variant="secondary">
@@ -96,7 +104,7 @@ export function ModelPicker({
           {suggested ? <Badge>Suggested</Badge> : null}
         </div>
       ) : allowEmpty ? null : null}
-      {value && roleKey ? (
+      {value && value !== "auto" && roleKey ? (
         <p className="text-sm text-muted-foreground">{reason || "not enough data yet"}</p>
       ) : null}
     </div>

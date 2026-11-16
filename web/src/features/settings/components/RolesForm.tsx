@@ -68,17 +68,18 @@ export function RolesForm() {
       <QueryBody query={roles} emptyTitle="No roles" emptyDescription="Seed roles failed to load.">
         {(items) => (
           <>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[60rem] text-sm">
             <thead>
               <tr className="text-left">
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 pr-3">Kind</th>
-                <th className="py-2 pr-3">Reports to</th>
-                <th className="py-2 pr-3">Layer</th>
-                <th className="py-2 pr-3">Zones</th>
-                <th className="py-2 pr-3">Tags</th>
-                <th className="py-2 pr-3">Colour</th>
-                <th className="py-2 pr-3">Contract file</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Name</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Kind</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Reports to</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Layer</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Zones</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Tags</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Colour</th>
+                <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Contract file</th>
                 <th className="py-2"> </th>
               </tr>
             </thead>
@@ -88,6 +89,7 @@ export function RolesForm() {
               ))}
             </tbody>
           </table>
+          </div>
           <div className="mt-6 flex flex-col gap-4">
             {items.map((role) => (
               <Card key={`${role.id}-lessons`}>
@@ -220,20 +222,20 @@ function RoleRow({ role, peers }: { role: Role; peers: Role[] }) {
   })
   return (
     <tr className="border-t align-top" data-role={role.id} data-seed={seed ? "true" : "false"}>
-      <td className="py-2 pr-3">
+      <td className="min-w-44 py-2 pr-3">
         <Input
           aria-label={`${role.id} name`}
           value={draft.name}
           onChange={(event) => setDraft({ ...draft, name: event.target.value })}
         />
       </td>
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-3 align-middle whitespace-nowrap text-muted-foreground">
         <span aria-label={`${role.id} kind`}>{role.kind}</span>
       </td>
       <td className="py-2 pr-3">
         <select
           aria-label={`${role.name} reports to`}
-          className="h-8 rounded border bg-background px-1 text-sm"
+          className="w-full min-w-32"
           value={draft.reportsTo}
           onChange={(event) => setDraft({ ...draft, reportsTo: event.target.value })}
         >
@@ -247,7 +249,7 @@ function RoleRow({ role, peers }: { role: Role; peers: Role[] }) {
             ))}
         </select>
       </td>
-      <td className="py-2 pr-3">
+      <td className="w-20 py-2 pr-3">
         <Input
           aria-label={`${role.id} layer`}
           type="number"
@@ -284,7 +286,7 @@ function RoleRow({ role, peers }: { role: Role; peers: Role[] }) {
         />
       </td>
       <td className="py-2">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2">
           <Button
             type="button"
             size="sm"

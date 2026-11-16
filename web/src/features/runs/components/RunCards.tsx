@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Badge } from "@/components/ui/badge"
+import { RunStatusBadge } from "@/components/shared/RunStatusBadge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { isTerminal, type Run, type RunEvent } from "@/lib/runs/events"
@@ -38,7 +38,7 @@ export function StatusCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           Status
-          <Badge>{run.status}</Badge>
+          <RunStatusBadge status={run.status} />
         </CardTitle>
         <CardDescription>
           {formatElapsed(run.startedAt, run.endedAt)}
@@ -168,7 +168,7 @@ export function ResultCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           Result
-          <Badge>{run.status}</Badge>
+          <RunStatusBadge status={run.status} />
         </CardTitle>
         {run.terminalCause ? <CardDescription>Cause: {run.terminalCause}</CardDescription> : null}
       </CardHeader>

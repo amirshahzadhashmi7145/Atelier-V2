@@ -9,7 +9,7 @@ describe("ModelPicker", () => {
     render(<ModelPicker models={models} value="" onChange={vi.fn()} />)
     fireEvent.change(screen.getByLabelText("Search models"), { target: { value: "4.1" } })
     const options = screen.getAllByRole("option").map((option) => option.textContent)
-    expect(options).toEqual(["Choose a model", "gpt-4.1", "gpt-4.1-mini"])
+    expect(options).toEqual(["Choose a model", "Auto — best available model per task", "gpt-4.1", "gpt-4.1-mini"])
   })
 
   it("shows clean Gemini names grouped by provider", () => {

@@ -92,12 +92,12 @@ def test_open_folder_missing_project_is_404(client: TestClient):
     assert client.post("/projects/prj_does_not_exist/open-folder").status_code == 404
 
 
-def test_push_requires_repo_and_token(client: TestClient):
+def test_push_requires_repo(client: TestClient):
     agent = _agent(client)
     project = client.post("/projects", json={"name": "NoRepo", "agentId": agent["id"]}).json()
     res = client.post(f"/projects/{project['id']}/push")
     assert res.status_code == 422
-    assert "settings" in res.json()["message"].lower()
+    assert "repository" in res.json()["message"].lower()
 
 
 def test_push_to_default_branch(client: TestClient, monkeypatch):
@@ -311,3 +311,90 @@ def test_create_project_without_repo_does_not_clone(client: TestClient, monkeypa
     res = client.post("/projects", json={"name": "Empty", "agentId": agent["id"], "importFromRepo": True})
     assert res.status_code == 201
     assert "clone" not in cloned
+
+
+def test_github_settings_connect_lists_login_and_disconnects(client: TestClient, monkeypatch):
+    # A token is validated with GitHub (mocked) and stored; it is never returned.
+    monkeypatch.setattr(routes, "_github_login", lambda token: "octocat" if token else None)
+
+    assert client.get("/settings/github").json()["connected"] is False
+
+    res = client.put("/settings/github", json={"token": "ghp_" + "x" * 30})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["connected"] is True
+    assert body["login"] == "octocat"
+    assert "ghp_" not in res.text  # token never echoed
+
+    assert client.get("/settings/github").json()["connected"] is True
+    assert client.delete("/settings/github").status_code == 204
+    assert client.get("/settings/github").json()["connected"] is False
+
+
+def test_github_settings_rejects_invalid_token(client: TestClient, monkeypatch):
+    monkeypatch.setattr(routes, "_github_login", lambda token: None)
+    res = client.put("/settings/github", json={"token": "nope"})
+    assert res.status_code == 422
+
+
+def _agent_messages(client: TestClient, project_id: str) -> list[str]:
+    rows = client.get(f"/projects/{project_id}/messages").json()
+    return [m["text"] for m in rows if m["role"] == "agent"]
+
+
+def test_chat_push_asks_for_repo_when_none_set(client: TestClient, monkeypatch):
+    from runtime import github
+
+    monkeypatch.setattr(github, "global_token", lambda: "ghp" + "_connected")
+    agent = _agent(client)
+    project = client.post("/projects", json={"name": "Pushless", "agentId": agent["id"]}).json()
+
+    client.post(f"/projects/{project['id']}/messages", json={"text": "push this to github"})
+    replies = _agent_messages(client, project["id"])
+    assert any("which github repository" in r.lower() for r in replies)
+
+
+def test_chat_push_with_repo_url_pushes(client: TestClient, monkeypatch):
+    from runtime import github
+
+    monkeypatch.setattr(github, "global_token", lambda: "ghp" + "_connected")
+    monkeypatch.setattr(
+        github,
+        "push_workspace",
+        lambda project, folder, message: {"ok": True, "branch": "main", "prUrl": None, "repoUrl": project["repoUrl"]},
+    )
+    agent = _agent(client)
+    project = client.post("/projects", json={"name": "Pushy", "agentId": agent["id"]}).json()
+
+    client.post(
+        f"/projects/{project['id']}/messages",
+        json={"text": "push it to https://github.com/me/app"},
+    )
+    replies = _agent_messages(client, project["id"])
+    assert any("pushed to" in r.lower() for r in replies)
+    # The repo was remembered on the project, pinned to the global token.
+    saved = db.get("project", project["id"])
+    assert saved["repoUrl"] == "https://github.com/me/app"
+    assert saved["tokenRef"] == "global"
+
+
+def test_chat_start_preview_runs_and_reports_url(client: TestClient, monkeypatch):
+    from runtime import tools
+
+    monkeypatch.setattr(tools, "_preview", lambda run, folder: {"previewUrl": "http://localhost:5190"})
+    agent = _agent(client)
+    project = client.post("/projects", json={"name": "Previewable", "agentId": agent["id"]}).json()
+
+    client.post(f"/projects/{project['id']}/messages", json={"text": "run the app"})
+    replies = _agent_messages(client, project["id"])
+    assert any("http://localhost:5190" in r for r in replies)
+
+
+def test_preview_start_detector_ignores_stop_and_plain_run():
+    from runtime import classify
+
+    assert classify.is_preview_start("start the preview") is True
+    assert classify.is_preview_start("run the app") is True
+    assert classify.is_preview_start("launch the site") is True
+    assert classify.is_preview_start("stop the preview") is False
+    assert classify.is_preview_start("complete it") is False

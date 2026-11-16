@@ -716,3 +716,31 @@ def test_real_contact_page_openhands_qa(client: TestClient, monkeypatch, attempt
     agent_text = " ".join((item.get("text") or "").lower() for item in rows if item.get("role") == "agent")
     assert "please proceed" not in agent_text
     assert "please execute" not in agent_text
+
+
+def test_litellm_proxy_routes_the_worker_when_configured(client: TestClient, monkeypatch):
+    # With a litellm proxy configured, the worker targets the proxy's auto-router
+    # (litellm judges the task) instead of a single provider model.
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    monkeypatch.setenv("LITELLM_PROXY_URL", "http://litellm:4000")
+    monkeypatch.setenv("LITELLM_PROXY_KEY", "sk-proxy")
+    fake = FakeOpenHands(files={"src/App.tsx": "export default function App(){ return <h1>Hi</h1> }\n"})
+    _run(project, task, fake)
+    spec = fake.last_spec
+    assert spec is not None
+    assert spec.base_url == "http://litellm:4000"
+    assert spec.model == "litellm_proxy/smart-router"
+    assert spec.api_key == "sk-proxy"
+
+
+def test_without_proxy_worker_uses_single_model(client: TestClient, monkeypatch):
+    agent = _agent(client)
+    project, task = _workspace(client, agent)
+    monkeypatch.delenv("LITELLM_PROXY_URL", raising=False)
+    fake = FakeOpenHands(files={"src/App.tsx": "export default function App(){ return <h1>Hi</h1> }\n"})
+    _run(project, task, fake)
+    spec = fake.last_spec
+    assert spec is not None
+    assert spec.base_url == ""
+    assert not spec.model.startswith("litellm_proxy/")

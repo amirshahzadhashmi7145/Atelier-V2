@@ -15,15 +15,26 @@ from pathlib import Path
 from store import db
 
 
+def global_token() -> str | None:
+    """The one GitHub token connected for the whole studio (Settings → GitHub),
+    falling back to the GITHUB_TOKEN env var. Stored encrypted; never logged."""
+    from gateway import keys
+
+    return keys.load("github") or os.environ.get("GITHUB_TOKEN") or None
+
+
 def token_for(project: dict) -> str | None:
-    """Resolve the project's GitHub token from its stored reference. Never logged."""
+    """Resolve the GitHub token for a project. A project may pin its own token by
+    reference; otherwise (ref 'global' or none) it uses the globally connected
+    token. Never logged."""
     ref = project.get("tokenRef") or ""
     if ref == "env:GITHUB_TOKEN":
         return os.environ.get("GITHUB_TOKEN")
     if ref.startswith("file:"):
         path = db.projects_dir() / ".secrets" / ref.removeprefix("file:")
         return path.read_text().strip() if path.exists() else None
-    return None
+    # "global" or unset: fall back to the studio-wide connected token.
+    return global_token()
 
 
 def authed_remote(url: str, token: str) -> str:
@@ -141,8 +152,10 @@ def push_workspace(project: dict, folder: Path, message: str) -> dict:
     """
     token = token_for(project)
     repo_url = project.get("repoUrl")
-    if not repo_url or not token:
-        return {"ok": False, "reason": "Set a GitHub repo URL and access token in project settings first."}
+    if not token:
+        return {"ok": False, "reason": "Connect GitHub in Settings → GitHub first."}
+    if not repo_url:
+        return {"ok": False, "reason": "No GitHub repository is set for this project yet."}
 
     remote = authed_remote(repo_url, token)
     base = default_branch(repo_url, token)

@@ -4,6 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import {
+  ArrowUpIcon,
+  CalendarCheckIcon,
+  ContactIcon,
+  FileTextIcon,
+  GraduationCapIcon,
+  LayoutGridIcon,
+  LifeBuoyIcon,
+  ListChecksIcon,
+  PackageIcon,
+  PanelRightIcon,
+  ShoppingBagIcon,
+  UsersIcon,
+  WalletIcon,
+  type LucideIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { ErrorState } from "@/components/shared/ErrorState"
@@ -11,14 +27,10 @@ import { Button } from "@/components/ui/button"
 import { Select, type SelectOption } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  addProjectMember,
   approveProjectPlan,
   editProjectPlan,
-  closeProject,
   createProject,
-  deleteProject,
   getProject,
-  patchProject,
   listTemplates,
   instantiateTemplate,
   listProjectTemplates,
@@ -26,19 +38,81 @@ import {
   listChatAgents,
   listMessages,
   listProjectNeeds,
-  listProjects,
   answerNeed,
-  openProjectFolder,
   postMessage,
-  pushProjectToGithub,
-  startPreview,
   stopChatRun,
   type ChatMessage,
   type Project,
+  type ProjectTemplate,
 } from "@/features/chat/api"
 import { queryKeys } from "@/lib/api/query-keys"
 import { LiveText } from "./LiveText"
 import { RunFollow } from "./RunFollow"
+
+// Thumbnail art for the New Project template cards: a lucide icon over an accent
+// gradient (both chosen by the backend). The gradient classes are literal so Tailwind
+// keeps them.
+const TEMPLATE_ICONS: Record<string, LucideIcon> = {
+  users: UsersIcon,
+  contact: ContactIcon,
+  "square-check-big": ListChecksIcon,
+  "shopping-bag": ShoppingBagIcon,
+  package: PackageIcon,
+  "calendar-check": CalendarCheckIcon,
+  "life-buoy": LifeBuoyIcon,
+  "file-text": FileTextIcon,
+  wallet: WalletIcon,
+  "graduation-cap": GraduationCapIcon,
+  "layout-grid": LayoutGridIcon,
+}
+const TEMPLATE_ACCENTS: Record<string, string> = {
+  indigo: "from-indigo-500 to-indigo-700",
+  emerald: "from-emerald-500 to-emerald-700",
+  amber: "from-amber-500 to-amber-600",
+  rose: "from-rose-500 to-rose-700",
+  teal: "from-teal-500 to-teal-700",
+  violet: "from-violet-500 to-violet-700",
+}
+
+// A mini preview of the generated app using the template's REAL data — a themed header
+// with the app name, and record cards showing actual sample values. Reads as a screenshot.
+function TemplateThumb({ template }: { template: ProjectTemplate }) {
+  const Icon = TEMPLATE_ICONS[template.icon ?? ""] ?? LayoutGridIcon
+  const grad = TEMPLATE_ACCENTS[template.accent ?? ""] ?? TEMPLATE_ACCENTS.indigo
+  const fields = template.fields ?? []
+  const titleField = fields[0]?.name ?? "name"
+  const detailFields = fields.slice(1, 3)
+  const samples = (template.sample ?? []).slice(0, 2) as Record<string, string | number>[]
+  const val = (row: Record<string, string | number>, key?: string) =>
+    key && row[key] != null && row[key] !== "" ? String(row[key]) : "—"
+  return (
+    <div className="pointer-events-none select-none bg-slate-50">
+      <div className={`flex items-center gap-2 bg-gradient-to-br ${grad} px-3 py-2.5 text-white`}>
+        <span className="grid size-7 place-items-center rounded-lg bg-white/20 shadow-sm transition-transform group-hover:scale-110">
+          <Icon className="size-4" aria-hidden />
+        </span>
+        <span className="min-w-0 leading-tight">
+          <span className="block truncate text-[11px] font-semibold">{template.name}</span>
+          <span className="block text-[8px] uppercase tracking-wide text-white/70">{template.entity} records</span>
+        </span>
+        <span className="ml-auto rounded bg-white/20 px-1.5 py-0.5 text-[8px] font-semibold">+ New</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-2.5">
+        {(samples.length ? samples : [{}, {}]).map((row, i) => (
+          <div key={i} className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+            <div className="truncate text-[10px] font-semibold text-slate-800">{val(row, titleField)}</div>
+            {detailFields.map((f) => (
+              <div key={f.name} className="mt-1 flex items-center justify-between gap-1.5 text-[8px]">
+                <span className="truncate text-slate-400">{f.label}</span>
+                <span className="truncate font-medium text-slate-600">{val(row, f.name)}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export function ChatScreen({
   projectId,
@@ -47,9 +121,6 @@ export function ChatScreen({
   projectId?: string
   renderRun?: (id: string) => ReactNode
 }) {
-  const router = useRouter()
-  const projects = useQuery({ queryKey: queryKeys.projects, queryFn: listProjects })
-  const queryClient = useQueryClient()
   const project = useQuery({
     queryKey: queryKeys.project(projectId ?? ""),
     queryFn: () => getProject(projectId ?? ""),
@@ -80,7 +151,28 @@ export function ChatScreen({
   const stickRef = useRef(true)
   const [away, setAway] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
+  // Desktop-only: the side preview pane is HIDDEN by default so a new chat is full-width.
+  // Persisted per viewer; only an explicit "0" (the user opened it) keeps it shown.
+  const [previewCollapsed, setPreviewCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("atelier.previewCollapsed") !== "0"
+    } catch {
+      return true
+    }
+  })
+  // The preview only exists once a run has published a URL. Until then there is
+  // nothing to show, so the pane, its resize handle and its toggles stay out of the way.
+  const hasPreview = Boolean(project.data?.previewUrl)
+  const togglePreviewCollapsed = () =>
+    setPreviewCollapsed((value) => {
+      const next = !value
+      try {
+        localStorage.setItem("atelier.previewCollapsed", next ? "1" : "0")
+      } catch {
+        // ignore unavailable storage
+      }
+      return next
+    })
   // Client-only persisted width: the server renders the default and the client
   // reads the saved value, so the aside below carries suppressHydrationWarning.
   const [previewWidth, setPreviewWidth] = useState(() => {
@@ -151,106 +243,38 @@ export function ChatScreen({
   }, [])
   useEffect(() => () => cancelAnimationFrame(scrollRaf.current), [])
 
+  if (!projectId) {
+    return <WelcomeScreen />
+  }
+
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 overflow-hidden">
-      <aside className="no-scrollbar flex w-56 shrink-0 flex-col gap-3 overflow-auto border-r p-3">
-        <NewProject />
-        {projects.isLoading ? <p className="text-sm text-muted-foreground">Loading projects</p> : null}
-        {projects.isError ? <p className="text-sm text-destructive">Could not load projects</p> : null}
-        {(projects.data ?? []).length === 0 && !projects.isLoading ? (
-          <p className="text-sm text-muted-foreground">No projects yet</p>
-        ) : null}
-        <ul className="flex flex-col gap-1">
-          {(projects.data ?? []).map((item) => (
-            <li key={item.id}>
-              <Link className={item.id === projectId ? "font-medium" : ""} href={`/chat/${item.id}`}>
-                {item.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </aside>
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 p-4">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 px-6 py-4">
         {project.data?.localMode ? (
           <p className="rounded border bg-muted px-3 py-2 text-sm text-foreground">
             DEV LOCAL MODE. Commands run on this machine, inside the project folder only.
           </p>
         ) : null}
-        {projectId && project.data ? (
-          <div className="no-scrollbar flex max-h-[45%] shrink-0 flex-col gap-2 overflow-auto">
+        {project.data ? (
+          <div className="no-scrollbar flex max-h-[45%] w-full shrink-0 flex-col gap-2 overflow-auto">
             <NeedsYou projectId={projectId} />
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h1 className="text-lg font-semibold">{project.data.name}</h1>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button nativeButton={false} variant="outline" render={<Link href={`/chat/${projectId}/board`} data-project-board />}>
-                  Task board
-                </Button>
-                <Button type="button" variant="outline" className="xl:hidden" onClick={() => setShowPreview((value) => !value)}>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+              <h1 className="truncate text-lg font-semibold">{project.data.name}</h1>
+              <div className={hasPreview ? "flex items-center gap-1" : "hidden"}>
+                <Button type="button" variant="ghost" size="sm" className="xl:hidden" onClick={() => setShowPreview((value) => !value)}>
                   {showPreview ? "Chat" : "Preview"}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    if (!projectId) return
-                    void openProjectFolder(projectId)
-                      .then((result) => toast.success(`Opened ${result.folderPath}`))
-                      .catch((error) => {
-                        // No local file manager (or not local mode): fall back to copying the path.
-                        void navigator.clipboard.writeText(project.data?.folderPath ?? "")
-                        toast.message("Could not open the folder here — path copied instead", {
-                          description: error instanceof Error ? error.message : undefined,
-                        })
-                      })
-                  }}
-                >
-                  Open folder
-                </Button>
-                <PushButton projectId={projectId} project={project.data} />
-                <PreviewButton projectId={projectId} project={project.data} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  aria-expanded={showSettings}
-                  onClick={() => setShowSettings((value) => !value)}
-                >
-                  {showSettings ? "Hide settings" : "Project settings"}
-                </Button>
-                <span className="h-5 border-l" aria-hidden />
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={() => {
-                    if (!projectId || !project.data) return
-                    if (!window.confirm(`Delete “${project.data.name}” from the studio? Files on disk are kept.`)) return
-                    void deleteProject(projectId)
-                      .then(async () => {
-                        await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
-                        toast.success("Project deleted")
-                        router.push("/chat")
-                      })
-                      .catch((error) => toast.error(error instanceof Error ? error.message : "Could not delete project"))
-                  }}
-                >
-                  Delete project
+                <Button type="button" variant="outline" size="sm" className="hidden gap-1.5 xl:inline-flex" onClick={togglePreviewCollapsed} suppressHydrationWarning>
+                  <PanelRightIcon className="size-4" aria-hidden />
+                  {previewCollapsed ? "Show preview" : "Hide preview"}
                 </Button>
               </div>
             </div>
             {project.data.summary ? <p className="text-sm text-muted-foreground">{project.data.summary}</p> : null}
-            {showSettings ? (
-              <div className="flex flex-col gap-2">
-                <MemberPanel projectId={projectId} project={project.data} />
-                <GithubSettings key={`gh-${projectId}`} projectId={projectId} project={project.data} />
-                <NotesSettings key={projectId} projectId={projectId} project={project.data} />
-              </div>
-            ) : null}
-            <SupervisorSteps steps={project.data.supervisorSteps} />
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Choose a project or create one.</p>
-        )}
+        ) : null}
         <div className="relative min-h-0 flex-1">
-          {showPreview ? (
+          {showPreview && hasPreview ? (
             <div className="h-full overflow-hidden xl:hidden">
               <PreviewPane url={project.data?.previewUrl} />
             </div>
@@ -264,7 +288,7 @@ export function ChatScreen({
                 stickRef.current = near
                 setAway(!near)
               }}
-              className="no-scrollbar flex h-full flex-col gap-3 overflow-y-auto"
+              className="no-scrollbar flex h-full w-full flex-col gap-3 overflow-y-auto px-1 py-2"
             >
               {projectId && messages.isPending ? (
                 <div className="flex flex-col gap-3" aria-busy="true">
@@ -286,16 +310,20 @@ export function ChatScreen({
                 return (
                   <article
                     key={message.id}
-                    className={`flex w-fit min-w-0 max-w-[85%] flex-col gap-2 rounded border p-3 ${
-                      mine ? "self-end bg-primary/10" : "self-start bg-card"
+                    className={`flex w-fit min-w-0 max-w-[85%] flex-col gap-2 rounded-2xl border p-3 text-[0.95rem] shadow-sm ${
+                      mine ? "self-end border-primary/20 bg-primary/10" : "self-start bg-card"
                     }`}
                   >
-                    <p className="flex items-center gap-2 text-xs uppercase text-muted-foreground">
-                      <span style={message.agentColor ? { color: message.agentColor } : undefined} data-agent={message.agentName}>
-                        {message.agentName ?? message.role}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span
+                        className="font-medium text-foreground/80"
+                        style={message.agentColor ? { color: message.agentColor } : undefined}
+                        data-agent={message.agentName}
+                      >
+                        {message.agentName ?? (mine ? "You" : message.role)}
                       </span>
                       {message.label ? (
-                        <span data-label={message.label} className="rounded-full border px-2 py-0.5 normal-case">
+                        <span data-label={message.label} className="rounded-full border px-1.5 py-0.5 text-[10px]">
                           {message.label === "out"
                             ? "out of scope"
                             : message.label === "task"
@@ -307,10 +335,10 @@ export function ChatScreen({
                                   : "chat"}
                         </span>
                       ) : null}
-                      <time dateTime={message.createdAt} className="normal-case">
+                      <time dateTime={message.createdAt} className="ml-auto tabular-nums">
                         {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </time>
-                    </p>
+                    </div>
                     <p className="whitespace-pre-wrap text-sm">{message.text}</p>
                     {message.verdict ? (
                       <p className="text-xs font-medium" data-verdict={message.verdict}>
@@ -331,13 +359,16 @@ export function ChatScreen({
                   </article>
                 )
               })}
+              {thread.length > 0 && thread[thread.length - 1].role === "user" && !thread[thread.length - 1].runId ? (
+                <ThinkingBubble />
+              ) : null}
               <LiveWork
                 steps={project.data?.supervisorSteps}
                 threadRunIds={new Set((messages.data ?? []).map((item) => item.runId).filter((id): id is string => Boolean(id)))}
               />
             </div>
           )}
-          {away && !showPreview ? (
+          {away && !(showPreview && hasPreview) ? (
             <button
               type="button"
               className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border bg-background px-3 py-1 text-xs shadow"
@@ -381,10 +412,11 @@ export function ChatScreen({
         aria-orientation="vertical"
         aria-label="Resize preview"
         onPointerDown={startPreviewResize}
-        className="hidden w-1.5 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 xl:block"
+        className={`hidden w-1.5 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 ${previewCollapsed || !hasPreview ? "xl:hidden" : "xl:block"}`}
+        suppressHydrationWarning
       />
       <aside
-        className="hidden h-full min-h-0 shrink-0 flex-col border-l p-3 xl:flex"
+        className={`hidden h-full min-h-0 shrink-0 flex-col border-l p-3 ${previewCollapsed || !hasPreview ? "xl:hidden" : "xl:flex"}`}
         style={{ width: previewWidth }}
         suppressHydrationWarning
       >
@@ -455,21 +487,16 @@ const STEP_LABEL: Record<string, string> = {
   done: "done",
 }
 
-function SupervisorSteps({ steps }: { steps?: Project["supervisorSteps"] }) {
-  if (!steps?.length) return null
+function ThinkingBubble() {
   return (
-    <div className="rounded border p-2 text-sm" data-supervisor-steps>
-      <ul className="flex flex-wrap gap-x-4 gap-y-1">
-        {steps.map((item) => (
-          <li key={item.taskId} data-supervisor-step={item.step} data-task-id={item.taskId}>
-            <span className="font-medium">
-              {item.agentName ? `${item.agentName} · ` : ""}
-              {STEP_LABEL[item.step] ?? item.step}
-            </span>
-            {item.label ? <span className="text-muted-foreground"> — {item.label}</span> : null}
-          </li>
-        ))}
-      </ul>
+    <div className="flex w-fit items-center gap-2 self-start rounded-2xl border bg-card px-4 py-3 shadow-sm" aria-live="polite" data-thinking-bubble>
+      <span className="sr-only">The agent is working</span>
+      <span className="flex items-center gap-1" aria-hidden>
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.3s]" />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.15s]" />
+        <span className="size-2 animate-bounce rounded-full bg-muted-foreground/70" />
+      </span>
+      <span className="text-sm text-muted-foreground">Working…</span>
     </div>
   )
 }
@@ -489,220 +516,6 @@ function LiveWork({ steps, threadRunIds }: { steps?: Project["supervisorSteps"];
           {item.runId && !threadRunIds?.has(item.runId) ? <LiveText key={item.runId} runId={item.runId} /> : null}
         </div>
       ))}
-    </div>
-  )
-}
-
-function PreviewButton({ projectId, project }: { projectId: string; project?: Project }) {
-  const queryClient = useQueryClient()
-  const running = Boolean(project?.previewUrl)
-  const toggle = useMutation({
-    mutationFn: () => (running ? closeProject(projectId) : startPreview(projectId)),
-    onSuccess: async () => {
-      toast.success(running ? "Preview stopped" : "Preview started")
-      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : running ? "Could not stop preview" : "Could not start preview"),
-  })
-  return (
-    <Button type="button" variant="outline" disabled={toggle.isPending} onClick={() => toggle.mutate()}>
-      {toggle.isPending ? (running ? "Stopping…" : "Starting…") : running ? "Stop preview" : "Start preview"}
-    </Button>
-  )
-}
-
-function PushButton({ projectId, project }: { projectId: string; project?: Project }) {
-  const push = useMutation({
-    mutationFn: () => pushProjectToGithub(projectId),
-    onSuccess: (result) => {
-      if (result.prUrl) toast.success("Pushed — pull request opened", { description: result.prUrl })
-      else toast.success(`Pushed to ${result.repoUrl ?? "GitHub"}${result.branch ? ` (${result.branch})` : ""}`)
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not push to GitHub"),
-  })
-  const configured = Boolean(project?.repoUrl && project?.tokenRef)
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      disabled={push.isPending}
-      title={configured ? undefined : "Set a GitHub repo and token in project settings first"}
-      onClick={() => push.mutate()}
-    >
-      {push.isPending ? "Pushing…" : "Push to GitHub"}
-    </Button>
-  )
-}
-
-function GithubSettings({ projectId, project }: { projectId: string; project: Project }) {
-  const queryClient = useQueryClient()
-  const [repoUrl, setRepoUrl] = useState(project.repoUrl ?? "")
-  const [token, setToken] = useState("")
-  const hasToken = Boolean(project.tokenRef)
-  const save = useMutation({
-    mutationFn: () =>
-      patchProject(projectId, {
-        repoUrl: repoUrl.trim() || null,
-        ...(token.trim() ? { githubToken: token.trim() } : {}),
-      }),
-    onSuccess: async () => {
-      setToken("")
-      toast.success("GitHub settings saved")
-      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save GitHub settings"),
-  })
-  return (
-    <form
-      className="flex flex-col gap-2 rounded border p-2 text-sm"
-      onSubmit={(event) => {
-        event.preventDefault()
-        save.mutate()
-      }}
-    >
-      <p className="font-medium">GitHub</p>
-      <label className="flex flex-col gap-1">
-        Repo URL
-        <input
-          className="rounded border px-2 py-1"
-          placeholder="https://github.com/owner/repo"
-          value={repoUrl}
-          onChange={(event) => setRepoUrl(event.target.value)}
-        />
-      </label>
-      <label className="flex flex-col gap-1">
-        Access token
-        <input
-          className="rounded border px-2 py-1"
-          type="password"
-          autoComplete="off"
-          placeholder={hasToken ? "Token set — enter a new one to replace" : "ghp_…"}
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-        />
-      </label>
-      <p className="text-xs text-muted-foreground">
-        {hasToken ? "A token is stored for this project." : "No token stored yet."} The token is write-only — it is kept by
-        reference and never shown again.
-      </p>
-      <Button type="submit" variant="outline" className="self-start" disabled={save.isPending}>
-        {save.isPending ? "Saving…" : "Save GitHub settings"}
-      </Button>
-    </form>
-  )
-}
-
-function NotesSettings({ projectId, project }: { projectId: string; project: Project }) {
-  const queryClient = useQueryClient()
-  const [path, setPath] = useState(project.notesPath || ".atelier/NOTES.md")
-  const [maxBytes, setMaxBytes] = useState(String(project.notesMaxBytes ?? 8192))
-  const save = useMutation({
-    mutationFn: () => patchProject(projectId, { notesPath: path, notesMaxBytes: Number(maxBytes) }),
-    onSuccess: async () => {
-      toast.success("Project notes settings saved")
-      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save notes settings"),
-  })
-  return (
-    <form
-      className="flex flex-wrap items-end gap-2 text-sm"
-      onSubmit={(event) => {
-        event.preventDefault()
-        save.mutate()
-      }}
-    >
-      <label className="flex flex-col gap-1">
-        Notes file
-        <input className="rounded border px-2 py-1" value={path} onChange={(event) => setPath(event.target.value)} />
-      </label>
-      <label className="flex flex-col gap-1">
-        Size limit (bytes)
-        <input className="w-28 rounded border px-2 py-1" value={maxBytes} onChange={(event) => setMaxBytes(event.target.value)} />
-      </label>
-      <Button type="submit" variant="outline" disabled={save.isPending}>
-        {save.isPending ? "Saving…" : "Save notes settings"}
-      </Button>
-    </form>
-  )
-}
-
-function MemberPanel({ projectId, project }: { projectId: string; project: Project }) {
-  const queryClient = useQueryClient()
-  const agents = useQuery({ queryKey: queryKeys.agents, queryFn: listChatAgents })
-  const [agentId, setAgentId] = useState("")
-  const [overlap, setOverlap] = useState("")
-  const memberIds = new Set(project.members ?? [])
-  const candidates = (agents.data ?? []).filter((agent) => !memberIds.has(agent.id))
-  const add = useMutation({
-    mutationFn: () => addProjectMember(projectId, agentId),
-    onSuccess: async () => {
-      setAgentId("")
-      setOverlap("")
-      await queryClient.invalidateQueries({ queryKey: queryKeys.project(projectId) })
-    },
-    onError: (error) => {
-      const message = error instanceof Error ? error.message : "Could not add agent"
-      toast.error(message)
-      setOverlap(message)
-    },
-  })
-  return (
-    <div className="rounded border p-2 text-sm">
-      <p className="mb-1 font-medium">Project members</p>
-      <ul className="flex flex-col gap-2">
-        {(project.memberDetails ?? []).map((member) => (
-          <li key={member.agentId}>
-            <p style={{ color: member.color }} className="font-medium" data-member={member.name}>
-              {member.name}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {member.lastTask && member.lastTaskId ? (
-                <Link href={`/chat/${projectId}/board#${member.lastTaskId}`} className="underline">
-                  Last: {member.lastTask}
-                </Link>
-              ) : member.lastTask ? (
-                `Last: ${member.lastTask}`
-              ) : (
-                "No tasks yet"
-              )}
-            </p>
-          </li>
-        ))}
-      </ul>
-      {overlap ? (
-        <p className="mt-2 text-xs text-destructive" data-zone-overlap="true">
-          {overlap}
-        </p>
-      ) : null}
-      <form
-        className="mt-2 flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (agentId) add.mutate()
-        }}
-      >
-        <label className="sr-only" htmlFor="add-member">
-          Add agent to project
-        </label>
-        <select
-          id="add-member"
-          className="flex-1 rounded border px-2 py-1"
-          value={agentId}
-          onChange={(event) => setAgentId(event.target.value)}
-        >
-          <option value="">Choose agent</option>
-          {candidates.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-        <Button type="submit" variant="outline" disabled={!agentId || add.isPending}>
-          {add.isPending ? "Adding…" : "Add agent to project"}
-        </Button>
-      </form>
     </div>
   )
 }
@@ -779,12 +592,6 @@ function NeedsYou({ projectId }: { projectId: string }) {
   )
 }
 
-const PROVIDERS = [
-  { id: "gemini", name: "Google Gemini" },
-  { id: "openai", name: "OpenAI" },
-]
-const PROVIDER_OPTIONS: SelectOption[] = PROVIDERS.map((row) => ({ value: row.id, label: row.name }))
-
 function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
@@ -799,6 +606,126 @@ function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: st
 
 const inputClass =
   "h-9 w-full rounded-lg border border-input bg-transparent px-3 py-1 text-sm outline-none transition-colors hover:border-ring/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-input/30"
+
+function deriveChatName(prompt: string) {
+  const words = prompt.trim().split(/\s+/).slice(0, 7).join(" ")
+  return (words.length > 60 ? words.slice(0, 60) : words) || "New chat"
+}
+
+function WelcomeScreen() {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const templates = useQuery({ queryKey: ["project-templates"], queryFn: listProjectTemplates })
+  const [prompt, setPrompt] = useState("")
+  const promptRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const node = promptRef.current
+    if (!node) return
+    node.style.height = "auto"
+    node.style.height = `${Math.min(node.scrollHeight, 160)}px`
+  }, [prompt])
+
+  const start = useMutation({
+    mutationFn: async (text: string) => {
+      // A plain prompt spins up a default full-stack team — the system picks the
+      // agents, the user never has to. The first message is posted right away.
+      const project = await instantiateTemplate("fullstack-web", { name: deriveChatName(text) })
+      await postMessage(project.id, text)
+      return project
+    },
+    onSuccess: async (project) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+      router.push(`/chat/${project.id}`)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not start the chat"),
+  })
+  const fromTemplate = useMutation({
+    mutationFn: (id: string) => createProjectFromTemplate(id, {}),
+    onSuccess: async (project) => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
+      router.push(`/chat/${project.id}`)
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
+  })
+  const submit = () => {
+    const text = prompt.trim()
+    if (!text || start.isPending) return
+    start.mutate(text)
+  }
+  const rows = templates.data ?? []
+  const busy = start.isPending || fromTemplate.isPending
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-y-auto px-6 py-10">
+      <div className="flex w-full flex-1 flex-col justify-center gap-7">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">What do you want to build?</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Describe it and a team of agents gets to work — it picks the right agents for you. Or start from a template.
+          </p>
+        </div>
+        <form className="w-full" onSubmit={(event) => { event.preventDefault(); submit() }}>
+          <div className="flex items-end gap-2 rounded-2xl border bg-card p-2 shadow-sm transition-colors focus-within:border-ring">
+            <label className="sr-only" htmlFor="welcome-prompt">Describe your app</label>
+            <textarea
+              id="welcome-prompt"
+              ref={promptRef}
+              rows={1}
+              placeholder="Build a CRM to track contacts and deals…"
+              className="max-h-40 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+            />
+            <Button type="submit" disabled={!prompt.trim() || start.isPending}>
+              {start.isPending ? "Starting…" : "Start building"}
+            </Button>
+          </div>
+        </form>
+
+        <div className="w-full">
+          <h2 className="mb-3 text-sm font-medium">Start from a template</h2>
+          {templates.isLoading ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-[200px] rounded-2xl" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {rows.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => fromTemplate.mutate(template.id)}
+                  className="group overflow-hidden rounded-2xl border bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-ring hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <TemplateThumb template={template} />
+                  <div className="flex flex-col gap-0.5 p-4">
+                    <span className="text-sm font-semibold leading-tight">{template.name}</span>
+                    <span className="text-xs text-muted-foreground">{template.category}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {fromTemplate.isPending ? <p className="mt-2 text-xs text-muted-foreground">Setting up your project…</p> : null}
+        </div>
+
+        <div className="flex flex-col items-start gap-2 border-t pt-5">
+          <p className="text-xs text-muted-foreground">Want to choose the team or import an existing repo?</p>
+          <NewProject />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function NewProject() {
   const [open, setOpen] = useState(false)
@@ -846,17 +773,12 @@ function NewProjectFromAppTemplate() {
   const templates = useQuery({ queryKey: ["project-templates"], queryFn: listProjectTemplates })
   const [templateId, setTemplateId] = useState("")
   const [name, setName] = useState("")
-  const [provider, setProvider] = useState("gemini")
-  const [model, setModel] = useState("")
   const rows = templates.data ?? []
   const selected = rows.find((row) => row.id === templateId)
   const create = useMutation({
-    mutationFn: () => createProjectFromTemplate(templateId, { name: name || undefined, provider, model: model || undefined }),
+    mutationFn: () => createProjectFromTemplate(templateId, { name: name || undefined }),
     onSuccess: async (project) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
-      if ("needsProviderKey" in project && project.needsProviderKey) {
-        toast.message(`Add your ${provider === "openai" ? "OpenAI" : "Gemini"} API key in Settings → Providers to start running.`)
-      }
       router.push(`/chat/${project.id}`)
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
@@ -891,22 +813,9 @@ function NewProjectFromAppTemplate() {
       <Field label="Project name" htmlFor="app-name" hint="(optional)">
         <input id="app-name" className={inputClass} placeholder={selected?.name ?? "My app"} value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Provider" htmlFor="app-provider">
-          <Select id="app-provider" ariaLabel="Model provider" value={provider} onValueChange={setProvider} options={PROVIDER_OPTIONS} />
-        </Field>
-        <Field label="Model" htmlFor="app-model" hint="(optional)">
-          <input
-            id="app-model"
-            className={inputClass}
-            placeholder={provider === "openai" ? "gpt-4o" : "gemini-3.1-pro-preview"}
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-          />
-        </Field>
-      </div>
       <p className="text-xs text-muted-foreground">
-        Add your API key in <Link className="underline" href="/settings/providers">Settings → Providers</Link>; it stays on your machine.
+        Agents use <strong>Auto</strong> — they pick the best available model for each task. Just connect a provider key in{" "}
+        <Link className="underline" href="/settings/providers">Settings → Providers</Link>.
       </p>
       <Button type="submit" disabled={create.isPending || !templateId}>
         {create.isPending ? "Creating…" : "Create project from app"}
@@ -921,17 +830,12 @@ function NewProjectFromTemplate() {
   const templates = useQuery({ queryKey: ["templates"], queryFn: listTemplates })
   const [templateId, setTemplateId] = useState("")
   const [name, setName] = useState("")
-  const [provider, setProvider] = useState("gemini")
-  const [model, setModel] = useState("")
   const rows = templates.data ?? []
   const selected = rows.find((row) => row.id === templateId)
   const create = useMutation({
-    mutationFn: () => instantiateTemplate(templateId, { name, provider, model: model || undefined }),
+    mutationFn: () => instantiateTemplate(templateId, { name }),
     onSuccess: async (project) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects })
-      if ("needsProviderKey" in project && project.needsProviderKey) {
-        toast.message(`Add your ${provider === "openai" ? "OpenAI" : "Gemini"} API key in Settings → Providers to start running.`)
-      }
       router.push(`/chat/${project.id}`)
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not create the project"),
@@ -963,22 +867,9 @@ function NewProjectFromTemplate() {
       <Field label="Project name" htmlFor="template-name">
         <input id="template-name" className={inputClass} value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Provider" htmlFor="template-provider">
-          <Select id="template-provider" ariaLabel="Model provider" value={provider} onValueChange={setProvider} options={PROVIDER_OPTIONS} />
-        </Field>
-        <Field label="Model" htmlFor="template-model" hint="(optional)">
-          <input
-            id="template-model"
-            className={inputClass}
-            placeholder={provider === "openai" ? "gpt-4o" : "gemini-3.1-pro-preview"}
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-          />
-        </Field>
-      </div>
       <p className="text-xs text-muted-foreground">
-        You add your API key in <Link className="underline" href="/settings/providers">Settings → Providers</Link>; it stays on your machine.
+        Agents use <strong>Auto</strong> — they pick the best available model per task. Connect a provider key in{" "}
+        <Link className="underline" href="/settings/providers">Settings → Providers</Link>.
       </p>
       <Button type="submit" disabled={create.isPending || !name || !templateId}>
         {create.isPending ? "Creating…" : "Create team & project"}
@@ -1135,21 +1026,24 @@ function Composer({
   }
   return (
     <form
-      className="flex flex-col gap-2"
+      className="w-full"
       onSubmit={(event) => {
         event.preventDefault()
         submit()
       }}
     >
       {working ? (
-        <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-          <span>{workingLabel}</span>
-          <Button type="button" variant="outline" disabled={stop.isPending} onClick={() => stop.mutate()}>
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-full border bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground">
+          <span className="flex items-center gap-2">
+            <span className="inline-block size-2 animate-pulse rounded-full bg-primary" aria-hidden />
+            {workingLabel}
+          </span>
+          <Button type="button" variant="outline" size="sm" disabled={stop.isPending} onClick={() => stop.mutate()}>
             {stop.isPending ? "Stopping…" : "Stop"}
           </Button>
         </div>
       ) : null}
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 rounded-[1.75rem] border bg-card p-2 pl-4 shadow-md transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
         <label className="sr-only" htmlFor="chat-message">
           Message
         </label>
@@ -1157,7 +1051,8 @@ function Composer({
           id="chat-message"
           ref={inputRef}
           rows={1}
-          className="max-h-40 flex-1 resize-none rounded border bg-background px-2 py-1.5 text-sm"
+          placeholder="Message the team…  (⏎ to send, ⇧⏎ for a new line)"
+          className="max-h-40 flex-1 resize-none bg-transparent py-1.5 text-[0.95rem] outline-none placeholder:text-muted-foreground"
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
@@ -1167,10 +1062,13 @@ function Composer({
             }
           }}
         />
-        <Button type="submit" disabled={!text.trim()}>
-          Send
+        <Button type="submit" size="icon" className="size-9 shrink-0 rounded-full" disabled={!text.trim()} aria-label="Send">
+          <ArrowUpIcon className="size-5" />
         </Button>
       </div>
+      <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
+        Agents pick a suitable model automatically. Ask to “push to GitHub” or “run the app” anytime.
+      </p>
     </form>
   )
 }

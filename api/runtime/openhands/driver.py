@@ -246,6 +246,9 @@ def main() -> int:
     # The SDK defaults to reasoning_effort=high with a 200k thinking budget; honor
     # the agent's configured budget instead so worker turns are not maximally slow.
     llm_extra = _thinking_kwargs(spec.get("thinking_budget"))
+    # When a litellm proxy is configured upstream, `model` is its auto-router name and
+    # `base_url` points at the proxy, so litellm's own complexity router does the routing.
+    # Otherwise this is the single task-level model. Either way it's a plain LLM here.
     llm = LLM(model=model, api_key=_secret(key), base_url=base_url, **llm_extra)
     kwargs = {
         "llm": llm,

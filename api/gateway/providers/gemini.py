@@ -68,10 +68,10 @@ class GeminiProvider:
             return ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
         names: list[str] = []
         for item in self._client().models.list():
-            from app.models_catalog import is_chat, is_retired, model_id
+            from app.models_catalog import is_chat, model_id, retired_by_name
 
             raw = model_id(item.name or "")
-            if not raw or not is_chat(raw) or is_retired(raw):
+            if not raw or not is_chat(raw) or retired_by_name(raw):
                 continue
             actions = item.supported_actions or []
             if actions and "generateContent" not in actions:
