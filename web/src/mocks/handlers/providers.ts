@@ -46,7 +46,29 @@ export async function discoveredModelIds(): Promise<{ ids: string[]; fromProvide
   return fixture ? { ids: fixture, fromProvider: false } : null
 }
 
+const githubState: { connected: boolean; login: string | null; hint: string | null } = {
+  connected: false,
+  login: null,
+  hint: null,
+}
+
 export const providerHandlers = [
+  http.get("/settings/github", () => HttpResponse.json(githubState)),
+  http.put("/settings/github", async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as { token?: string }
+    const token = (body.token ?? "").trim()
+    if (!token) return error(422, "invalid", "token is required")
+    githubState.connected = true
+    githubState.login = "octocat"
+    githubState.hint = `${token.slice(0, 3)}…${token.slice(-4)}`
+    return HttpResponse.json(githubState)
+  }),
+  http.delete("/settings/github", () => {
+    githubState.connected = false
+    githubState.login = null
+    githubState.hint = null
+    return new HttpResponse(null, { status: 204 })
+  }),
   http.get("/providers", () => HttpResponse.json(db.providers)),
   http.put("/providers/:id", async ({ params, request }) => {
     const provider = providerOr404(String(params.id))

@@ -83,6 +83,39 @@ in the `caddy_data` volume.
 - **Secrets** (provider keys, GitHub tokens) are stored by reference, encrypted/`0600`,
   and never sent to the browser or the model.
 
+## Model auto-routing (litellm proxy)
+
+Workers route their LLM calls through a **litellm proxy** running litellm's native
+**complexity auto-router**: litellm classifies each task's difficulty (SIMPLE / MEDIUM /
+COMPLEX / REASONING) with its own heuristic scorer and sends it to the mapped model — a
+fast/cheap model for simple tasks, a capable model for complex ones. The routing is
+litellm's, not ours.
+
+- Config: **`deploy/litellm/config.yaml`** — edit the two concrete models (`fast`,
+  `capable`) to ones your provider account can use, and the tier→model mapping.
+- The `docker compose` stack starts the `litellm` service automatically. The `api`
+  points at it via `LITELLM_PROXY_URL` and presents `LITELLM_MASTER_KEY`.
+- **To turn it off** (workers then call the provider directly on one per-task model),
+  comment out `LITELLM_PROXY_URL` in `.env` (or remove the `litellm` service).
+
+Run the proxy for **local dev** (outside compose), then start the API with the proxy URL:
+
+```bash
+# 1) run the auto-router proxy (needs your provider key in the environment)
+GEMINI_API_KEY=... LITELLM_MASTER_KEY=sk-dev \
+  docker run --rm -p 4000:4000 \
+    -e GEMINI_API_KEY -e LITELLM_MASTER_KEY \
+    -v "$PWD/deploy/litellm/config.yaml:/app/config.yaml:ro" \
+    ghcr.io/berriai/litellm:main-stable --config /app/config.yaml --port 4000
+
+# 2) point the API at it
+LITELLM_PROXY_URL=http://localhost:4000 LITELLM_PROXY_KEY=sk-dev FORCE_LOCAL=1 \
+  uv run --directory api uvicorn app.main:app --port 8000
+```
+
+Without `LITELLM_PROXY_URL`, workers skip the proxy and run each task on a single model
+chosen by difficulty in-process — so the app works with or without the proxy.
+
 ## Known limitations / follow-ups
 
 - **Live preview is not exposed.** Preview dev-servers bind to `127.0.0.1` on random

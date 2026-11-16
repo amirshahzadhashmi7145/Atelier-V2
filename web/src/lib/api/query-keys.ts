@@ -10,6 +10,7 @@ export const queryKeys = {
   dataSources: ["data-sources"] as const,
   providers: ["providers"] as const,
   runSettings: ["settings", "runs"] as const,
+  githubSettings: ["settings", "github"] as const,
   modelTags: ["model-tags"] as const,
   roles: ["roles"] as const,
   roleTags: ["tags"] as const,
@@ -19,6 +20,9 @@ export const queryKeys = {
   taskBoard: (projectId: string, taskId: string) => ["projects", projectId, "tasks", taskId] as const,
   projectBoard: (projectId: string) => ["projects", projectId, "tasks"] as const,
   projects: ["projects"] as const,
+  // A separate key for the sidebar history so invalidating a single project's data
+  // (["projects", id, …]) never cascades into it, and vice versa.
+  chatHistory: ["chat-history"] as const,
   project: (id: string) => ["projects", id] as const,
   messages: (id: string) => ["projects", id, "messages"] as const,
   runs: Object.assign((page = 1, agentId = "", status = "") => ["runs", page, agentId, status] as const, {

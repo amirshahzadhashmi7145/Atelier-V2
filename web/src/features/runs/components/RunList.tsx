@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { RunStatusBadge } from "@/components/shared/RunStatusBadge"
 import { useQuery } from "@tanstack/react-query"
 import { EmptyState } from "@/components/shared/EmptyState"
 import { ErrorState } from "@/components/shared/ErrorState"
@@ -93,7 +94,7 @@ export function RunList() {
               <thead>
                 <tr className="border-b">
                   {["Agent", "Task", "State", "Cost", "Duration", "Model", "Prompt version", "Started"].map((heading) => (
-                    <th key={heading} className="px-2 py-2 font-medium">
+                    <th key={heading} className="px-2 py-2 text-xs font-medium whitespace-nowrap text-muted-foreground">
                       {heading}
                     </th>
                   ))}
@@ -101,19 +102,27 @@ export function RunList() {
               </thead>
               <tbody>
                 {query.data.items.map((run) => (
-                  <tr key={run.id} className="border-b">
-                    <td className="px-2 py-2">{names.get(run.agentId) ?? run.agentId}</td>
-                    <td className="px-2 py-2">
-                      <Link href={`/runs/${run.id}`} className="underline">
+                  <tr key={run.id} className="border-b align-top transition-colors hover:bg-muted/50">
+                    <td className="px-2 py-2 whitespace-nowrap">{names.get(run.agentId) ?? run.agentId}</td>
+                    <td className="w-full min-w-64 px-2 py-2">
+                      <Link
+                        href={`/runs/${run.id}`}
+                        title={run.task.split("\n")[0]}
+                        className="line-clamp-2 font-medium underline-offset-4 hover:underline"
+                      >
                         {run.task.split("\n")[0]}
                       </Link>
                     </td>
-                    <td className="px-2 py-2">{run.status}</td>
+                    <td className="px-2 py-2">
+                      <RunStatusBadge status={run.status} />
+                    </td>
                     <td className="px-2 py-2">${run.costUsd.toFixed(2)}</td>
                     <td className="px-2 py-2">{formatElapsed(run.startedAt, run.endedAt)}</td>
-                    <td className="px-2 py-2">{run.model.name}</td>
-                    <td className="px-2 py-2">{run.promptVersionId}</td>
-                    <td className="px-2 py-2">{new Date(run.startedAt).toLocaleString()}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-muted-foreground">{run.model.name}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-muted-foreground">{run.promptVersionId}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-muted-foreground">
+                      {new Date(run.startedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                    </td>
                   </tr>
                 ))}
               </tbody>

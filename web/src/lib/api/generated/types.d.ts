@@ -616,6 +616,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/settings/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getGithubSettings"];
+        put: operations["saveGithubSettings"];
+        post?: never;
+        delete: operations["disconnectGithub"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers": {
         parameters: {
             query?: never;
@@ -1600,6 +1616,13 @@ export interface components {
             benchmarks: components["schemas"]["Benchmark"][];
             ownStats: components["schemas"]["OwnStats"][];
         };
+        GithubSettings: {
+            connected: boolean;
+            /** @description The connected GitHub username, if the token validated. */
+            login?: string | null;
+            /** @description Masked hint of the saved token. Never enough to recover it. */
+            hint?: string | null;
+        };
         ProviderStatus: {
             id: string;
             name: string;
@@ -1984,6 +2007,14 @@ export interface components {
             description: string;
             teamTemplateId: string;
             entity: string;
+            /** @description A lucide icon name for the template's thumbnail. */
+            icon?: string;
+            /** @description A Tailwind color family (e.g. "indigo") for the thumbnail. */
+            accent?: string;
+            /** @description A few real seed rows, so the card can preview actual data. */
+            sample?: {
+                [key: string]: unknown;
+            }[];
             fields: components["schemas"]["ProjectTemplateField"][];
         };
         ProjectFromTemplate: components["schemas"]["Project"] & {
@@ -3313,6 +3344,72 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RunSettings"];
                 };
+            };
+        };
+    };
+    getGithubSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether GitHub is connected studio-wide. The token is never returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GithubSettings"];
+                };
+            };
+        };
+    };
+    saveGithubSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description A GitHub personal access token with repo access. */
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Connected. The token is stored encrypted and not returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GithubSettings"];
+                };
+            };
+            422: components["responses"]["Error"];
+        };
+    };
+    disconnectGithub: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

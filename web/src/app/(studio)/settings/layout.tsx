@@ -1,24 +1,11 @@
-import Link from "next/link"
+import { SettingsNav } from "@/features/settings/components/SettingsNav"
 
 export const instant = false
-
-const links = [
-  ["/settings/providers", "Providers"],
-  ["/settings/runs", "Runs"],
-  ["/settings/models", "Models"],
-  ["/settings/roles", "Roles"],
-] as const
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-6">
-      <nav className="flex gap-3 text-sm">
-        {links.map(([href, label]) => (
-          <Link key={href} href={href} className="underline">
-            {label}
-          </Link>
-        ))}
-      </nav>
+      <SettingsNav />
       {children}
     </div>
   )

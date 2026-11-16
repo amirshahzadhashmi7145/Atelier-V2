@@ -25,6 +25,18 @@ export async function refreshProviderModels(id: string) {
   return unwrap(await api.POST("/providers/{id}/refresh", { params: { path: { id } } }))
 }
 
+export async function getGithubSettings() {
+  return unwrap(await api.GET("/settings/github"))
+}
+
+export async function saveGithubSettings(token: string) {
+  return unwrap(await api.PUT("/settings/github", { body: { token } }))
+}
+
+export async function disconnectGithub() {
+  return unwrap(await api.DELETE("/settings/github"))
+}
+
 export async function getRunSettings() {
   return unwrap(await api.GET("/settings/runs"))
 }

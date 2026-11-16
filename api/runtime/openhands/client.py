@@ -47,6 +47,10 @@ class RunSpec:
     backup_model: str = ""
     backup_api_key: str | None = None
     thinking_budget: int | None = None
+    # When set, the worker's LLM calls go to a litellm proxy at this URL (its own
+    # complexity auto-router then routes by task difficulty). `model` is the proxy's
+    # auto-router deployment name in that case.
+    base_url: str = ""
 
 
 @dataclass
@@ -189,6 +193,12 @@ class ProcessOpenHandsClient:
         if spec.api_key:
             env["LLM_API_KEY"] = spec.api_key
         env["LLM_MODEL"] = spec.model
+        # Point the worker at the litellm proxy (auto-router) when configured; the driver
+        # reads LLM_BASE_URL. Without it, the worker calls the provider directly.
+        if spec.base_url:
+            env["LLM_BASE_URL"] = spec.base_url
+        elif "LLM_BASE_URL" in env:
+            del env["LLM_BASE_URL"]
         if spec.backup_model:
             env["LLM_BACKUP_MODEL"] = spec.backup_model
         if spec.backup_api_key:

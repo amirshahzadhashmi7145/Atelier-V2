@@ -165,12 +165,11 @@ def test_suggestion_picks_highest_first_try_then_cheaper_within_ten_points(clien
     assert overlay["suggested"] is False
 
 
-def test_new_agents_default_to_suggestion_existing_never_switch(client: TestClient):
-    model = {"provider": "openai", "name": "gpt-4.1-mini"}
-    for _ in range(5):
-        fit.record("frontend-engineer", model, first_try=True, reworks=0, cost=0.12, live=True)
+def test_new_agents_default_to_auto_existing_never_switch(client: TestClient):
+    # New agents default to Auto — the concrete model is chosen per task at run time
+    # (and prefers the role's proven model there), instead of being pinned at creation.
     created = client.post("/agents", json={"name": "Fresh", "roleKey": "frontend-engineer", "description": "UI"}).json()
-    assert created["model"]["name"] == "gpt-4.1-mini"
+    assert created["model"]["name"] == "auto"
     kept = client.post(
         "/agents",
         json={

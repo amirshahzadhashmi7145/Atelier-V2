@@ -78,7 +78,7 @@ test("a failed run shows the error and try again", async ({ page, request }) => 
   await page.getByRole("button", { name: "Create" }).click()
   await page.getByLabel("Message").fill("force-fail the build")
   await page.getByRole("button", { name: "Send" }).click()
-  await expect(page.locator("article.rounded p.whitespace-pre-wrap").filter({ hasText: "The run exceeded the spend cap." })).toBeVisible({
+  await expect(page.locator("article p.whitespace-pre-wrap").filter({ hasText: "The run exceeded the spend cap." })).toBeVisible({
     timeout: 30_000,
   })
   await page.getByRole("button", { name: "Try again" }).click()
@@ -109,18 +109,6 @@ async function openChat(page: import("@playwright/test").Page, project: string, 
   await picker.selectOption({ label: agent })
   await page.getByRole("button", { name: "Create" }).click()
   await expect(page.getByRole("heading", { name: project })).toBeVisible()
-}
-
-async function addMemberById(page: import("@playwright/test").Page, agentId: string) {
-  const addMember = page.locator("#add-member")
-  if (!(await addMember.isVisible().catch(() => false))) {
-    await page.getByRole("button", { name: "Project settings" }).click()
-  }
-  await expect(addMember.locator(`option[value="${agentId}"]`)).toHaveCount(1, { timeout: 15_000 })
-  await addMember.selectOption(agentId)
-  const submit = page.getByRole("button", { name: "Add agent to project", exact: true })
-  await expect(submit).toBeEnabled({ timeout: 10_000 })
-  await submit.click()
 }
 
 test("interleaved model calls stay in two bubbles", async ({ page, request }) => {
@@ -266,10 +254,13 @@ test("a project can add a member, flags overlap in red, and colours agent replie
   const clashSaved = (await clashVersion.json()) as { version: number }
   expect((await request.post(`${API}/agents/${clashId}/versions/${clashSaved.version}/activate`)).ok()).toBeTruthy()
   await openChat(page, "Team", "Overlap Frontend Engineer")
-  await addMemberById(page, backId)
-  await expect(page.locator("[data-member='Overlap Backend Engineer']")).toBeVisible()
-  await addMemberById(page, clashId)
-  await expect(page.locator("[data-zone-overlap]")).toBeVisible()
+  const projectId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? ""
+  expect(projectId).not.toBe("")
+  // Membership is managed by the team lead / router (no UI panel): agents join via the API.
+  expect((await request.post(`${API}/projects/${projectId}/members`, { data: { agentId: backId } })).ok()).toBeTruthy()
+  // An agent whose zones overlap an existing member is rejected server-side.
+  const clashAdd = await request.post(`${API}/projects/${projectId}/members`, { data: { agentId: clashId } })
+  expect(clashAdd.status()).toBe(409)
   const message = page.getByLabel("Message", { exact: true })
   await message.scrollIntoViewIfNeeded()
   await message.fill("@Backend hello")
@@ -346,10 +337,11 @@ test("a team lead plan can be edited and approved and the review verdict shows",
     await expect(page.getByText("Run settings saved")).toBeVisible()
   }
   await openChat(page, "LeadReview", "S13 Team Lead")
-  await addMemberById(page, backId)
-  await expect(page.locator("[data-member='S13 Backend Engineer']")).toBeVisible()
-  await addMemberById(page, frontId)
-  await expect(page.locator("[data-member='S13 Frontend Engineer']")).toBeVisible()
+  const leadProjectId = page.url().match(/\/chat\/([^/?#]+)/)?.[1] ?? ""
+  expect(leadProjectId).not.toBe("")
+  // The lead's team is assembled via the API (membership has no UI panel now).
+  expect((await request.post(`${API}/projects/${leadProjectId}/members`, { data: { agentId: backId } })).ok()).toBeTruthy()
+  expect((await request.post(`${API}/projects/${leadProjectId}/members`, { data: { agentId: frontId } })).ok()).toBeTruthy()
   await page.getByLabel("Message", { exact: true }).fill("build a todo app with login")
   await page.getByRole("button", { name: "Send", exact: true }).click()
   const plan = page.locator("[data-plan]")
@@ -374,5 +366,6 @@ test("the chat page is exactly the viewport", async ({ page, request }) => {
     await page.setViewportSize({ width, height: 800 })
     expect(await page.evaluate(() => document.documentElement.scrollHeight === window.innerHeight)).toBe(true)
   }
-  await expect(page.getByRole("button", { name: "Preview", exact: true })).toBeVisible()
+  // No run has published a preview for this project, so no preview control is offered.
+  await expect(page.getByRole("button", { name: "Preview", exact: true })).toHaveCount(0)
 })

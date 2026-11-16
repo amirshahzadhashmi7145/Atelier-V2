@@ -34,7 +34,10 @@ def missing():
 
 @router.get("/agents")
 def list_agents():
-    return db.listing("agent")
+    # The Agents page shows builtins and agents the user created — not the per-project
+    # team copies that templates spawn (those are flagged teamScoped). Project membership
+    # still references them by id, so hiding them here is purely cosmetic.
+    return [agent for agent in db.listing("agent") if not agent.get("teamScoped")]
 
 
 @router.post("/agents", status_code=201)
@@ -170,6 +173,9 @@ def instantiate_template(id: str, body: dict):
                 "capabilities": {"tags": role.get("tags") or []},
             }
         )
+        # Per-project team copy: kept out of the global Agents list (it's an instance of
+        # a role for this project, not a builtin or a user-created agent).
+        agent["teamScoped"] = True
         db.put("agent", agent["id"], agent)
         member_ids.append(agent["id"])
 
@@ -245,6 +251,9 @@ def use_project_template(id: str, body: dict):
                 "capabilities": {"tags": role.get("tags") or []},
             }
         )
+        # Per-project team copy: kept out of the global Agents list (it's an instance of
+        # a role for this project, not a builtin or a user-created agent).
+        agent["teamScoped"] = True
         db.put("agent", agent["id"], agent)
         member_ids.append(agent["id"])
 
@@ -315,6 +324,121 @@ def list_project_versions(id: str):
         # Oldest commit is version 1; newest is the highest number.
         versions.append({"version": total - index, "sha": sha, "message": subject, "committedAt": when})
     return {"versions": versions}
+
+
+def _github_login(token: str | None) -> str | None:
+    """Return the GitHub username a token belongs to, or None if it can't be
+    validated. Used to confirm a connection without ever echoing the token."""
+    if not token:
+        return None
+    import httpx
+
+    try:
+        response = httpx.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+            timeout=15,
+        )
+    except httpx.HTTPError:
+        return None
+    return response.json().get("login") if response.status_code < 300 else None
+
+
+@router.get("/settings/github")
+def get_github_settings():
+    """Whether a GitHub account is connected studio-wide. The token is never returned."""
+    from runtime import github
+
+    token = github.global_token()
+    return {"connected": bool(token), "login": _github_login(token), "hint": keys.hint("github")}
+
+
+@router.put("/settings/github")
+def put_github_settings(body: dict):
+    """Connect GitHub for the whole studio with a personal access token. The token is
+    validated against GitHub, stored encrypted at rest, and never returned or logged."""
+    token = (body.get("token") or "").strip()
+    if not token:
+        return error(422, "invalid", "token is required")
+    login = _github_login(token)
+    if not login:
+        return error(422, "invalid_token", "That token could not be validated with GitHub. Check it has repo access and has not expired.")
+    keys.save("github", token)
+    return {"connected": True, "login": login, "hint": keys.hint("github")}
+
+
+@router.delete("/settings/github", status_code=204)
+def delete_github_settings():
+    keys.delete("github")
+    return JSONResponse(status_code=204, content=None)
+
+
+def _handle_preview_start(project: dict) -> None:
+    """Start (or restart) the project's live preview from a chat request and reply
+    with the URL. Mirrors the POST /preview action so it works from the prompt."""
+    from runtime import tools
+
+    pid = project["id"]
+    folder = Path(project.get("folderPath") or "")
+    if not folder.is_dir():
+        _chat(pid, "agent", "There's no project folder on disk to run yet.", None, None)
+        return
+    result = tools._preview({"id": pid, "projectId": pid, "folder": str(folder)}, folder)
+    url = result.get("previewUrl")
+    if url:
+        _chat(pid, "agent", f"Preview is running at {url}", None, None)
+    else:
+        _chat(pid, "agent", "I couldn't start the preview server. Check that the project builds, then ask again.", None, None)
+
+
+def _looks_like_github_push(text: str) -> bool:
+    """A plain-language request to publish the project to GitHub."""
+    t = f" {(text or '').lower().strip()} "
+    if "github" in t and ("push" in t or "publish" in t or "upload" in t):
+        return True
+    if ("pull request" in t or " pr " in t) and ("open" in t or "create" in t or "make" in t or "raise" in t):
+        return True
+    return t.strip() in ("push", "push it", "push it to github", "push to github")
+
+
+def _extract_github_url(text: str) -> str | None:
+    import re
+
+    match = re.search(r"https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", text or "")
+    if not match:
+        return None
+    return match.group(0).rstrip(".,);]").removesuffix(".git")
+
+
+def _handle_github_push(project: dict, text: str) -> None:
+    """Perform (or ask for what's needed to perform) an on-demand GitHub push from
+    chat. Uses the studio-wide connected token; the token never reaches the chat."""
+    from runtime import github
+
+    pid = project["id"]
+    if not github.global_token():
+        _chat(pid, "agent", "I'm not connected to GitHub yet. Open Settings → GitHub and paste a personal access token, then ask me again.", None, None)
+        return
+    repo = _extract_github_url(text) or project.get("repoUrl")
+    if not repo:
+        _chat(pid, "agent", "Which GitHub repository should I push to? Paste the URL, for example https://github.com/your-name/your-repo.", None, None)
+        return
+    if project.get("repoUrl") != repo or project.get("tokenRef") != "global":
+        project["repoUrl"] = repo
+        project["tokenRef"] = "global"
+        db.put("project", pid, project)
+    folder = Path(project.get("folderPath") or "")
+    if not folder.is_dir():
+        _chat(pid, "agent", "The project folder isn't on disk, so there's nothing to push.", None, None)
+        return
+    result = github.push_workspace(project, folder, f"{project['name']} — pushed from Agent Studio")
+    if not result.get("ok"):
+        _chat(pid, "agent", f"I couldn't push: {result.get('reason')}", None, None)
+        return
+    if result.get("prUrl"):
+        _chat(pid, "agent", f"Pushed and opened a pull request: {result['prUrl']}", None, None)
+    else:
+        _chat(pid, "agent", f"Pushed to {result.get('repoUrl')} on branch {result.get('branch')}.", None, None)
 
 
 @router.post("/roles", status_code=201)
@@ -1160,8 +1284,8 @@ def push_project(id: str, body: dict | None = None):
     project = db.get("project", id)
     if project is None:
         return missing()
-    if not project.get("repoUrl") or not project.get("tokenRef"):
-        return error(422, "no_repo", "Set a GitHub repo URL and access token in project settings first.")
+    if not project.get("repoUrl"):
+        return error(422, "no_repo", "No GitHub repository is set for this project. Ask in chat to push to a repo URL, or set one.")
     folder = Path(project["folderPath"])
     if not folder.is_dir():
         return error(404, "missing", "Project folder does not exist on disk")
@@ -1283,6 +1407,16 @@ def post_message(id: str, body: dict):
         project_runs.stop_all(id)
         needslib.resolve_open(id, body["text"])
         _chat(id, "agent", "stopped", None, None)
+        return user
+    if labeling.is_preview_start(body["text"]):
+        user = _chat(id, "user", body["text"], None, None, message_id, "chat")
+        needslib.resolve_open(id, body["text"])
+        _handle_preview_start(project)
+        return user
+    if _looks_like_github_push(body["text"]):
+        user = _chat(id, "user", body["text"], None, None, message_id, "chat")
+        needslib.resolve_open(id, body["text"])
+        _handle_github_push(project, body["text"])
         return user
     needslib.resolve_open(id, body["text"])
     task = {
@@ -1418,6 +1552,11 @@ def _start_project_run(project: dict, agent: dict, task: dict, text: str, messag
     run["projectId"] = project["id"]
     if kind:
         run["kind"] = kind
+    # Auto model: pick a suitable, currently-available model for this task's difficulty
+    # (and rescue an agent whose pinned model the provider has removed).
+    from runtime import automodel
+
+    run["model"] = automodel.resolve(run.get("model"), role_key=agent.get("roleKey"), kind=kind, text=text)
     if prior:
         run["priorContext"] = prior
     db.put("workspace", run["id"], {"folder": project["folderPath"]})
@@ -1533,9 +1672,10 @@ def _agent(body: dict) -> dict:
     skills = body.get("skillIds") or []
     model = models_catalog.normalize_spec(body.get("model"))
     if not model:
-        from runtime import fit
+        # Default to Auto: the right available model is chosen per task when a run starts.
+        from runtime import automodel
 
-        model = models_catalog.normalize_spec(fit.default_model(body.get("roleKey")) or default_model_spec())
+        model = automodel.auto_spec()
     return {
         "id": db.nid("agt"),
         "name": body.get("name"),

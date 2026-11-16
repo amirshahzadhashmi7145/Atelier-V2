@@ -35,11 +35,11 @@ function TagRow({
   })
   return (
     <tr className="border-t">
-      <td className="py-2 pr-3 align-top">{name}</td>
-      <td className="py-2 pr-3">
-        <div className="flex flex-wrap gap-2">
+      <td className="py-3 pr-4 align-top font-medium whitespace-nowrap">{name}</td>
+      <td className="py-3 pr-4 align-top">
+        <div className="flex flex-wrap gap-x-3 gap-y-1.5">
           {catalog.map((tag) => (
-            <label key={tag} className="flex items-center gap-1 text-sm">
+            <label key={tag} className="flex items-center gap-1.5 text-sm">
               <input
                 type="checkbox"
                 aria-label={`${name} ${tag}`}
@@ -53,11 +53,17 @@ function TagRow({
           ))}
         </div>
       </td>
-      <td className="py-2 pr-3">
-        <Input aria-label={`${name} note`} value={note} onChange={(event) => setNote(event.target.value)} />
-        {initial.heuristic ? <Badge variant="outline">heuristic, edit me</Badge> : null}
+      <td className="w-64 py-3 pr-3 align-top">
+        <div className="flex items-center gap-2">
+          <Input aria-label={`${name} note`} value={note} onChange={(event) => setNote(event.target.value)} />
+          {initial.heuristic ? (
+            <Badge variant="outline" title="These tags are a guess until you edit them">
+              Guess
+            </Badge>
+          ) : null}
+        </div>
       </td>
-      <td className="py-2 align-top">
+      <td className="py-3 align-top">
         <Button type="button" variant="outline" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? "Saving…" : "Save"}
         </Button>
@@ -81,9 +87,9 @@ export function ModelsTable() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left">
-                    <th className="py-2 pr-3">Model</th>
-                    <th className="py-2 pr-3">Tags</th>
-                    <th className="py-2 pr-3">Note</th>
+                    <th className="py-2 pr-4 text-xs font-medium whitespace-nowrap text-muted-foreground">Model</th>
+                    <th className="py-2 pr-4 text-xs font-medium whitespace-nowrap text-muted-foreground">Tags</th>
+                    <th className="py-2 pr-3 text-xs font-medium whitespace-nowrap text-muted-foreground">Note</th>
                     <th className="py-2" />
                   </tr>
                 </thead>
@@ -132,10 +138,10 @@ function EvalCompare({ modelNames }: { modelNames: string[] }) {
         if (latest && picked.length) compare.mutate()
       }}
     >
-      <h2 className="text-lg font-semibold">Run evals</h2>
-      <label className="text-sm" htmlFor="eval-agent">
+      <h2 className="border-t pt-6 text-lg font-semibold tracking-tight">Run evals</h2>
+      <label className="text-sm font-medium" htmlFor="eval-agent">
         Agent
-        <select id="eval-agent" className="mt-1 block rounded border px-2 py-1" value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+        <select id="eval-agent" className="mt-1.5 block min-w-48 font-normal" value={agentId} onChange={(event) => setAgentId(event.target.value)}>
           <option value="">Choose</option>
           {(agents.data ?? []).map((agent) => (
             <option key={agent.id} value={agent.id}>
@@ -146,7 +152,7 @@ function EvalCompare({ modelNames }: { modelNames: string[] }) {
       </label>
       <div className="flex flex-wrap gap-3">
         {modelNames.map((name) => (
-          <label key={name} className="flex items-center gap-1 text-sm">
+          <label key={name} className="flex items-center gap-1.5 text-sm">
             <input
               type="checkbox"
               aria-label={`Compare ${name}`}
@@ -157,7 +163,7 @@ function EvalCompare({ modelNames }: { modelNames: string[] }) {
           </label>
         ))}
       </div>
-      <Button type="submit" variant="outline" disabled={!latest || picked.length === 0 || compare.isPending}>
+      <Button type="submit" variant="outline" className="self-start" disabled={!latest || picked.length === 0 || compare.isPending}>
         {compare.isPending ? "Running…" : "Run evals"}
       </Button>
       {compare.data ? (

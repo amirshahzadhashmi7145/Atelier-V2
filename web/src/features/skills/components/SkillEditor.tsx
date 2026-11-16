@@ -99,7 +99,10 @@ export function SkillEditor({
         <ul className="flex flex-col gap-1 text-sm">
           {draft.versions.map((version) => (
             <li key={version.version}>
-              Version {version.version} · {version.createdAt}
+              Version {version.version}{" "}
+              <span className="text-muted-foreground">
+                saved {new Date(version.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+              </span>
             </li>
           ))}
         </ul>
