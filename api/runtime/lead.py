@@ -336,12 +336,15 @@ def review_packet(child: dict, author_run: dict | None) -> str:
     author = author_run or {}
     criteria = child.get("acceptanceCriteria") or []
     packet = board.rework_packet(child)
+    summary_obj = author.get("summary") if isinstance(author.get("summary"), dict) else {}
+    changed = summary_obj.get("filesChanged") or []
     lines = [
         "# Review packet",
         f"Review this task for {child.get('assignedAgentId')}.",
         f"Task: {child.get('text') or ''}",
         f"Criteria: {'; '.join(criteria) or 'none'}",
-        f"Author summary: {author.get('summary', {}).get('description') if isinstance(author.get('summary'), dict) else author.get('summary') or child.get('summary') or ''}",
+        f"Author summary: {summary_obj.get('description') if summary_obj else author.get('summary') or child.get('summary') or ''}",
+        f"Files changed: {', '.join(changed) if changed else '(see the diff below)'}",
         "# Git diff",
         _author_diff(author) or "(no diff)",
         "# build_test",
@@ -357,6 +360,9 @@ def review_packet(child: dict, author_run: dict | None) -> str:
         "tests passed, describe a test suite, or name files that cover a criterion unless they actually appear "
         "in the diff or the build_test output. If build_test says it was not run, or shows a failure, or the "
         "diff is empty, you have no evidence the work is complete — request changes and say what is missing. "
+        "A long diff may end with a '[diff truncated for length …]' note: that means more valid changes exist "
+        "beyond the cut — it is a length artifact, NOT missing work, so do not request changes merely because "
+        "the diff is truncated. Judge from the changes you can see, the Files changed list, and build_test. "
         "Approve only when build_test shows the build and tests passed AND the diff implements the criteria. "
         "Keep your notes to what you can see in the diff and build_test; quote the build_test result rather "
         "than inventing one. Only request changes for a real defect you can point to in the diff (a missing "

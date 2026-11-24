@@ -32,6 +32,22 @@ services:
     expose:
       - "3000"
 
+  # litellm proxy — native complexity auto-router (config in deploy/litellm/config.yaml).
+  # Optional: omit it (and the LITELLM_* vars on `api`) to have workers call the provider
+  # directly on a single per-task model instead of litellm's auto-router.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    expose:
+      - "4000"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local}
+    volumes:
+      - ./deploy/litellm/config.yaml:/app/config.yaml:ro
+
   api:
     build:
       context: .
@@ -48,6 +64,11 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Route worker LLM calls through the litellm auto-router above. Unset LITELLM_PROXY_URL
+      # to turn it off (workers then use a single per-task model).
+      LITELLM_PROXY_URL: ${LITELLM_PROXY_URL-http://litellm:4000}
+      LITELLM_PROXY_KEY: ${LITELLM_MASTER_KEY:-sk-local}
+      LITELLM_ROUTER_MODEL: ${LITELLM_ROUTER_MODEL:-smart-router}
     volumes:
       # Identical host<->container path so the per-task sandbox's Docker mounts
       # (which the HOST daemon resolves) point at real host directories.

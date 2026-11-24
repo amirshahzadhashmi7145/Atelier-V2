@@ -5,7 +5,10 @@ BLOCKED = re.compile(
     r"embedding|tts|whisper|dall-e|moderation|realtime|"
     r"image|imagen|audio|video|veo|sora|music|lyria|voice|chirp|"
     r"live|transcribe|computer[-_ ]?use|robotic|"
-    r"deep[-_ ]?research|search",
+    r"deep[-_ ]?research|search|"
+    # learnlm is a specialised tutoring model, not a general chat/tool-calling model,
+    # and several of its variants 404 on generateContent — never offer it.
+    r"learnlm|gemma",
     re.I,
 )
 RETIRED_MARK = re.compile(r"retired|deprecated", re.I)
@@ -80,6 +83,13 @@ def _shutdown_date(name: str, provider: str | None = None) -> str | None:
             if value:
                 return str(value)
     return None
+
+
+def retired_by_name(name: str) -> bool:
+    """True only if the model's own name marks it retired/deprecated. Does NOT consult
+    litellm's offline shutdown dates — those go stale and wrongly flag current models,
+    so live provider listings (which already omit removed models) rely on this instead."""
+    return bool(RETIRED_MARK.search(model_id(name)))
 
 
 def is_retired(name: str, today: str | None = None) -> bool:

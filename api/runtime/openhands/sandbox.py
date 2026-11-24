@@ -184,20 +184,36 @@ DIFF_EXCLUDE = [
 ]
 
 
+# A reviewer needs the whole change, not a fragment. A single full-file UI rewrite can
+# run tens of thousands of characters, so the cap is generous; when it still overflows we
+# say so explicitly rather than cutting off mid-line and looking "incomplete".
+_DIFF_CAP = 120000
+
+
 def diff_text(folder: Path, baseline: str | None = None) -> str:
     # Stage everything first so NEW files show with their contents, not just their
     # names — a reviewer must see the code the worker added, not a bare filename.
     # commit_work re-stages afterwards, so this is harmless.
     git(folder, ["add", "-A", "--", ".", *DIFF_EXCLUDE])
-    body = git(folder, ["diff", "--cached", baseline or "HEAD", "--", ".", *DIFF_EXCLUDE])
-    return body.strip()[:20000]
+    body = git(folder, ["diff", "--cached", baseline or "HEAD", "--", ".", *DIFF_EXCLUDE]).strip()
+    if len(body) > _DIFF_CAP:
+        dropped = len(body) - _DIFF_CAP
+        body = body[:_DIFF_CAP] + (
+            f"\n\n[diff truncated for length — {dropped} more characters of real changes follow but are "
+            "not shown. The changes above are complete and valid up to this point; treat the omission as "
+            "length only, not as missing work.]"
+        )
+    return body
 
 
 def changed_files(folder: Path, project: dict | None = None, baseline: str | None = None) -> list[str]:
-    names = git(folder, ["diff", "--name-only", baseline or "HEAD"]).splitlines()
-    extra = git(folder, ["ls-files", "--others", "--exclude-standard"]).splitlines()
+    # Stage first and read the same staged diff that diff_text shows, so the file list
+    # and the diff never disagree (previously an unstaged read could report "none" while
+    # the diff clearly had changes).
+    git(folder, ["add", "-A", "--", ".", *DIFF_EXCLUDE])
+    names = git(folder, ["diff", "--cached", "--name-only", baseline or "HEAD", "--", ".", *DIFF_EXCLUDE]).splitlines()
     seen: list[str] = []
-    for name in [*names, *extra]:
+    for name in names:
         path = name.strip().replace("\\", "/")
         if not path or path in seen:
             continue

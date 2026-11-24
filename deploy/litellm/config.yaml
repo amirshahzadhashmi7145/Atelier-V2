@@ -1,0 +1,39 @@
+# litellm proxy — native complexity auto-router.
+#
+# litellm classifies each request's difficulty (SIMPLE / MEDIUM / COMPLEX / REASONING)
+# with its own heuristic scorer (local, zero extra API calls) and sends it to the model
+# mapped below. The Agent Studio worker targets "smart-router"; litellm does the routing.
+#
+# Edit the two concrete models to ones your provider account can use. Requires a litellm
+# build with the auto-router (>= 1.94; the bundled proxy image is current).
+
+model_list:
+  # --- Cheap / fast tier -------------------------------------------------------
+  - model_name: fast
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+  # --- Capable / powerful tier -------------------------------------------------
+  - model_name: capable
+    litellm_params:
+      model: gemini/gemini-pro-latest
+      api_key: os.environ/GEMINI_API_KEY
+  # --- The auto-router the worker calls ---------------------------------------
+  - model_name: smart-router
+    litellm_params:
+      model: auto_router/complexity_router
+      complexity_router_config:
+        classifier_type: heuristic   # litellm's local difficulty scorer; no extra calls
+        tiers:
+          SIMPLE: fast
+          MEDIUM: fast
+          COMPLEX: capable
+          REASONING: capable
+      complexity_router_default_model: capable  # used if a request can't be classified
+
+litellm_settings:
+  drop_params: true          # tolerate provider-specific params the agent may send
+  set_verbose: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY   # the key the worker presents to the proxy

@@ -257,6 +257,34 @@ def get(template_id: str) -> dict | None:
     return _public(domain) if domain else None
 
 
+# A lucide icon name + a Tailwind color family per template, used for the thumbnail on
+# the New Project cards and to theme the generated app itself.
+_ICONS = {
+    "hr-system": "users",
+    "crm": "contact",
+    "task-tracker": "square-check-big",
+    "ecommerce-catalog": "shopping-bag",
+    "inventory": "package",
+    "booking": "calendar-check",
+    "helpdesk": "life-buoy",
+    "blog-cms": "file-text",
+    "expense-tracker": "wallet",
+    "lms": "graduation-cap",
+}
+_ACCENTS = {
+    "Business": "indigo",
+    "Productivity": "emerald",
+    "Commerce": "amber",
+    "Content": "rose",
+    "Finance": "teal",
+    "Education": "violet",
+}
+
+
+def _accent(domain: dict) -> str:
+    return _ACCENTS.get(domain["category"], "indigo")
+
+
 def _public(domain: dict) -> dict:
     return {
         "id": domain["id"],
@@ -265,7 +293,12 @@ def _public(domain: dict) -> dict:
         "description": domain["description"],
         "teamTemplateId": domain["teamTemplateId"],
         "entity": domain["entity"],
+        "icon": _ICONS.get(domain["id"], "layout-grid"),
+        "accent": _accent(domain),
         "fields": [{"name": f["name"], "label": f["label"], "kind": f["kind"]} for f in domain["fields"]],
+        # A couple of real seed rows so the New Project card can show an actual preview
+        # of the app's data, not an empty skeleton.
+        "sample": [{k: v for k, v in row.items()} for row in (domain.get("seed") or [])[:3]],
     }
 
 
@@ -442,91 +475,196 @@ def _frontend_api_ts(domain: dict) -> str:
     )
 
 
+_APP_TSX_TEMPLATE = r'''import { useEffect, useMemo, useState } from "react"
+import type { __ENTITY__ } from "./fields"
+import { FIELDS, SEED } from "./fields"
+import { list, create, remove } from "./api"
+
+type Draft = Omit<__ENTITY__, "id">
+const EMPTY: Draft = __BLANK__
+
+const TITLE = FIELDS[0]?.name
+const SUBTITLE = FIELDS[1]?.name
+
+function badgeClass(value: string) {
+  const v = (value || "").toLowerCase()
+  if (/(active|open|done|paid|in stock|published|completed|confirmed|approved|won)/.test(v)) return "bg-emerald-100 text-emerald-700"
+  if (/(pending|on leave|processing|draft|low|waiting|review|new)/.test(v)) return "bg-amber-100 text-amber-700"
+  if (/(closed|terminated|cancel|out of stock|overdue|rejected|lost|blocked)/.test(v)) return "bg-rose-100 text-rose-700"
+  return "bg-__ACCENT__-100 text-__ACCENT__-700"
+}
+
+export default function App() {
+  const [rows, setRows] = useState<__ENTITY__[]>(SEED)
+  const [draft, setDraft] = useState<Draft>(EMPTY)
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState("")
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    list().then((data) => { setRows(data); setLoading(false) })
+  }, [])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) => FIELDS.some((f) => String((r as any)[f.name] ?? "").toLowerCase().includes(q)))
+  }, [rows, query])
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault()
+    const created = await create(draft)
+    setRows((r) => [created ?? { ...draft, id: `local-${Date.now()}` }, ...r])
+    setDraft(EMPTY)
+    setOpen(false)
+  }
+
+  async function del(id: string) {
+    await remove(id)
+    setRows((r) => r.filter((x) => x.id !== id))
+  }
+
+  const inputClass =
+    "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-__ACCENT__-400 focus:ring-2 focus:ring-__ACCENT__-100"
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="bg-gradient-to-r from-__ACCENT__-600 to-__ACCENT__-500 text-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-end justify-between gap-4 px-6 py-10">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-wide text-white/70">__NAME__</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">__PLURAL_TITLE__</h1>
+            <p className="mt-1 text-white/80">
+              {loading ? "Loading…" : `${rows.length} ${rows.length === 1 ? "record" : "records"}`}
+            </p>
+          </div>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="h-11 rounded-xl bg-white/15 px-5 text-sm font-semibold text-white shadow-sm ring-1 ring-white/30 backdrop-blur transition hover:bg-white/25"
+          >
+            {open ? "Close" : "+ New __ENTITY__"}
+          </button>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <div className="mb-6">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search __PLURAL__…"
+            className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm shadow-sm outline-none transition focus:border-__ACCENT__-400 focus:ring-2 focus:ring-__ACCENT__-100"
+          />
+        </div>
+
+        {open && (
+          <form
+            onSubmit={add}
+            className="mb-8 grid gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {FIELDS.map((f) => (
+              <label key={f.name} className="text-sm">
+                <span className="mb-1.5 block font-medium text-slate-700">{f.label}</span>
+                {f.options ? (
+                  <select
+                    className={inputClass}
+                    value={String((draft as any)[f.name] ?? "")}
+                    onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))}
+                  >
+                    <option value="">—</option>
+                    {f.options.map((o) => (
+                      <option key={o} value={o}>{o}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className={inputClass}
+                    type={f.kind === "number" ? "number" : f.kind === "date" ? "date" : "text"}
+                    value={String((draft as any)[f.name] ?? "")}
+                    onChange={(e) =>
+                      setDraft((d) => ({ ...d, [f.name]: f.kind === "number" ? Number(e.target.value) : e.target.value }))
+                    }
+                  />
+                )}
+              </label>
+            ))}
+            <div className="flex items-end sm:col-span-2 lg:col-span-3">
+              <button
+                type="submit"
+                className="h-11 rounded-xl bg-__ACCENT__-600 px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-__ACCENT__-700"
+              >
+                Save __ENTITY__
+              </button>
+            </div>
+          </form>
+        )}
+
+        {filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-16 text-center">
+            <p className="text-slate-500">No __PLURAL__ yet. Click “+ New __ENTITY__” to add one.</p>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((row) => (
+              <div
+                key={row.id}
+                className="group relative rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <button
+                  onClick={() => del(row.id)}
+                  aria-label="Delete"
+                  className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-full text-slate-300 opacity-0 transition hover:bg-rose-50 hover:text-rose-600 group-hover:opacity-100"
+                >
+                  ✕
+                </button>
+                {TITLE && (
+                  <h3 className="pr-7 text-base font-semibold text-slate-900">
+                    {String((row as any)[TITLE] ?? "Untitled")}
+                  </h3>
+                )}
+                {SUBTITLE && <p className="truncate text-sm text-slate-500">{String((row as any)[SUBTITLE] ?? "")}</p>}
+                <dl className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+                  {FIELDS.slice(2).map((f) => (
+                    <div key={f.name} className="flex items-center justify-between gap-3 text-sm">
+                      <dt className="text-slate-400">{f.label}</dt>
+                      <dd className="font-medium text-slate-700">
+                        {f.options ? (
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${badgeClass(String((row as any)[f.name] ?? ""))}`}>
+                            {String((row as any)[f.name] ?? "—")}
+                          </span>
+                        ) : (
+                          String((row as any)[f.name] ?? "—")
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  )
+}
+'''
+
+
 def _frontend_app_tsx(domain: dict) -> str:
     entity = domain["entity"]
     name = domain["name"]
+    plural = domain["plural"]
+    accent = _accent(domain)
     fields = domain["fields"]
     blank = "{ " + ", ".join(f"{f['name']}: {_default_value(f)}" for f in fields) + " }"
+    template = _APP_TSX_TEMPLATE
     return (
-        'import { useEffect, useMemo, useState } from "react"\n'
-        f'import type {{ {entity} }} from "./fields"\n'
-        'import { FIELDS, SEED } from "./fields"\n'
-        'import { list, create, remove } from "./api"\n\n'
-        f"type Draft = Omit<{entity}, \"id\">\n\n"
-        f"const EMPTY: Draft = {blank}\n\n"
-        "export default function App() {\n"
-        f"  const [rows, setRows] = useState<{entity}[]>(SEED)\n"
-        "  const [draft, setDraft] = useState<Draft>(EMPTY)\n"
-        "  const [loading, setLoading] = useState(true)\n\n"
-        "  useEffect(() => {\n    list().then((data) => {\n      setRows(data)\n      setLoading(false)\n    })\n  }, [])\n\n"
-        "  const count = useMemo(() => rows.length, [rows])\n\n"
-        "  async function add(e: React.FormEvent) {\n    e.preventDefault()\n"
-        "    const created = await create(draft)\n"
-        f"    const next = created ?? {{ ...draft, id: `local-${{Date.now()}}` }}\n"
-        "    setRows((r) => [next, ...r])\n    setDraft(EMPTY)\n  }\n\n"
-        "  async function del(id: string) {\n    await remove(id)\n    setRows((r) => r.filter((x) => x.id !== id))\n  }\n\n"
-        "  return (\n"
-        '    <div className="min-h-screen bg-slate-50 text-slate-900">\n'
-        '      <header className="border-b bg-white">\n'
-        '        <div className="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">\n'
-        f'          <h1 className="text-xl font-semibold">{name}</h1>\n'
-        '          <span className="text-sm text-slate-500">{loading ? "Loading…" : `${count} records`}</span>\n'
-        "        </div>\n      </header>\n"
-        '      <main className="mx-auto max-w-5xl px-4 py-6 grid gap-6">\n'
-        '        <form onSubmit={add} className="grid gap-3 rounded-lg border bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">\n'
-        "          {FIELDS.map((f) => (\n"
-        '            <label key={f.name} className="text-sm">\n'
-        '              <span className="mb-1 block font-medium text-slate-600">{f.label}</span>\n'
-        "              {f.options ? (\n"
-        "                <select\n"
-        '                  className="w-full rounded border px-2 py-1"\n'
-        "                  value={String((draft as any)[f.name] ?? \"\")}\n"
-        "                  onChange={(e) => setDraft((d) => ({ ...d, [f.name]: e.target.value }))}\n"
-        "                >\n"
-        '                  <option value="">—</option>\n'
-        "                  {f.options.map((o) => (\n                    <option key={o} value={o}>{o}</option>\n                  ))}\n"
-        "                </select>\n"
-        "              ) : (\n"
-        "                <input\n"
-        '                  className="w-full rounded border px-2 py-1"\n'
-        '                  type={f.kind === "number" ? "number" : f.kind === "date" ? "date" : "text"}\n'
-        "                  value={String((draft as any)[f.name] ?? \"\")}\n"
-        "                  onChange={(e) =>\n"
-        '                    setDraft((d) => ({ ...d, [f.name]: f.kind === "number" ? Number(e.target.value) : e.target.value }))\n'
-        "                  }\n"
-        "                />\n"
-        "              )}\n"
-        "            </label>\n"
-        "          ))}\n"
-        '          <div className="flex items-end">\n'
-        '            <button type="submit" className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white">Add</button>\n'
-        "          </div>\n"
-        "        </form>\n"
-        '        <div className="overflow-x-auto rounded-lg border bg-white">\n'
-        '          <table className="w-full text-sm">\n'
-        '            <thead className="bg-slate-100 text-left text-slate-600">\n'
-        "              <tr>\n"
-        '                {FIELDS.map((f) => (\n                  <th key={f.name} className="px-3 py-2 font-medium">{f.label}</th>\n                ))}\n'
-        '                <th className="px-3 py-2" />\n'
-        "              </tr>\n"
-        "            </thead>\n"
-        "            <tbody>\n"
-        "              {rows.map((row) => (\n"
-        '                <tr key={row.id} className="border-t">\n'
-        "                  {FIELDS.map((f) => (\n"
-        '                    <td key={f.name} className="px-3 py-2">{String((row as any)[f.name] ?? "")}</td>\n'
-        "                  ))}\n"
-        '                  <td className="px-3 py-2 text-right">\n'
-        '                    <button onClick={() => del(row.id)} className="text-slate-400 hover:text-red-600">Delete</button>\n'
-        "                  </td>\n"
-        "                </tr>\n"
-        "              ))}\n"
-        "            </tbody>\n"
-        "          </table>\n"
-        "        </div>\n"
-        "      </main>\n"
-        "    </div>\n"
-        "  )\n}\n"
+        template.replace("__ENTITY__", entity)
+        .replace("__NAME__", name)
+        .replace("__PLURAL_TITLE__", plural[:1].upper() + plural[1:])
+        .replace("__PLURAL__", plural)
+        .replace("__BLANK__", blank)
+        .replace("__ACCENT__", accent)
     )
 
 

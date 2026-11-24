@@ -18,7 +18,7 @@ from gateway.providers import registry
 SCRIPTS = mock_turns.SCRIPTS
 PROMPTS = mock_turns.PROMPTS
 DEFAULT_OPENAI = "gpt-4.1-mini"
-DEFAULT_GEMINI = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+DEFAULT_GEMINI = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def usd(usage: dict) -> float:
@@ -95,6 +95,10 @@ def missing_provider_keys(agent: dict | None) -> list[str]:
         if not spec:
             continue
         pid = spec.get("provider")
+        # An "auto" (or unset-provider) model will run on whichever provider Auto picks,
+        # so it still needs that provider's key — require the default provider's key.
+        if not pid or pid == "auto":
+            pid = default_model_spec().get("provider")
         if not pid or pid in seen:
             continue
         seen.add(pid)
@@ -253,12 +257,12 @@ def list_live_models(provider: str | None) -> list[str]:
         raw = litellm.get_valid_models(custom_llm_provider=litellm_provider_key(pid), api_key=key) or []
     except Exception:
         raw = []
-    from app.models_catalog import is_chat, is_retired, model_id
+    from app.models_catalog import is_chat, model_id, retired_by_name
 
     names: list[str] = []
     for item in raw:
         name = model_id(str(item))
-        if not name or not is_chat(name) or is_retired(name):
+        if not name or not is_chat(name) or retired_by_name(name):
             continue
         if supports_tool_calling(pid, name):
             names.append(name)

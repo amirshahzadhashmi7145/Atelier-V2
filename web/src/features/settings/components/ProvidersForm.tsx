@@ -96,13 +96,13 @@ export function ProvidersForm() {
                     <CardDescription>
                       {provider.keyHint ? `saved ${provider.keyHint}` : provider.keyRef ? "key found" : "no key saved"}
                       {providerModels.length > 0 && provider.modelsCachedAt
-                        ? ` · ${providerModels.length} models cached ${provider.modelsCachedAt}`
+                        ? `, ${providerModels.length} models cached ${new Date(provider.modelsCachedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
                         : ""}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-4">
                     <div className="flex flex-col gap-2">
-                      <label className="text-sm" htmlFor={`provider-key-${provider.id}`}>
+                      <label className="text-sm font-medium" htmlFor={`provider-key-${provider.id}`}>
                         API key
                       </label>
                       <Input
@@ -148,9 +148,9 @@ export function ProvidersForm() {
                       </Button>
                     </div>
                     {connectionError ? <p className="text-sm text-destructive">{connectionError}</p> : null}
-                    <ul className="flex flex-col gap-1 text-sm">
+                    <ul className="columns-1 gap-x-6 border-t pt-3 text-sm text-muted-foreground sm:columns-2 lg:columns-3 [&>li]:py-0.5">
                       {providerModels.length === 0 ? (
-                        <li className="text-muted-foreground">Refresh models to load the catalog.</li>
+                        <li>Refresh models to load the catalog.</li>
                       ) : (
                         providerModels.map((model) => <li key={model.name}>{model.name}</li>)
                       )}

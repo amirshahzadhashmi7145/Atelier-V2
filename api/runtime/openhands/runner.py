@@ -124,6 +124,17 @@ def _run_locked(task_input: dict, task: dict) -> dict:
     agent = db.get("agent", task.get("assignedAgentId") or "")
     if project is None or agent is None:
         return {"taskId": task_id, "runId": None, "handoffId": None, "status": "failed"}
+    # The OpenHands worker path builds its own run and reads the agent's model directly
+    # (it never goes through launch()), so resolve "auto" — and rescue a removed model —
+    # to a concrete, available one here, for every attempt in this task.
+    from runtime import automodel
+
+    agent = {
+        **agent,
+        "model": automodel.resolve(
+            agent.get("model"), role_key=agent.get("roleKey"), kind="worker", text=task.get("text")
+        ),
+    }
     last = {"taskId": task_id, "runId": None, "handoffId": None, "status": "failed"}
     for _attempt in range(board.MAX_REWORKS + 1):
         last = _one_run(project, agent, task, task_input)
@@ -237,12 +248,14 @@ def _one_run(project: dict, agent: dict, task: dict, task_input: dict) -> dict:
         # is missed because no client was registered yet: if the run was cancelled
         # before we got here, bail before starting the sandbox at all.
         _ensure_not_cancelled(run["id"])
+        proxy_model, proxy_key, proxy_base = _proxy_route(agent)
         result = client.run(
             RunSpec(
                 workspace=work.folder,
                 prompt=prompt,
-                model=_model_id(agent),
-                api_key=_api_key(agent),
+                model=proxy_model or _model_id(agent),
+                api_key=(proxy_key if proxy_model else _api_key(agent)),
+                base_url=proxy_base,
                 mcp=packet.mcp_config(agent, token=token),
                 timeout_sec=max(30, minutes * 60),
                 on_cost=on_cost,
@@ -384,6 +397,20 @@ def _open_run(project: dict, agent: dict, task: dict) -> dict:
     db.append_event(run["id"], "RUN_STARTED", {"engine": "openhands"})
     db.append_event(run["id"], "STATE_CHANGED", {"status": "running"})
     return run
+
+
+def _proxy_route(agent: dict) -> tuple[str | None, str | None, str]:
+    """When a litellm proxy with the complexity auto-router is configured, route the
+    worker's LLM calls through it: returns (model, api_key, base_url) where model is the
+    proxy's auto-router deployment (litellm judges the task and picks the model itself).
+    Returns (None, None, "") when no proxy is set, so the worker calls the provider
+    directly on its single task-level model."""
+    url = os.environ.get("LITELLM_PROXY_URL", "").strip()
+    if not url:
+        return None, None, ""
+    name = (os.environ.get("LITELLM_ROUTER_MODEL") or "smart-router").strip()
+    key = os.environ.get("LITELLM_PROXY_KEY") or _api_key(agent)
+    return f"litellm_proxy/{name}", key, url
 
 
 def _model_id(agent: dict) -> str:

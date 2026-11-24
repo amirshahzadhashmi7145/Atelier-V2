@@ -82,14 +82,14 @@ export function RunView({ id, embedded }: { id: string; embedded?: boolean }) {
     <div className={embedded ? "flex max-h-[60vh] min-h-[24rem] flex-col gap-3 overflow-auto" : "flex h-[calc(100dvh-8rem)] min-h-[32rem] flex-col gap-3"}>
       <PageHeader title="Run" description={current.task.split("\n")[0] ?? current.task} />
       <div className="flex min-h-0 flex-1">
-        <div className="min-h-0 shrink-0 overflow-hidden border" style={{ width: leftPane }}>
+        <div className="min-h-0 shrink-0 overflow-hidden rounded-l-xl border" style={{ width: leftPane }}>
           <ActivityLog events={events} />
         </div>
-        <div className="w-1.5 shrink-0 cursor-col-resize bg-border" onPointerDown={(event) => drag("left", event)} />
+        <div className="w-1.5 shrink-0 cursor-col-resize transition-colors hover:bg-border" onPointerDown={(event) => drag("left", event)} />
         <div className="min-h-0 min-w-0 flex-1 border">
           <RunCentre id={id} previewUrl={current.previewUrl} />
         </div>
-        <div className="w-1.5 shrink-0 cursor-col-resize bg-border" onPointerDown={(event) => drag("right", event)} />
+        <div className="w-1.5 shrink-0 cursor-col-resize transition-colors hover:bg-border" onPointerDown={(event) => drag("right", event)} />
         <div className="flex min-h-0 shrink-0 flex-col gap-3 overflow-auto" style={{ width: rightPane }}>
           {!terminal && current.status === "waiting_client" && clientTool ? (
             <ClientToolCard

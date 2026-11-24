@@ -868,6 +868,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunSettings"
+  /settings/github:
+    get:
+      operationId: getGithubSettings
+      tags: [settings]
+      responses:
+        "200":
+          description: Whether GitHub is connected studio-wide. The token is never returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubSettings"
+    put:
+      operationId: saveGithubSettings
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: A GitHub personal access token with repo access.
+      responses:
+        "200":
+          description: Connected. The token is stored encrypted and not returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GithubSettings"
+        "422":
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: disconnectGithub
+      tags: [settings]
+      responses:
+        "204":
+          description: Disconnected.
   /providers:
     get:
       operationId: listProviders
@@ -2532,6 +2572,19 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OwnStats"
+    GithubSettings:
+      type: object
+      additionalProperties: false
+      required: [connected]
+      properties:
+        connected:
+          type: boolean
+        login:
+          type: [string, "null"]
+          description: The connected GitHub username, if the token validated.
+        hint:
+          type: [string, "null"]
+          description: Masked hint of the saved token. Never enough to recover it.
     ProviderStatus:
       type: object
       additionalProperties: false
@@ -3349,6 +3402,18 @@ components:
           type: string
         entity:
           type: string
+        icon:
+          type: string
+          description: A lucide icon name for the template's thumbnail.
+        accent:
+          type: string
+          description: A Tailwind color family (e.g. "indigo") for the thumbnail.
+        sample:
+          type: array
+          description: A few real seed rows, so the card can preview actual data.
+          items:
+            type: object
+            additionalProperties: true
         fields:
           type: array
           items:

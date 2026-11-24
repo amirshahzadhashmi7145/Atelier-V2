@@ -14,7 +14,7 @@ export function AgentList() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4">
-        <PageHeader title="Agents" description="Nothing is installed until you create an agent or import one." />
+        <PageHeader title="Agents" description="Each agent has its own role, model, tools, and skills." />
         <Button nativeButton={false} render={<Link href="/agents/new" />}>
           New agent
         </Button>

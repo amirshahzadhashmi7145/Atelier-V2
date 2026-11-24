@@ -83,7 +83,7 @@ export function NewRun() {
   })
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title="New run" description="One agent, one task, one workspace." />
       <Field>
         <FieldLabel htmlFor="run-agent">Agent</FieldLabel>
@@ -110,7 +110,7 @@ export function NewRun() {
         ) : null}
       </Field>
       <fieldset className="flex flex-col gap-3">
-        <legend className="text-sm font-medium">Workspace</legend>
+        <legend className="mb-2 text-sm font-medium">Workspace</legend>
         <label className="flex items-center gap-2 text-sm">
           <input type="radio" name="workspace" checked={kind === "repo"} onChange={() => setKind("repo")} />
           GitHub repository
@@ -124,7 +124,7 @@ export function NewRun() {
         </label>
         {kind === "scaffold" ? (
           enabled.length === 0 ? (
-            <p className="text-sm text-muted-foreground">no stacks enabled</p>
+            <p className="text-sm text-muted-foreground">No stacks enabled</p>
           ) : (
             <select
               aria-label="Scaffold"
@@ -151,7 +151,7 @@ export function NewRun() {
         />
       </Field>
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-sm font-medium">Acceptance criteria</legend>
+        <legend className="mb-2 text-sm font-medium">Acceptance criteria</legend>
         {criteria.map((item, index) => (
           <div key={index} className="flex gap-2">
             <Input
@@ -168,12 +168,12 @@ export function NewRun() {
             </Button>
           </div>
         ))}
-        <Button type="button" variant="outline" onClick={() => setCriteria([...criteria, ""])}>
+        <Button type="button" variant="outline" className="self-start" onClick={() => setCriteria([...criteria, ""])}>
           Add criterion
         </Button>
       </fieldset>
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-sm font-medium">Attachments</legend>
+        <legend className="mb-2 text-sm font-medium">Attachments</legend>
         <input
           aria-label="Attachment files"
           type="file"
@@ -201,7 +201,7 @@ export function NewRun() {
           </p>
         ))}
       </fieldset>
-      <p className="text-sm">
+      <p className="text-sm text-muted-foreground">
         {Number(cap.data?.maxSpendPerRunUsd ?? 0) > 0
           ? `Spend cap $${Number(cap.data?.maxSpendPerRunUsd).toFixed(2)} `
           : "No spend cap "}
@@ -210,7 +210,7 @@ export function NewRun() {
         </Link>
       </p>
       {blocked && agentId ? <p className="text-sm text-muted-foreground">{blocked}</p> : null}
-      <Button disabled={Boolean(blocked) || create.isPending} onClick={() => create.mutate()}>
+      <Button size="lg" className="self-start px-4" disabled={Boolean(blocked) || create.isPending} onClick={() => create.mutate()}>
         {create.isPending ? "Starting…" : "Start run"}
       </Button>
     </div>

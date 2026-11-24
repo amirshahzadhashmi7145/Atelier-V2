@@ -22,6 +22,11 @@ PREVIEW_STOP = re.compile(
     rf"\b{PREVIEW_WORD}\b.{{0,24}}\b(stop|off)\b",
     re.I,
 )
+PREVIEW_START = re.compile(
+    rf"\b(start|run|launch|open|boot|spin\s*up|fire\s*up|serve|show)\b.{{0,30}}"
+    rf"\b({PREVIEW_WORD}|app|website|site|dev\s*server)\b",
+    re.I,
+)
 STACK_QUESTION = re.compile(
     r"\b(what|which|with what)\b.*\b(stacks?|frameworks?|tech)\b|"
     r"\b(stacks?|frameworks?|tech)\b.*\b(work with|use|support|enabled|can you)\b|"
@@ -46,6 +51,13 @@ def is_control(text: str) -> bool:
 
 def is_preview_stop(text: str) -> bool:
     return PREVIEW_STOP.search(text.strip()) is not None
+
+
+def is_preview_start(text: str) -> bool:
+    t = text.strip()
+    if is_preview_stop(t):
+        return False
+    return PREVIEW_START.search(t) is not None
 
 
 def prior_context(project_id: str) -> dict | None:
